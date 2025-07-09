@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QMainWindow, QMessageBox, QVBoxLayout, QListView, QTreeView, QPushButton, QProgressBar, QFileDialog
+from PyQt5.QtWidgets import QMainWindow, QMessageBox, QVBoxLayout, QListView, QTreeView, QPushButton, QProgressBar, QFileDialog, QLabel, QSlider, QHBoxLayout, QSpinBox
 from PyQt5.QtCore import QStringListModel, QTimer, Qt
 from gui.region_selector import RegionSelectorWidget
 from gui.ui_mainwindow import Ui_MainWindow
@@ -23,12 +23,38 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.region_selector)
         self.region_selector.setVisible(True)
 
-        # Edge detection toggle button
-        self.edge_button = QPushButton("Chế độ phát hiện biên: TẮT", self)
-        self.edge_button.setCheckable(True)
-        self.edge_button.setGeometry(400, 510, 180, 28)
-        self.edge_button.toggled.connect(self.toggle_edge_detection)
-        self.edge_button.show()
+        # Thêm slider chỉnh thời gian phơi sáng
+        self.exposure_label = QLabel("Exposure (μs):", self)
+        self.exposure_slider = QSlider(Qt.Horizontal, self)
+        self.exposure_slider.setMinimum(100)      # 100 μs
+        self.exposure_slider.setMaximum(30000)    # 30 ms
+        self.exposure_slider.setValue(10000)      # default 10 ms
+        self.exposure_slider.setTickInterval(1000)
+        self.exposure_slider.setSingleStep(100)
+        self.exposure_spin = QSpinBox(self)
+        self.exposure_spin.setMinimum(100)
+        self.exposure_spin.setMaximum(30000)
+        self.exposure_spin.setValue(10000)
+        self.exposure_spin.setSingleStep(100)
+
+        # Layout cho exposure control
+        exposure_layout = QHBoxLayout()
+        exposure_layout.addWidget(self.exposure_label)
+        exposure_layout.addWidget(self.exposure_slider)
+        exposure_layout.addWidget(self.exposure_spin)
+        # Thêm vào dưới cameraView
+        camera_layout = self.ui.cameraView.layout()
+        if camera_layout is None:
+            camera_layout = QVBoxLayout(self.ui.cameraView)
+        camera_layout.addLayout(exposure_layout)
+
+        # Kết nối slider và spinbox
+        self.exposure_slider.valueChanged.connect(self.exposure_spin.setValue)
+        self.exposure_spin.valueChanged.connect(self.exposure_slider.setValue)
+        self.exposure_slider.valueChanged.connect(self.on_exposure_changed)
+
+        # Đặt giá trị mặc định cho camera
+        self.region_selector.camera.set_exposure_time(self.exposure_slider.value())
 
         # Live/Trigger camera logic
         self.live_mode = False
@@ -230,3 +256,7 @@ class MainWindow(QMainWindow):
                 tool_item.setEditable(False)
                 roi_item = QStandardItem(str(tool.get("roi", "")))
                 job_item.appendRow([tool_item, roi_item])
+
+    def on_exposure_changed(self, value):
+        # Gọi hàm set_exposure_time của CameraStream
+        self.region_selector.camera.set_exposure_time(value)

@@ -13,15 +13,43 @@ class CameraStream:
         self.cap = None
         self.camera = None
         self.resolution = resolution
+        self.available = False
+        self.exposure_time = None  # microseconds
 
     def start(self):
+        self.available = False
         if self.use_picamera:
-            if self.camera is None:
-                self.camera = Picamera2()
-                self.camera.configure(self.camera.create_preview_configuration(
-                    main={"size": self.resolution, "format": "RGB888"}
-                ))
-                self.camera.start()
+            try:
+                if self.camera is None:
+                    print("DEBUG: Khởi tạo Picamera2...")
+                    self.camera = Picamera2()
+                    config = self.camera.create_preview_configuration(
+                        main={"size": self.resolution, "format": "RGB888"}
+                    )
+                    self.camera.configure(config)
+                    self.camera.start()
+                    if self.exposure_time is not None:
+                        self.set_exposure_time(self.exposure_time)
+                self.available = True
+            except Exception as e:
+                import traceback
+                print(f"ERROR: Không thể khởi tạo Picamera2: {e}")
+                traceback.print_exc()
+                self.available = False
+        else:
+            print("ERROR: Picamera2 không khả dụng trên hệ thống này.")
+            self.available = False
+
+    def set_exposure_time(self, exposure_time_us):
+        """Set exposure time in microseconds for Picamera2."""
+        self.exposure_time = exposure_time_us
+        if self.use_picamera and self.camera is not None:
+            try:
+                # Picamera2 expects exposure time in microseconds
+                controls = {"ExposureTime": int(exposure_time_us)}
+                self.camera.set_controls(controls)
+            except Exception as e:
+                print(f"ERROR: Không thể đặt thời gian phơi sáng: {e}")
 
     def get_frame(self):
         if self.use_picamera and self.camera is not None:
@@ -37,3 +65,6 @@ class CameraStream:
             self.camera.stop()
             self.camera.close()
             self.camera = None
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None

@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QMessageBox
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import QTimer
 from camera.camera_stream import CameraStream
@@ -24,6 +24,9 @@ class RegionSelectorWidget(QWidget):
 
     def start_camera(self):
         self.camera.start()
+        if not self.camera.available:
+            QMessageBox.critical(self, "Camera Error", "Không thể bật camera. Vui lòng kiểm tra kết nối hoặc cấu hình camera.")
+            return
         self.timer.start(30)
 
     def set_edge_detection(self, enabled: bool):

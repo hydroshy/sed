@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1131</width>
-    <height>702</height>
+    <width>1164</width>
+    <height>751</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -59,7 +59,7 @@
            <property name="frameShadow">
             <enum>QFrame::Raised</enum>
            </property>
-           <widget class="QTabWidget" name="resultTab_2">
+           <widget class="QTabWidget" name="resultTab">
             <property name="geometry">
              <rect>
               <x>10</x>
@@ -249,13 +249,19 @@
          <property name="acceptDrops">
           <bool>false</bool>
          </property>
+         <property name="frameShape">
+          <enum>QFrame::Panel</enum>
+         </property>
+         <property name="frameShadow">
+          <enum>QFrame::Plain</enum>
+         </property>
         </widget>
         <widget class="QPushButton" name="liveCamera">
          <property name="geometry">
           <rect>
            <x>10</x>
            <y>10</y>
-           <width>91</width>
+           <width>111</width>
            <height>23</height>
           </rect>
          </property>
@@ -272,9 +278,9 @@
         <widget class="QPushButton" name="triggerCamera">
          <property name="geometry">
           <rect>
-           <x>120</x>
+           <x>140</x>
            <y>10</y>
-           <width>101</width>
+           <width>131</width>
            <height>23</height>
           </rect>
          </property>
@@ -332,7 +338,7 @@
         <widget class="QPushButton" name="runJob">
          <property name="geometry">
           <rect>
-           <x>240</x>
+           <x>300</x>
            <y>10</y>
            <width>101</width>
            <height>23</height>
@@ -405,8 +411,8 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1131</width>
-     <height>21</height>
+     <width>1164</width>
+     <height>26</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
