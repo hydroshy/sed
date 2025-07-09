@@ -51,6 +51,24 @@ class CameraStream:
             except Exception as e:
                 print(f"ERROR: Không thể đặt thời gian phơi sáng: {e}")
 
+    def set_gain(self, gain_value):
+        """Set analog gain for Picamera2."""
+        if self.use_picamera and self.camera is not None:
+            try:
+                controls = {"AnalogueGain": float(gain_value)}
+                self.camera.set_controls(controls)
+            except Exception as e:
+                print(f"ERROR: Không thể đặt gain: {e}")
+
+    def set_ev(self, ev_value):
+        """Set EV compensation for Picamera2."""
+        if self.use_picamera and self.camera is not None:
+            try:
+                controls = {"ExposureValue": float(ev_value)}
+                self.camera.set_controls(controls)
+            except Exception as e:
+                print(f"ERROR: Không thể đặt EV: {e}")
+
     def get_frame(self):
         if self.use_picamera and self.camera is not None:
             try:

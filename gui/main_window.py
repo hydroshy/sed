@@ -7,6 +7,16 @@ import numpy as np
 import time
 import json
 from detection.edge_detection import detect_edges
+from job.job_manager import (
+    add_job,
+    edit_job,
+    remove_job,
+    run_job,
+    save_job_file,
+    load_job_file,
+    reload_job_tree,
+)
+from tool.tool_selector import get_camera_sources
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -23,38 +33,50 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.region_selector)
         self.region_selector.setVisible(True)
 
-        # Thêm slider chỉnh thời gian phơi sáng
-        self.exposure_label = QLabel("Exposure (μs):", self)
-        self.exposure_slider = QSlider(Qt.Horizontal, self)
-        self.exposure_slider.setMinimum(100)      # 100 μs
-        self.exposure_slider.setMaximum(30000)    # 30 ms
-        self.exposure_slider.setValue(10000)      # default 10 ms
-        self.exposure_slider.setTickInterval(1000)
-        self.exposure_slider.setSingleStep(100)
-        self.exposure_spin = QSpinBox(self)
-        self.exposure_spin.setMinimum(100)
-        self.exposure_spin.setMaximum(30000)
-        self.exposure_spin.setValue(10000)
-        self.exposure_spin.setSingleStep(100)
+        # --- Không kiểm tra camera khi khởi động, không enable live/triggerCamera ---
 
-        # Layout cho exposure control
-        exposure_layout = QHBoxLayout()
-        exposure_layout.addWidget(self.exposure_label)
-        exposure_layout.addWidget(self.exposure_slider)
-        exposure_layout.addWidget(self.exposure_spin)
-        # Thêm vào dưới cameraView
-        camera_layout = self.ui.cameraView.layout()
-        if camera_layout is None:
-            camera_layout = QVBoxLayout(self.ui.cameraView)
-        camera_layout.addLayout(exposure_layout)
+        # --- Zoom state ---
+        self.zoom_factor = 1.0
+        self.zoom_step = 0.1
+        self.min_zoom = 0.2
+        self.max_zoom = 3.0
 
-        # Kết nối slider và spinbox
-        self.exposure_slider.valueChanged.connect(self.exposure_spin.setValue)
-        self.exposure_spin.valueChanged.connect(self.exposure_slider.setValue)
-        self.exposure_slider.valueChanged.connect(self.on_exposure_changed)
+        # --- Exposure/Gain/EV controls ---
+        # Exposure
+        self.ui.exposureSlider.setMinimum(100)
+        self.ui.exposureSlider.setMaximum(30000)
+        self.ui.exposureSlider.setValue(10000)
+        self.ui.exposureEdit.setText(str(10000))
+        # Gain
+        self.ui.gainSlider.setMinimum(1)
+        self.ui.gainSlider.setMaximum(32)
+        self.ui.gainSlider.setValue(1)
+        self.ui.gainEdit.setText(str(1))
+        # EV
+        self.ui.evSlider.setMinimum(-8)
+        self.ui.evSlider.setMaximum(8)
+        self.ui.evSlider.setValue(0)
+        self.ui.evEdit.setText(str(0))
 
-        # Đặt giá trị mặc định cho camera
-        self.region_selector.camera.set_exposure_time(self.exposure_slider.value())
+        # Exposure sync
+        self.ui.exposureSlider.valueChanged.connect(lambda v: self.ui.exposureEdit.setText(str(v)))
+        self.ui.exposureEdit.editingFinished.connect(self.on_exposure_edit_changed)
+        self.ui.exposureSlider.valueChanged.connect(self.on_exposure_changed)
+        # Gain sync
+        self.ui.gainSlider.valueChanged.connect(lambda v: self.ui.gainEdit.setText(str(v)))
+        self.ui.gainEdit.editingFinished.connect(self.on_gain_edit_changed)
+        self.ui.gainSlider.valueChanged.connect(self.on_gain_changed)
+        # EV sync
+        self.ui.evSlider.valueChanged.connect(lambda v: self.ui.evEdit.setText(str(v)))
+        self.ui.evEdit.editingFinished.connect(self.on_ev_edit_changed)
+        self.ui.evSlider.valueChanged.connect(self.on_ev_changed)
+
+        # --- Zoom buttons ---
+        self.ui.zoomIn.clicked.connect(self.zoom_in)
+        self.ui.zoomOut.clicked.connect(self.zoom_out)
+
+        # --- Camera parameter apply on start ---
+        self.apply_camera_parameters()
 
         # Live/Trigger camera logic
         self.live_mode = False
@@ -66,44 +88,210 @@ class MainWindow(QMainWindow):
         self.focus_timer.timeout.connect(self.update_focus_bar)
 
         # ToolView: QListView
-        # Đảm bảo "Phát hiện biên" (Edge Detection) nằm trong toolView
         self.tool_model = QStringListModel([
+            "Image source",
             "Phát hiện biên",  # Edge Detection
             "ROI Selector"
             # ...bạn có thể thêm các tool khác ở đây...
         ])
         self.ui.toolView.setModel(self.tool_model)
         self.ui.addTool.clicked.connect(self.add_tool)
+        # Không tạo lại cancleTool, chỉ kết nối sự kiện và disable ban đầu
+        self.ui.cancleTool.clicked.connect(self.cancel_tool_selection)
+        self.ui.addTool.setEnabled(False)
+        self.ui.cancleTool.setEnabled(False)
+
+        # Khi chọn tool, enable addTool/cancleTool và xử lý đặc biệt cho Image source
+        self.ui.toolView.clicked.connect(self.on_tool_selected)
 
         # JobView: QTreeView (dạng cây: job cha, tool con)
         from PyQt5.QtGui import QStandardItemModel, QStandardItem
         self.job_model = QStandardItemModel()
         self.job_model.setHorizontalHeaderLabels(["Job/Tool", "ROI"])
         self.ui.jobView.setModel(self.job_model)
-        self.ui.addJob.clicked.connect(self.add_job)
-        self.ui.editJob.clicked.connect(self.edit_job)
-        self.ui.removeJob.clicked.connect(self.remove_job)
-        self.ui.runJob.clicked.connect(self.run_job)
-        self.ui.saveJob.clicked.connect(self.save_job_file)
-        self.ui.loadJob.clicked.connect(self.load_job_file)
+        # Không cho phép kéo-thả job/tool trong treeview
+        self.ui.jobView.setDragDropMode(self.ui.jobView.NoDragDrop)
+        self.ui.jobView.setSelectionMode(self.ui.jobView.SingleSelection)
+        self.ui.jobView.setDefaultDropAction(Qt.IgnoreAction)
+        self.ui.jobView.setDragEnabled(False)
+        self.ui.jobView.setAcceptDrops(False)
+        self.ui.jobView.setDropIndicatorShown(False)
+
+        self.ui.addJob.clicked.connect(lambda: add_job(self))
+        self.ui.editJob.clicked.connect(lambda: edit_job(self))
+        self.ui.removeJob.clicked.connect(lambda: remove_job(self))
+        self.ui.runJob.clicked.connect(lambda: run_job(self))
+        self.ui.saveJob.clicked.connect(lambda: save_job_file(self))
+        self.ui.loadJob.clicked.connect(lambda: load_job_file(self))
 
         # Lưu trữ job và tool
         self.jobs = []  # [{name:..., tools:[{name:..., roi:...}, ...]}, ...]
 
-    def toggle_live_camera(self):
-        self.live_mode = not self.live_mode
-        if self.live_mode:
-            self.region_selector.start_camera()
-            self.focus_timer.start(200)
-            self.ui.liveCamera.setStyleSheet("font-weight: bold; background-color: #4caf50; color: white;")
+    def apply_camera_parameters(self):
+        # Gọi khi cần áp dụng các tham số camera
+        exposure = int(self.ui.exposureSlider.value())
+        gain = int(self.ui.gainSlider.value())
+        ev = int(self.ui.evSlider.value())
+        self.region_selector.camera.set_exposure_time(exposure)
+        if hasattr(self.region_selector.camera, "set_gain"):
+            self.region_selector.camera.set_gain(gain)
+        if hasattr(self.region_selector.camera, "set_ev"):
+            self.region_selector.camera.set_ev(ev)
+
+    def on_exposure_changed(self, value):
+        self.ui.exposureEdit.setText(str(value))
+        self.region_selector.camera.set_exposure_time(value)
+
+    def on_exposure_edit_changed(self):
+        try:
+            value = int(self.ui.exposureEdit.text())
+        except Exception:
+            value = self.ui.exposureSlider.value()
+        value = max(self.ui.exposureSlider.minimum(), min(self.ui.exposureSlider.maximum(), value))
+        self.ui.exposureSlider.setValue(value)
+        self.region_selector.camera.set_exposure_time(value)
+
+    def on_gain_changed(self, value):
+        self.ui.gainEdit.setText(str(value))
+        if hasattr(self.region_selector.camera, "set_gain"):
+            self.region_selector.camera.set_gain(value)
+
+    def on_gain_edit_changed(self):
+        try:
+            value = int(self.ui.gainEdit.text())
+        except Exception:
+            value = self.ui.gainSlider.value()
+        value = max(self.ui.gainSlider.minimum(), min(self.ui.gainSlider.maximum(), value))
+        self.ui.gainSlider.setValue(value)
+        if hasattr(self.region_selector.camera, "set_gain"):
+            self.region_selector.camera.set_gain(value)
+
+    def on_ev_changed(self, value):
+        self.ui.evEdit.setText(str(value))
+        if hasattr(self.region_selector.camera, "set_ev"):
+            self.region_selector.camera.set_ev(value)
+
+    def on_ev_edit_changed(self):
+        try:
+            value = int(self.ui.evEdit.text())
+        except Exception:
+            value = self.ui.evSlider.value()
+        value = max(self.ui.evSlider.minimum(), min(self.ui.evSlider.maximum(), value))
+        self.ui.evSlider.setValue(value)
+        if hasattr(self.region_selector.camera, "set_ev"):
+            self.region_selector.camera.set_ev(value)
+
+    def zoom_in(self):
+        if self.zoom_factor < self.max_zoom:
+            self.zoom_factor += self.zoom_step
+            self.region_selector.view.resetTransform()
+            self.region_selector.view.scale(self.zoom_factor, self.zoom_factor)
+
+    def zoom_out(self):
+        if self.zoom_factor > self.min_zoom:
+            self.zoom_factor -= self.zoom_step
+            self.region_selector.view.resetTransform()
+            self.region_selector.view.scale(self.zoom_factor, self.zoom_factor)
+
+    def get_selected_job_source(self):
+        # Lấy thông tin nguồn camera từ job đang chọn (nếu có)
+        selected_indexes = self.ui.jobView.selectedIndexes()
+        if not selected_indexes:
+            return None
+        job_index = selected_indexes[0]
+        if job_index.parent().isValid():
+            job_index = job_index.parent()
+        job_row = job_index.row()
+        if job_row >= len(self.jobs):
+            return None
+        tools = self.jobs[job_row]["tools"]
+        for tool in tools:
+            if tool.get("name") == "Image source":
+                # tool["source"] có thể là "USB Camera 0", "Raspberry Pi Camera (CSI)", ...
+                return tool.get("source")
+        return None
+
+    def parse_source_to_index(self, source_str):
+        # Chuyển chuỗi nguồn thành index và loại (USB/CSI)
+        if source_str is None:
+            return None, None
+        if source_str.startswith("USB Camera"):
+            idx = int(source_str.split()[-1])
+            return idx, "usb"
+        elif "CSI" in source_str:
+            return 0, "csi"
+        return None, None
+
+    def set_region_selector_camera(self, source_str):
+        idx, typ = self.parse_source_to_index(source_str)
+        if typ == "usb":
+            # USB camera: dùng OpenCV, không dùng picamera2
+            self.region_selector.camera = __import__('camera.camera_stream', fromlist=['CameraStream']).CameraStream(src=idx, use_picamera=False)
+        elif typ == "csi":
+            # CSI camera: dùng Picamera2
+            self.region_selector.camera = __import__('camera.camera_stream', fromlist=['CameraStream']).CameraStream(src=0, use_picamera=True)
         else:
+            self.region_selector.camera = None
+
+    def toggle_live_camera(self):
+        # Lấy nguồn camera từ job đang chọn
+        source_str = self.get_selected_job_source()
+        if not source_str:
+            QMessageBox.warning(self, "Thiếu nguồn", "Job chưa có Image source. Hãy thêm nguồn camera vào job trước.")
+            return
+        # Nếu đang bật live_mode, nhấn lần nữa sẽ tắt
+        if self.live_mode:
+            self.live_mode = False
             self.region_selector.timer.stop()
             self.focus_timer.stop()
             self.ui.liveCamera.setStyleSheet("")
-        self.ui.liveCamera.setText("Live Camera (ON)" if self.live_mode else "Live Camera")
+            self.ui.liveCamera.setText("Live Camera")
+            if self.region_selector.camera:
+                self.region_selector.camera.stop()
+            return
+        # Nếu đang tắt, nhấn sẽ bật
+        self.set_region_selector_camera(source_str)
+        self.apply_camera_parameters()
+        if self.region_selector.camera is None:
+            QMessageBox.critical(self, "Camera Error", "Không thể khởi tạo nguồn camera này.")
+            return
+        self.region_selector.camera.start()
+        if not self.region_selector.camera.available:
+            QMessageBox.critical(self, "Camera Error", "Không thể bật camera. Vui lòng kiểm tra kết nối hoặc cấu hình camera.")
+            self.ui.liveCamera.setEnabled(False)
+            self.ui.triggerCamera.setEnabled(False)
+            self.live_mode = False
+            self.ui.liveCamera.setText("Live Camera")
+            self.region_selector.camera.stop()
+            return
+        self.ui.liveCamera.setEnabled(True)
+        self.ui.triggerCamera.setEnabled(True)
+        self.live_mode = True
+        self.region_selector.start_camera()
+        self.focus_timer.start(200)
+        self.ui.liveCamera.setStyleSheet("font-weight: bold; background-color: #4caf50; color: white;")
+        self.ui.liveCamera.setText("Live Camera (ON)")
 
     def trigger_camera(self):
+        # Lấy nguồn camera từ job đang chọn
+        source_str = self.get_selected_job_source()
+        if not source_str:
+            QMessageBox.warning(self, "Thiếu nguồn", "Job chưa có Image source. Hãy thêm nguồn camera vào job trước.")
+            return
+        self.set_region_selector_camera(source_str)
+        self.apply_camera_parameters()
+        if self.region_selector.camera is None:
+            QMessageBox.critical(self, "Camera Error", "Không thể khởi tạo nguồn camera này.")
+            return
         self.region_selector.camera.start()
+        if not self.region_selector.camera.available:
+            QMessageBox.critical(self, "Camera Error", "Không thể bật camera. Vui lòng kiểm tra kết nối hoặc cấu hình camera.")
+            self.ui.liveCamera.setEnabled(False)
+            self.ui.triggerCamera.setEnabled(False)
+            self.region_selector.camera.stop()
+            return
+        self.ui.liveCamera.setEnabled(True)
+        self.ui.triggerCamera.setEnabled(True)
         frame = self.region_selector.camera.get_frame()
         if frame is not None:
             self.region_selector.current_frame = frame
@@ -115,6 +303,8 @@ class MainWindow(QMainWindow):
             pixmap = QPixmap.fromImage(qt_image)
             self.region_selector.pixmap_item.setPixmap(pixmap)
             self.region_selector.scene.setSceneRect(0, 0, w, h)
+            self.region_selector.view.resetTransform()
+            self.region_selector.view.scale(self.zoom_factor, self.zoom_factor)
         self.region_selector.camera.stop()
 
     def update_focus_bar(self):
@@ -125,17 +315,43 @@ class MainWindow(QMainWindow):
             value = min(int(focus_measure / 10), 100)
             self.ui.focusBar.setValue(value)
 
-    def add_job(self):
-        from PyQt5.QtGui import QStandardItem
-        job_name = f"Job {self.job_model.rowCount()+1}"
-        job_item = QStandardItem(job_name)
-        job_item.setEditable(False)
-        roi_item = QStandardItem("")
-        self.job_model.appendRow([job_item, roi_item])
-        self.jobs.append({"name": job_name, "tools": []})
+    def on_tool_selected(self, index):
+        tool_name = index.data()
+        self.ui.addTool.setEnabled(True)
+        self.ui.cancleTool.setEnabled(True)
+        if tool_name == "Image source":
+            # Lấy danh sách nguồn camera thực tế từ tool_selector
+            sources = get_camera_sources()
+            if not sources:
+                sources = ["Không phát hiện camera"]
+            from PyQt5.QtCore import QStringListModel
+            self.source_model = QStringListModel(sources)
+            self.ui.toolView.setModel(self.source_model)
+            self.ui.toolView.clicked.disconnect()
+            self.ui.toolView.clicked.connect(self.on_source_selected)
+        else:
+            if hasattr(self, "source_model"):
+                self.ui.toolView.setModel(self.tool_model)
+                self.ui.toolView.clicked.disconnect()
+                self.ui.toolView.clicked.connect(self.on_tool_selected)
+
+    def on_source_selected(self, index):
+        # Khi chọn nguồn camera, enable addTool/cancleTool
+        self.selected_source = index.data()
+        self.ui.addTool.setEnabled(True)
+        self.ui.cancleTool.setEnabled(True)
+
+    def cancel_tool_selection(self):
+        # Reset lại toolView về danh sách tool gốc
+        self.ui.toolView.setModel(self.tool_model)
+        self.ui.addTool.setEnabled(False)
+        self.ui.cancleTool.setEnabled(False)
+        self.ui.toolView.clearSelection()
+        # Kết nối lại sự kiện chọn tool
+        self.ui.toolView.clicked.disconnect()
+        self.ui.toolView.clicked.connect(self.on_tool_selected)
 
     def add_tool(self):
-        # Thêm tool vào job đang chọn, kèm ROI
         from PyQt5.QtGui import QStandardItem
         selected_indexes = self.ui.jobView.selectedIndexes()
         if not selected_indexes:
@@ -143,120 +359,80 @@ class MainWindow(QMainWindow):
             return
         job_index = selected_indexes[0]
         if job_index.parent().isValid():
-            job_index = job_index.parent()  # Đảm bảo chọn node cha (job)
+            job_index = job_index.parent()
         job_row = job_index.row()
+        # Nếu đang ở chế độ chọn nguồn camera
+        if hasattr(self, "source_model") and self.ui.toolView.model() == self.source_model:
+            tool_name = "Image source"
+            source = getattr(self, "selected_source", None)
+            if not source or source == "Không phát hiện camera":
+                QMessageBox.warning(self, "Chọn nguồn", "Hãy chọn một nguồn camera.")
+                return
+            roi_tuple = None
+            roi_str = source
+            tool_item = QStandardItem(f"{tool_name} ({source})")
+            tool_item.setEditable(False)
+            roi_item = QStandardItem(roi_str)
+            self.job_model.item(job_row, 0).appendRow([tool_item, roi_item])
+            self.jobs[job_row]["tools"].append({"name": tool_name, "source": source, "roi": roi_tuple})
+            # Nếu là job đầu tiên và tool đầu tiên là Image source thì enable live/triggerCamera
+            if job_row == 0 and len(self.jobs[0]["tools"]) == 1 and tool_name == "Image source":
+                self.ui.liveCamera.setEnabled(True)
+                self.ui.triggerCamera.setEnabled(True)
+            self.cancel_tool_selection()
+            self.update_tool_arrows(job_row)
+            return
+        # Thêm tool vào job đang chọn, kèm ROI
         tool_name = self.ui.toolView.currentIndex().data()
         if not tool_name:
             QMessageBox.warning(self, "Chọn Tool", "Hãy chọn một tool để thêm.")
             return
-        roi = self.region_selector.view.scene().selectedItems()  # Không dùng, lấy ROI từ widget
         roi_tuple = self.region_selector.current_frame is not None and self.region_selector.get_selected_roi() or None
         roi_str = str(roi_tuple) if roi_tuple else ""
         tool_item = QStandardItem(tool_name)
         tool_item.setEditable(False)
         roi_item = QStandardItem(roi_str)
         self.job_model.item(job_row, 0).appendRow([tool_item, roi_item])
-        # Lưu vào jobs
         self.jobs[job_row]["tools"].append({"name": tool_name, "roi": roi_tuple})
+        self.cancel_tool_selection()
+        self.update_tool_arrows(job_row)
 
-    def edit_job(self):
-        # Có thể mở rộng để sửa tên job/tool hoặc ROI
-        pass
-
-    def remove_job(self):
-        selected_indexes = self.ui.jobView.selectedIndexes()
-        if not selected_indexes:
+    def update_tool_arrows(self, job_row):
+        # Cập nhật lại mũi tên cho các tool trong job
+        job_item = self.job_model.item(job_row, 0)
+        if job_item is None:
             return
-        index = selected_indexes[0]
-        if not index.parent().isValid():
-            # Xóa job
-            self.job_model.removeRow(index.row())
-            del self.jobs[index.row()]
-        else:
-            # Xóa tool trong job
-            parent = index.parent()
-            self.job_model.item(parent.row(), 0).removeRow(index.row())
-            del self.jobs[parent.row()]["tools"][index.row()]
-
-    def run_job(self):
-        # Thực thi tuần tự các tool trong job được chọn, đo thời gian
-        from PyQt5.QtGui import QStandardItem
-        selected_indexes = self.ui.jobView.selectedIndexes()
-        if not selected_indexes:
-            QMessageBox.warning(self, "Chọn Job", "Hãy chọn một job để chạy.")
-            return
-        job_index = selected_indexes[0]
-        if job_index.parent().isValid():
-            job_index = job_index.parent()
-        job_row = job_index.row()
-        job = self.jobs[job_row]
-        tools = job["tools"]
-        if not tools:
-            QMessageBox.warning(self, "Không có tool", "Job này chưa có tool nào.")
-            return
-
-        total_time = 0.0
-        tool_times = []
-        for idx, tool in enumerate(tools):
-            start = time.time()
-            # Thực thi tool (ví dụ: phát hiện biên)
-            if tool["name"] == "Phát hiện biên":
-                frame = self.region_selector.current_frame
-                if frame is not None:
-                    _ = detect_edges(frame)
-            # Có thể mở rộng thêm các tool khác ở đây
-            elapsed = time.time() - start
-            tool_times.append(elapsed)
-            total_time += elapsed
-
-            # Hiển thị mũi tên thứ tự trong QTreeView (bằng cách cập nhật text)
-            tool_item = self.job_model.item(job_row, 0).child(idx, 0)
+        n = job_item.rowCount()
+        for idx in range(n):
+            tool_item = job_item.child(idx, 0)
             if tool_item:
-                arrow = "→" if idx < len(tools) - 1 else ""
-                tool_item.setText(f"{tool['name']} {arrow}")
-
-        # Hiển thị tổng thời gian thực thi lên LCDNumber
-        self.ui.executionTime.display(f"{total_time:.3f}")
-
-    def save_job_file(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Save Job File", "", "SED Job Files (*.sedjob)")
-        if not path:
-            return
-        if not path.endswith(".sedjob"):
-            path += ".sedjob"
-        try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(self.jobs, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            QMessageBox.critical(self, "Lỗi", f"Không thể lưu file: {e}")
-
-    def load_job_file(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Load Job File", "", "SED Job Files (*.sedjob)")
-        if not path:
-            return
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                jobs = json.load(f)
-            self.jobs = jobs
-            self.reload_job_tree()
-        except Exception as e:
-            QMessageBox.critical(self, "Lỗi", f"Không thể tải file: {e}")
+                arrow = "→" if idx < n - 1 else ""
+                # Hiển thị tên tool kèm mũi tên
+                tool_name = self.jobs[job_row]["tools"][idx].get("name", "")
+                source = self.jobs[job_row]["tools"][idx].get("source", "")
+                if tool_name == "Image source" and source:
+                    tool_item.setText(f"{tool_name} ({source}) {arrow}")
+                else:
+                    tool_item.setText(f"{tool_name} {arrow}")
 
     def reload_job_tree(self):
-        # Xóa model cũ
-        self.job_model.removeRows(0, self.job_model.rowCount())
-        for job in self.jobs:
-            from PyQt5.QtGui import QStandardItem
-            job_item = QStandardItem(job["name"])
+        self.job_model.clear()
+        self.job_model.setHorizontalHeaderLabels(["Job/Tool", "ROI"])
+        for job_idx, job in enumerate(self.jobs):
+            job_item = QStandardItem(job.get("name", ""))
             job_item.setEditable(False)
             roi_item = QStandardItem("")
             self.job_model.appendRow([job_item, roi_item])
             for tool in job.get("tools", []):
-                tool_item = QStandardItem(tool["name"])
+                tool_name = tool.get("name", "")
+                source = tool.get("source", "")
+                roi_tuple = tool.get("roi", None)
+                roi_str = str(roi_tuple) if roi_tuple else ""
+                if tool_name == "Image source" and source:
+                    tool_item = QStandardItem(f"{tool_name} ({source})")
+                else:
+                    tool_item = QStandardItem(tool_name)
                 tool_item.setEditable(False)
-                roi_item = QStandardItem(str(tool.get("roi", "")))
+                roi_item = QStandardItem(roi_str)
                 job_item.appendRow([tool_item, roi_item])
-
-    def on_exposure_changed(self, value):
-        # Gọi hàm set_exposure_time của CameraStream
-        self.region_selector.camera.set_exposure_time(value)
+            self.update_tool_arrows(job_idx)

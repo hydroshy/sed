@@ -2,16 +2,19 @@
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
+  <property name="enabled">
+   <bool>true</bool>
+  </property>
   <property name="geometry">
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1164</width>
-    <height>751</height>
+    <width>1502</width>
+    <height>897</height>
    </rect>
   </property>
   <property name="sizePolicy">
-   <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
+   <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
     <horstretch>0</horstretch>
     <verstretch>0</verstretch>
    </sizepolicy>
@@ -20,208 +23,39 @@
    <string>MainWindow</string>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <widget class="QWidget" name="horizontalLayoutWidget">
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <widget class="QFrame" name="mainFrame">
     <property name="geometry">
      <rect>
       <x>10</x>
-      <y>9</y>
-      <width>1111</width>
-      <height>641</height>
+      <y>20</y>
+      <width>1481</width>
+      <height>781</height>
      </rect>
     </property>
-    <layout class="QHBoxLayout" name="mainLayout">
-     <item>
-      <widget class="QFrame" name="mainFrame">
-       <property name="frameShape">
-        <enum>QFrame::Box</enum>
-       </property>
-       <property name="frameShadow">
-        <enum>QFrame::Raised</enum>
-       </property>
-       <property name="lineWidth">
-        <number>2</number>
-       </property>
-       <widget class="QWidget" name="verticalLayoutWidget">
-        <property name="geometry">
-         <rect>
-          <x>620</x>
-          <y>10</y>
-          <width>481</width>
-          <height>491</height>
-         </rect>
-        </property>
-        <layout class="QVBoxLayout" name="paletteLayout">
-         <item>
-          <widget class="QFrame" name="paletteFrame">
-           <property name="frameShape">
-            <enum>QFrame::StyledPanel</enum>
-           </property>
-           <property name="frameShadow">
-            <enum>QFrame::Raised</enum>
-           </property>
-           <widget class="QTabWidget" name="resultTab">
-            <property name="geometry">
-             <rect>
-              <x>10</x>
-              <y>20</y>
-              <width>461</width>
-              <height>451</height>
-             </rect>
-            </property>
-            <property name="currentIndex">
-             <number>0</number>
-            </property>
-            <widget class="QWidget" name="jobTab">
-             <attribute name="title">
-              <string>Job</string>
-             </attribute>
-             <widget class="QTreeView" name="jobView">
-              <property name="geometry">
-               <rect>
-                <x>10</x>
-                <y>10</y>
-                <width>431</width>
-                <height>331</height>
-               </rect>
-              </property>
-             </widget>
-             <widget class="QPushButton" name="removeJob">
-              <property name="geometry">
-               <rect>
-                <x>10</x>
-                <y>350</y>
-                <width>121</width>
-                <height>21</height>
-               </rect>
-              </property>
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-              <property name="text">
-               <string>Remove</string>
-              </property>
-             </widget>
-             <widget class="QPushButton" name="editJob">
-              <property name="geometry">
-               <rect>
-                <x>320</x>
-                <y>350</y>
-                <width>121</width>
-                <height>21</height>
-               </rect>
-              </property>
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-              <property name="text">
-               <string>Edit</string>
-              </property>
-             </widget>
-             <widget class="QPushButton" name="addJob">
-              <property name="geometry">
-               <rect>
-                <x>160</x>
-                <y>350</y>
-                <width>131</width>
-                <height>21</height>
-               </rect>
-              </property>
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-              <property name="text">
-               <string>Add</string>
-              </property>
-             </widget>
-             <widget class="QPushButton" name="loadJob">
-              <property name="geometry">
-               <rect>
-                <x>10</x>
-                <y>390</y>
-                <width>211</width>
-                <height>21</height>
-               </rect>
-              </property>
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-              <property name="text">
-               <string>Load Job</string>
-              </property>
-             </widget>
-             <widget class="QPushButton" name="saveJob">
-              <property name="geometry">
-               <rect>
-                <x>230</x>
-                <y>390</y>
-                <width>211</width>
-                <height>21</height>
-               </rect>
-              </property>
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-              <property name="text">
-               <string>Save Job</string>
-              </property>
-             </widget>
-            </widget>
-            <widget class="QWidget" name="ioTab">
-             <attribute name="title">
-              <string>Tool</string>
-             </attribute>
-            </widget>
-           </widget>
-           <widget class="QLabel" name="label">
-            <property name="geometry">
-             <rect>
-              <x>190</x>
-              <y>0</y>
-              <width>111</width>
-              <height>21</height>
-             </rect>
-            </property>
-            <property name="text">
-             <string>Palette</string>
-            </property>
-            <property name="textFormat">
-             <enum>Qt::AutoText</enum>
-            </property>
-            <property name="scaledContents">
-             <bool>true</bool>
-            </property>
-            <property name="alignment">
-             <set>Qt::AlignCenter</set>
-            </property>
-           </widget>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-       <widget class="QFrame" name="frame">
-        <property name="geometry">
-         <rect>
-          <x>10</x>
-          <y>10</y>
-          <width>601</width>
-          <height>491</height>
-         </rect>
-        </property>
+    <property name="frameShape">
+     <enum>QFrame::Box</enum>
+    </property>
+    <property name="frameShadow">
+     <enum>QFrame::Raised</enum>
+    </property>
+    <property name="lineWidth">
+     <number>2</number>
+    </property>
+    <widget class="QWidget" name="verticalLayoutWidget_2">
+     <property name="geometry">
+      <rect>
+       <x>10</x>
+       <y>10</y>
+       <width>631</width>
+       <height>751</height>
+      </rect>
+     </property>
+     <layout class="QVBoxLayout" name="cameraLayout">
+      <item>
+       <widget class="QFrame" name="cameraFrame">
         <property name="frameShape">
          <enum>QFrame::StyledPanel</enum>
         </property>
@@ -232,9 +66,9 @@
          <property name="geometry">
           <rect>
            <x>10</x>
-           <y>40</y>
-           <width>571</width>
-           <height>391</height>
+           <y>80</y>
+           <width>611</width>
+           <height>441</height>
           </rect>
          </property>
          <property name="sizePolicy">
@@ -257,11 +91,14 @@
          </property>
         </widget>
         <widget class="QPushButton" name="liveCamera">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
          <property name="geometry">
           <rect>
            <x>10</x>
            <y>10</y>
-           <width>111</width>
+           <width>151</width>
            <height>23</height>
           </rect>
          </property>
@@ -276,11 +113,14 @@
          </property>
         </widget>
         <widget class="QPushButton" name="triggerCamera">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
          <property name="geometry">
           <rect>
-           <x>140</x>
+           <x>180</x>
            <y>10</y>
-           <width>131</width>
+           <width>151</width>
            <height>23</height>
           </rect>
          </property>
@@ -298,8 +138,8 @@
          <property name="geometry">
           <rect>
            <x>10</x>
-           <y>440</y>
-           <width>571</width>
+           <y>530</y>
+           <width>611</width>
            <height>31</height>
           </rect>
          </property>
@@ -316,9 +156,9 @@
         <widget class="QLCDNumber" name="executionTime">
          <property name="geometry">
           <rect>
-           <x>530</x>
-           <y>10</y>
-           <width>64</width>
+           <x>483</x>
+           <y>40</y>
+           <width>101</width>
            <height>23</height>
           </rect>
          </property>
@@ -338,9 +178,9 @@
         <widget class="QPushButton" name="runJob">
          <property name="geometry">
           <rect>
-           <x>300</x>
+           <x>480</x>
            <y>10</y>
-           <width>101</width>
+           <width>111</width>
            <height>23</height>
           </rect>
          </property>
@@ -354,36 +194,10 @@
           <string>Run Job</string>
          </property>
         </widget>
-       </widget>
-       <widget class="QFrame" name="jobFrame">
-        <property name="geometry">
-         <rect>
-          <x>10</x>
-          <y>500</y>
-          <width>601</width>
-          <height>131</height>
-         </rect>
-        </property>
-        <property name="frameShape">
-         <enum>QFrame::StyledPanel</enum>
-        </property>
-        <property name="frameShadow">
-         <enum>QFrame::Raised</enum>
-        </property>
-        <widget class="QListView" name="toolView">
+        <widget class="QPushButton" name="zoomIn">
          <property name="geometry">
           <rect>
-           <x>10</x>
-           <y>10</y>
-           <width>421</width>
-           <height>111</height>
-          </rect>
-         </property>
-        </widget>
-        <widget class="QPushButton" name="addTool">
-         <property name="geometry">
-          <rect>
-           <x>440</x>
+           <x>350</x>
            <y>10</y>
            <width>101</width>
            <height>21</height>
@@ -396,13 +210,475 @@
           </sizepolicy>
          </property>
          <property name="text">
-          <string>Add</string>
+          <string>Zoom in +</string>
+         </property>
+        </widget>
+        <widget class="QPushButton" name="zoomOut">
+         <property name="geometry">
+          <rect>
+           <x>350</x>
+           <y>40</y>
+           <width>101</width>
+           <height>21</height>
+          </rect>
+         </property>
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="text">
+          <string>Zoom out -</string>
          </property>
         </widget>
        </widget>
-      </widget>
-     </item>
-    </layout>
+      </item>
+     </layout>
+    </widget>
+    <widget class="QWidget" name="verticalLayoutWidget">
+     <property name="geometry">
+      <rect>
+       <x>660</x>
+       <y>10</y>
+       <width>471</width>
+       <height>751</height>
+      </rect>
+     </property>
+     <layout class="QVBoxLayout" name="paletteLayout" stretch="0,2,1">
+      <item>
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>Palette</string>
+        </property>
+        <property name="textFormat">
+         <enum>Qt::AutoText</enum>
+        </property>
+        <property name="scaledContents">
+         <bool>true</bool>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignCenter</set>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QFrame" name="paletteFrame">
+        <property name="frameShape">
+         <enum>QFrame::StyledPanel</enum>
+        </property>
+        <property name="frameShadow">
+         <enum>QFrame::Raised</enum>
+        </property>
+        <widget class="QTabWidget" name="paletteTab">
+         <property name="geometry">
+          <rect>
+           <x>0</x>
+           <y>0</y>
+           <width>471</width>
+           <height>451</height>
+          </rect>
+         </property>
+         <property name="currentIndex">
+          <number>0</number>
+         </property>
+         <widget class="QWidget" name="jobTab">
+          <attribute name="title">
+           <string>Job</string>
+          </attribute>
+          <widget class="QTreeView" name="jobView">
+           <property name="geometry">
+            <rect>
+             <x>10</x>
+             <y>10</y>
+             <width>441</width>
+             <height>331</height>
+            </rect>
+           </property>
+          </widget>
+          <widget class="QPushButton" name="removeJob">
+           <property name="geometry">
+            <rect>
+             <x>10</x>
+             <y>350</y>
+             <width>121</width>
+             <height>21</height>
+            </rect>
+           </property>
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="text">
+            <string>Remove</string>
+           </property>
+          </widget>
+          <widget class="QPushButton" name="editJob">
+           <property name="geometry">
+            <rect>
+             <x>320</x>
+             <y>350</y>
+             <width>121</width>
+             <height>21</height>
+            </rect>
+           </property>
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="text">
+            <string>Edit</string>
+           </property>
+          </widget>
+          <widget class="QPushButton" name="addJob">
+           <property name="geometry">
+            <rect>
+             <x>160</x>
+             <y>350</y>
+             <width>131</width>
+             <height>21</height>
+            </rect>
+           </property>
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="text">
+            <string>Add</string>
+           </property>
+          </widget>
+          <widget class="QPushButton" name="loadJob">
+           <property name="geometry">
+            <rect>
+             <x>240</x>
+             <y>390</y>
+             <width>201</width>
+             <height>21</height>
+            </rect>
+           </property>
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="text">
+            <string>Load Job</string>
+           </property>
+          </widget>
+          <widget class="QPushButton" name="saveJob">
+           <property name="geometry">
+            <rect>
+             <x>10</x>
+             <y>390</y>
+             <width>201</width>
+             <height>21</height>
+            </rect>
+           </property>
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="text">
+            <string>Save Job</string>
+           </property>
+          </widget>
+         </widget>
+         <widget class="QWidget" name="settingsTab">
+          <attribute name="title">
+           <string>Settings</string>
+          </attribute>
+          <widget class="QWidget" name="verticalLayoutWidget_4">
+           <property name="geometry">
+            <rect>
+             <x>10</x>
+             <y>10</y>
+             <width>431</width>
+             <height>401</height>
+            </rect>
+           </property>
+           <layout class="QVBoxLayout" name="layoutSetting">
+            <item>
+             <widget class="QFrame" name="exposureFrame">
+              <property name="frameShape">
+               <enum>QFrame::StyledPanel</enum>
+              </property>
+              <property name="frameShadow">
+               <enum>QFrame::Raised</enum>
+              </property>
+              <widget class="QSlider" name="exposureSlider">
+               <property name="geometry">
+                <rect>
+                 <x>220</x>
+                 <y>10</y>
+                 <width>191</width>
+                 <height>21</height>
+                </rect>
+               </property>
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+              </widget>
+              <widget class="QLabel" name="exposureLabel">
+               <property name="geometry">
+                <rect>
+                 <x>10</x>
+                 <y>10</y>
+                 <width>81</width>
+                 <height>21</height>
+                </rect>
+               </property>
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="text">
+                <string>Exposure</string>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignCenter</set>
+               </property>
+              </widget>
+              <widget class="QLineEdit" name="exposureEdit">
+               <property name="geometry">
+                <rect>
+                 <x>90</x>
+                 <y>10</y>
+                 <width>113</width>
+                 <height>22</height>
+                </rect>
+               </property>
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+              </widget>
+             </widget>
+            </item>
+            <item>
+             <widget class="QFrame" name="gainFrame">
+              <property name="frameShape">
+               <enum>QFrame::StyledPanel</enum>
+              </property>
+              <property name="frameShadow">
+               <enum>QFrame::Raised</enum>
+              </property>
+              <widget class="QSlider" name="gainSlider">
+               <property name="geometry">
+                <rect>
+                 <x>220</x>
+                 <y>10</y>
+                 <width>191</width>
+                 <height>21</height>
+                </rect>
+               </property>
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+              </widget>
+              <widget class="QLabel" name="gainLabel">
+               <property name="geometry">
+                <rect>
+                 <x>10</x>
+                 <y>10</y>
+                 <width>81</width>
+                 <height>21</height>
+                </rect>
+               </property>
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="text">
+                <string>Gain</string>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignCenter</set>
+               </property>
+              </widget>
+              <widget class="QLineEdit" name="gainEdit">
+               <property name="geometry">
+                <rect>
+                 <x>90</x>
+                 <y>10</y>
+                 <width>113</width>
+                 <height>22</height>
+                </rect>
+               </property>
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+              </widget>
+             </widget>
+            </item>
+            <item>
+             <widget class="QFrame" name="evFrame">
+              <property name="frameShape">
+               <enum>QFrame::StyledPanel</enum>
+              </property>
+              <property name="frameShadow">
+               <enum>QFrame::Raised</enum>
+              </property>
+              <widget class="QSlider" name="evSlider">
+               <property name="geometry">
+                <rect>
+                 <x>220</x>
+                 <y>10</y>
+                 <width>191</width>
+                 <height>21</height>
+                </rect>
+               </property>
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+              </widget>
+              <widget class="QLabel" name="evLabel">
+               <property name="geometry">
+                <rect>
+                 <x>10</x>
+                 <y>10</y>
+                 <width>81</width>
+                 <height>21</height>
+                </rect>
+               </property>
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="text">
+                <string>EV</string>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignCenter</set>
+               </property>
+              </widget>
+              <widget class="QLineEdit" name="evEdit">
+               <property name="geometry">
+                <rect>
+                 <x>90</x>
+                 <y>10</y>
+                 <width>113</width>
+                 <height>22</height>
+                </rect>
+               </property>
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+              </widget>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </widget>
+        </widget>
+       </widget>
+      </item>
+      <item>
+       <widget class="QFrame" name="toolLayout">
+        <property name="frameShape">
+         <enum>QFrame::StyledPanel</enum>
+        </property>
+        <property name="frameShadow">
+         <enum>QFrame::Raised</enum>
+        </property>
+        <widget class="QPushButton" name="addTool">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+         <property name="geometry">
+          <rect>
+           <x>370</x>
+           <y>10</y>
+           <width>93</width>
+           <height>28</height>
+          </rect>
+         </property>
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="text">
+          <string>Add</string>
+         </property>
+        </widget>
+        <widget class="QListView" name="toolView">
+         <property name="geometry">
+          <rect>
+           <x>10</x>
+           <y>8</y>
+           <width>351</width>
+           <height>231</height>
+          </rect>
+         </property>
+        </widget>
+        <widget class="QPushButton" name="cancleTool">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+         <property name="geometry">
+          <rect>
+           <x>370</x>
+           <y>60</y>
+           <width>93</width>
+           <height>28</height>
+          </rect>
+         </property>
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="text">
+          <string>Cancle</string>
+         </property>
+        </widget>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </widget>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
@@ -411,7 +687,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1164</width>
+     <width>1502</width>
      <height>26</height>
     </rect>
    </property>
