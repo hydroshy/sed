@@ -1,4 +1,5 @@
 PyQt5
 opencv-python
-ultralytics
+picamera2
 numpy
+ultralytics
