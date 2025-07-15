@@ -27,7 +27,7 @@
     <bool>true</bool>
    </property>
    <property name="sizePolicy">
-    <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+    <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
      <horstretch>0</horstretch>
      <verstretch>0</verstretch>
     </sizepolicy>
@@ -40,6 +40,12 @@
       <width>1911</width>
       <height>751</height>
      </rect>
+    </property>
+    <property name="sizePolicy">
+     <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+      <horstretch>0</horstretch>
+      <verstretch>0</verstretch>
+     </sizepolicy>
     </property>
     <property name="frameShape">
      <enum>QFrame::Box</enum>
@@ -74,7 +80,7 @@
            <property name="geometry">
             <rect>
              <x>220</x>
-             <y>10</y>
+             <y>60</y>
              <width>241</width>
              <height>21</height>
             </rect>
@@ -115,7 +121,7 @@
            <property name="geometry">
             <rect>
              <x>90</x>
-             <y>10</y>
+             <y>60</y>
              <width>113</width>
              <height>22</height>
             </rect>
@@ -131,7 +137,7 @@
            <property name="geometry">
             <rect>
              <x>10</x>
-             <y>50</y>
+             <y>100</y>
              <width>81</width>
              <height>21</height>
             </rect>
@@ -153,7 +159,7 @@
            <property name="geometry">
             <rect>
              <x>90</x>
-             <y>50</y>
+             <y>100</y>
              <width>113</width>
              <height>22</height>
             </rect>
@@ -169,7 +175,7 @@
            <property name="geometry">
             <rect>
              <x>220</x>
-             <y>50</y>
+             <y>100</y>
              <width>241</width>
              <height>21</height>
             </rect>
@@ -188,7 +194,7 @@
            <property name="geometry">
             <rect>
              <x>10</x>
-             <y>90</y>
+             <y>140</y>
              <width>81</width>
              <height>21</height>
             </rect>
@@ -210,7 +216,7 @@
            <property name="geometry">
             <rect>
              <x>90</x>
-             <y>90</y>
+             <y>140</y>
              <width>113</width>
              <height>22</height>
             </rect>
@@ -226,7 +232,7 @@
            <property name="geometry">
             <rect>
              <x>220</x>
-             <y>90</y>
+             <y>140</y>
              <width>241</width>
              <height>21</height>
             </rect>
@@ -245,8 +251,8 @@
            <property name="geometry">
             <rect>
              <x>90</x>
-             <y>140</y>
-             <width>151</width>
+             <y>190</y>
+             <width>171</width>
              <height>21</height>
             </rect>
            </property>
@@ -257,9 +263,9 @@
           <widget class="QPushButton" name="liveCameraMode">
            <property name="geometry">
             <rect>
-             <x>300</x>
-             <y>140</y>
-             <width>151</width>
+             <x>290</x>
+             <y>190</y>
+             <width>161</width>
              <height>21</height>
             </rect>
            </property>
@@ -271,7 +277,7 @@
            <property name="geometry">
             <rect>
              <x>10</x>
-             <y>140</y>
+             <y>190</y>
              <width>81</width>
              <height>21</height>
             </rect>
@@ -315,6 +321,32 @@
             <string>Apply</string>
            </property>
           </widget>
+          <widget class="QPushButton" name="manualExposure">
+           <property name="geometry">
+            <rect>
+             <x>90</x>
+             <y>10</y>
+             <width>161</width>
+             <height>28</height>
+            </rect>
+           </property>
+           <property name="text">
+            <string>Manual</string>
+           </property>
+          </widget>
+          <widget class="QPushButton" name="autoExposure">
+           <property name="geometry">
+            <rect>
+             <x>290</x>
+             <y>10</y>
+             <width>161</width>
+             <height>28</height>
+            </rect>
+           </property>
+           <property name="text">
+            <string>Auto</string>
+           </property>
+          </widget>
          </widget>
         </item>
        </layout>
@@ -350,6 +382,9 @@
            <property name="cursor" stdset="0">
             <cursorShape>CrossCursor</cursorShape>
            </property>
+           <property name="mouseTracking">
+            <bool>false</bool>
+           </property>
            <property name="acceptDrops">
             <bool>false</bool>
            </property>
@@ -358,6 +393,15 @@
            </property>
            <property name="frameShadow">
             <enum>QFrame::Plain</enum>
+           </property>
+           <property name="verticalScrollBarPolicy">
+            <enum>Qt::ScrollBarAlwaysOn</enum>
+           </property>
+           <property name="horizontalScrollBarPolicy">
+            <enum>Qt::ScrollBarAlwaysOn</enum>
+           </property>
+           <property name="sizeAdjustPolicy">
+            <enum>QAbstractScrollArea::AdjustToContents</enum>
            </property>
           </widget>
           <widget class="QPushButton" name="liveCamera">
@@ -426,8 +470,8 @@
           <widget class="QLCDNumber" name="executionTime">
            <property name="geometry">
             <rect>
-             <x>483</x>
-             <y>40</y>
+             <x>820</x>
+             <y>50</y>
              <width>101</width>
              <height>23</height>
             </rect>
@@ -448,7 +492,7 @@
           <widget class="QPushButton" name="runJob">
            <property name="geometry">
             <rect>
-             <x>480</x>
+             <x>810</x>
              <y>10</y>
              <width>111</width>
              <height>23</height>
@@ -467,7 +511,7 @@
           <widget class="QPushButton" name="zoomIn">
            <property name="geometry">
             <rect>
-             <x>350</x>
+             <x>340</x>
              <y>10</y>
              <width>101</width>
              <height>21</height>
@@ -486,8 +530,8 @@
           <widget class="QPushButton" name="zoomOut">
            <property name="geometry">
             <rect>
-             <x>350</x>
-             <y>40</y>
+             <x>460</x>
+             <y>10</y>
              <width>101</width>
              <height>21</height>
             </rect>
@@ -522,6 +566,44 @@
            </property>
            <property name="segmentStyle">
             <enum>QLCDNumber::Filled</enum>
+           </property>
+          </widget>
+          <widget class="QPushButton" name="rotateRight">
+           <property name="geometry">
+            <rect>
+             <x>460</x>
+             <y>40</y>
+             <width>101</width>
+             <height>21</height>
+            </rect>
+           </property>
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="text">
+            <string>Rotate Right</string>
+           </property>
+          </widget>
+          <widget class="QPushButton" name="rotateLeft">
+           <property name="geometry">
+            <rect>
+             <x>340</x>
+             <y>40</y>
+             <width>101</width>
+             <height>21</height>
+            </rect>
+           </property>
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="text">
+            <string>Rotate Left</string>
            </property>
           </widget>
          </widget>
@@ -694,7 +776,7 @@
           </property>
           <widget class="QPushButton" name="addTool">
            <property name="enabled">
-            <bool>false</bool>
+            <bool>true</bool>
            </property>
            <property name="geometry">
             <rect>
@@ -726,7 +808,7 @@
           </widget>
           <widget class="QPushButton" name="cancleTool">
            <property name="enabled">
-            <bool>false</bool>
+            <bool>true</bool>
            </property>
            <property name="geometry">
             <rect>
@@ -761,7 +843,7 @@
      <x>0</x>
      <y>0</y>
      <width>1961</width>
-     <height>21</height>
+     <height>26</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">

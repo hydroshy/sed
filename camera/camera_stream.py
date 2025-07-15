@@ -61,11 +61,91 @@ class CameraStream(QObject):
     def set_focus(self, value):
         pass  # Có thể cấu hình focus qua Picamera2 nếu cần
 
+    # --- Chuyển đổi giá trị giữa UI và camera ---
+    def ui_to_exposure(self, value):
+        # UI nhập ms, camera cần us
+        # Nếu bạn muốn UI nhập trực tiếp us thì bỏ *1000
+        return int(float(value) * 1000)
+
+    def exposure_to_ui(self, value):
+        # Camera trả về us, UI hiển thị ms
+        return round(float(value) / 1000, 2)
+
+    def ui_to_gain(self, value):
+        # UI nhập int, camera cần float
+        return float(value)
+
+    def gain_to_ui(self, value):
+        # Camera trả về float, UI hiển thị int
+        return int(round(value))
+
+    def ui_to_ev(self, value):
+        # UI chỉ cho phép -1, 0, 1
+        try:
+            v = int(value)
+            if v < -1:
+                v = -1
+            elif v > 1:
+                v = 1
+            return float(v)
+        except Exception:
+            return 0.0
+
+    def ev_to_ui(self, value):
+        # Camera trả về float, UI hiển thị int, chỉ -1,0,1
+        v = int(round(value))
+        if v < -1:
+            v = -1
+        elif v > 1:
+            v = 1
+        return v
+
     def set_exposure(self, value):
-        pass
+        # value từ UI là ms, camera cần us
+        try:
+            cam_value = self.ui_to_exposure(value)
+            self.picam2.set_controls({"ExposureTime": cam_value})
+        except Exception as e:
+            print(f"[CameraStream] set_exposure error: {e}")
 
     def set_gain(self, value):
-        pass
+        try:
+            cam_value = self.ui_to_gain(value)
+            self.picam2.set_controls({"AnalogueGain": cam_value})
+        except Exception as e:
+            print(f"[CameraStream] set_gain error: {e}")
 
     def set_ev(self, value):
-        pass
+        try:
+            cam_value = self.ui_to_ev(value)
+            self.picam2.set_controls({"ExposureValue": cam_value})
+        except Exception as e:
+            print(f"[CameraStream] set_ev error: {e}")
+
+    def set_auto_exposure(self, enable: bool):
+        try:
+            self.picam2.set_controls({"AeEnable": bool(enable)})
+        except Exception as e:
+            print(f"[CameraStream] set_auto_exposure error: {e}")
+
+    def get_exposure(self):
+        # Trả về ms cho UI
+        try:
+            val = self.picam2.capture_metadata().get("ExposureTime", 0)
+            return self.exposure_to_ui(val)
+        except Exception:
+            return 0
+
+    def get_gain(self):
+        try:
+            val = self.picam2.capture_metadata().get("AnalogueGain", 1.0)
+            return self.gain_to_ui(val)
+        except Exception:
+            return 1
+
+    def get_ev(self):
+        try:
+            val = self.picam2.capture_metadata().get("ExposureValue", 0.0)
+            return self.ev_to_ui(val)
+        except Exception:
+            return 0
