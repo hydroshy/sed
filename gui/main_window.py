@@ -134,7 +134,6 @@ class MainWindow(QMainWindow):
         self.toolComboBox = self.findChild(QComboBox, 'toolComboBox')
         self.stackedWidget = self.findChild(QStackedWidget, 'stackedWidget')
         self.detectSettingPage = self.findChild(QWidget, 'detectSettingPage')
-        self.defectSettingPage = self.findChild(QWidget, 'defectSettingPage')
         self.removeJob = self.findChild(QPushButton, 'removeJob')
         self.editJob = self.findChild(QPushButton, 'editJob')
         self.exposureEdit = self.findChild(QLineEdit, 'exposureEdit')
@@ -217,6 +216,27 @@ class MainWindow(QMainWindow):
         self._scene = QGraphicsScene()
         self.cameraView.setScene(self._scene)
 
+        # Ensure addTool button is connected to _on_add_tool
+        if self.addTool:
+            self.addTool.clicked.connect(self._on_add_tool)
+            logging.info("addTool button connected to _on_add_tool.")
+
+        # Initialize job_manager
+        self.job_manager = JobManager()
+        logging.info("JobManager initialized.")
+
+        # Verify detectSettingPage initialization and addition to stackedWidget
+        if not self.detectSettingPage:
+            logging.error("detectSettingPage is not initialized.")
+        elif self.stackedWidget.indexOf(self.detectSettingPage) == -1:
+            logging.error("detectSettingPage is not added to stackedWidget.")
+
+        # Ensure detectSettingPage is added to stackedWidget
+        if self.detectSettingPage and self.stackedWidget.indexOf(self.detectSettingPage) == -1:
+            logging.info("Adding detectSettingPage to stackedWidget.")
+            self.stackedWidget.addWidget(self.detectSettingPage)
+            logging.info("detectSettingPage added to stackedWidget.")
+
     def eventFilter(self, obj, event):
         # Handle mouse events for dragging
         if obj == self.cameraView.viewport():
@@ -249,22 +269,27 @@ class MainWindow(QMainWindow):
 
 
     def _on_add_tool_combo(self):
-        # Lấy tên tool được chọn từ ComboBox
         tool_name = self.toolComboBox.currentText() if self.toolComboBox else None
         if not tool_name:
             return
-        # Nếu chưa có job, tạo job mới
-        if not self.job_manager.get_current_job():
-            job = Job('Job 1')
-            self.job_manager.add_job(job)
-        # Thêm tool vào job hiện tại
-        self.job_manager.get_current_job().add_tool(Tool(tool_name))
-        self._update_job_view()
-        # Nếu là Detect Tool hoặc Defect Detection thì chuyển sang detectSettingPage
-        if tool_name in ("Detect Tool", "Defect Detection") and self.stackedWidget and self.detectSettingPage:
-            index = self.stackedWidget.indexOf(self.detectSettingPage)
-            if index != -1:
-                self.stackedWidget.setCurrentIndex(index)
+
+        # Use the refactored helper function
+        self.add_tool_to_job(tool_name)
+
+        # If the tool is "Detect Tool", switch pages
+        if tool_name == "Detect Tool" and self.stackedWidget and self.detectSettingPage and self.cameraSettingPage:
+            detect_index = self.stackedWidget.indexOf(self.detectSettingPage)
+            camera_index = self.stackedWidget.indexOf(self.cameraSettingPage)
+
+            if detect_index != -1 and camera_index != -1:
+                logging.info(f"Switching from cameraSettingPage (index {camera_index}) to detectSettingPage (index {detect_index}).")
+                self.stackedWidget.setCurrentIndex(detect_index)
+                logging.info("Switched to detectSettingPage in stackedWidget.")
+            else:
+                if detect_index == -1:
+                    logging.error("detectSettingPage not found in stackedWidget.")
+                if camera_index == -1:
+                    logging.error("cameraSettingPage not found in stackedWidget.")
 
     def _on_remove_tool_from_job(self):
         # Xóa tool được chọn trong jobView
@@ -284,6 +309,70 @@ class MainWindow(QMainWindow):
         self.ocr_tool = OcrTool()
         self.runJob.clicked.connect(self.run_current_job)
 
+
+    def _setup_tool_and_job_views(self):
+        # Load available tools into toolComboBox
+        available_tools = ["Detect Tool", "Other Tool"]  # Add more tools as needed
+        self.toolComboBox.addItems(available_tools)
+
+        # Connect addTool button to add tool logic
+        self.addTool.clicked.connect(self._on_add_tool)
+
+        # Connect applySetting and cancleSetting buttons to return to cameraSettingPage
+        self.applySetting.clicked.connect(self._return_to_camera_setting_page)
+        self.cancleSetting.clicked.connect(self._return_to_camera_setting_page)
+
+    def _on_add_tool(self):
+        logging.info("_on_add_tool invoked.")
+        tool_name = self.toolComboBox.currentText() if self.toolComboBox else None
+        logging.info(f"Selected tool: {tool_name}")
+        if not tool_name:
+            logging.warning("No tool selected in toolComboBox.")
+            return
+
+        # Use the refactored helper function
+        self.add_tool_to_job(tool_name)
+
+        # Switch to detectSettingPage if the tool is "Detect Tool"
+        if tool_name == "Detect Tool" and self.stackedWidget and self.detectSettingPage:
+            index = self.stackedWidget.indexOf(self.detectSettingPage)
+            logging.info(f"Index of detectSettingPage in stackedWidget: {index}")
+            if index != -1:
+                logging.info(f"Switching to detectSettingPage with index {index}.")
+                self.stackedWidget.setCurrentIndex(index)
+                logging.info("Switched to detectSettingPage in stackedWidget.")
+            else:
+                logging.error("detectSettingPage not found in stackedWidget.")
+
+    def add_tool_to_job(self, tool_name):
+        if not tool_name:
+            return
+
+        # Ensure job_manager is initialized
+        if not hasattr(self, 'job_manager') or not self.job_manager:
+            logging.error("JobManager is not initialized.")
+            return
+
+        # If no current job, create a new one
+        current_job = self.job_manager.get_current_job()
+        if not current_job:
+            logging.info("No current job found. Creating a new job.")
+            current_job = Job("Job 1")
+            self.job_manager.add_job(current_job)
+
+        # Add the selected tool to the current job
+        current_job.add_tool(Tool(tool_name))
+        self._update_job_view()
+        logging.info(f"Tool '{tool_name}' added to the current job.")
+
+        return tool_name
+
+    def _return_to_camera_setting_page(self):
+        # Switch back to cameraSettingPage
+        if self.stackedWidget and self.cameraSettingPage:
+            index = self.stackedWidget.indexOf(self.cameraSettingPage)
+            if index != -1:
+                self.stackedWidget.setCurrentIndex(index)
 
     def _setup_tool_and_job_views(self):
         # Không can thiệp vào toolComboBox, giữ nguyên các item mặc định từ file .ui
