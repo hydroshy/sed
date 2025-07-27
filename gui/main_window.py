@@ -1,7 +1,7 @@
 from camera.camera_stream import CameraStream
 from PyQt5.QtGui import QImage, QPixmap, QIntValidator, QDoubleValidator
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QGraphicsView, QPushButton, QSlider, QLineEdit, QProgressBar, QLCDNumber, QTabWidget, QListView, QTreeView
+from PyQt5.QtWidgets import QWidget,QStackedWidget,QComboBox,QGraphicsView, QPushButton, QSlider, QLineEdit, QProgressBar, QLCDNumber, QTabWidget, QListView, QTreeView
 import numpy as np
 import cv2
 from PyQt5.QtWidgets import QMainWindow, QPushButton
@@ -96,7 +96,12 @@ class MainWindow(QMainWindow):
         if hasattr(self.camera_stream, 'get_ev'):
             ev = self.camera_stream.get_ev()
             self.set_ev(ev)
+
     def __init__(self):
+        # Initialize FPS counter variables early to avoid AttributeError
+        self._fps_count = 0
+        self._fps_last_update = 0
+        self._fps_value = 0
         super().__init__()
         ui_path = os.path.join(os.path.dirname(__file__), '..', 'mainUI.ui')
         uic.loadUi(ui_path, self)
@@ -122,6 +127,12 @@ class MainWindow(QMainWindow):
         self.toolView = self.findChild(QListView, 'toolView')
         self.addTool = self.findChild(QPushButton, 'addTool')
         self.cancleTool = self.findChild(QPushButton, 'cancleTool')
+        self.toolComboBox = self.findChild(QComboBox, 'toolComboBox')
+        self.stackedWidget = self.findChild(QStackedWidget, 'stackedWidget')
+        self.detectSettingPage = self.findChild(QWidget, 'detectSettingPage')
+        self.defectSettingPage = self.findChild(QWidget, 'defectSettingPage')
+        self.removeJob = self.findChild(QPushButton, 'removeJob')
+        self.editJob = self.findChild(QPushButton, 'editJob')
         self.exposureEdit = self.findChild(QLineEdit, 'exposureEdit')
         self.exposureSlider = self.findChild(QSlider, 'exposureSlider')
         self.gainEdit = self.findChild(QLineEdit, 'gainEdit')
@@ -193,6 +204,20 @@ class MainWindow(QMainWindow):
         self._scene_offset = [0, 0]
         self._scene_offset_max = [0, 0]
         self.cameraView.setDragMode(QGraphicsView.ScrollHandDrag)
+        # Cho phép kéo hình ảnh bằng chuột trái
+        self.cameraView.viewport().setCursor(Qt.OpenHandCursor)
+        self.cameraView.viewport().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        # Cho phép kéo hình ảnh trong cameraView bằng chuột trái
+        if obj == self.cameraView.viewport():
+            if event.type() == event.MouseButtonPress and event.button() == Qt.LeftButton:
+                self.cameraView.setDragMode(QGraphicsView.ScrollHandDrag)
+                self.cameraView.viewport().setCursor(Qt.ClosedHandCursor)
+            elif event.type() == event.MouseButtonRelease and event.button() == Qt.LeftButton:
+                self.cameraView.setDragMode(QGraphicsView.ScrollHandDrag)
+                self.cameraView.viewport().setCursor(Qt.OpenHandCursor)
+        return super().eventFilter(obj, event)
 
         # FPS counter
         self._fps_count = 0
@@ -206,17 +231,53 @@ class MainWindow(QMainWindow):
         # Job manager
         self.job_manager = JobManager()
         self._setup_tool_and_job_views()
-        self.addTool.clicked.connect(self._on_add_tool)
+        self.addTool.clicked.connect(self._on_add_tool_combo)
+        self.removeJob.clicked.connect(self._on_remove_tool_from_job)
+        self.editJob.clicked.connect(self._on_edit_tool_in_job)
+    def _on_add_tool_combo(self):
+        # Lấy tên tool được chọn từ ComboBox
+        tool_name = self.toolComboBox.currentText() if self.toolComboBox else None
+        if not tool_name:
+            return
+        # Nếu chưa có job, tạo job mới
+        if not self.job_manager.get_current_job():
+            job = Job('Job 1')
+            self.job_manager.add_job(job)
+        # Thêm tool vào job hiện tại
+        self.job_manager.get_current_job().add_tool(Tool(tool_name))
+        self._update_job_view()
+        # Nếu là Detect Tool hoặc Defect Detection thì chuyển sang detectSettingPage
+        if tool_name in ("Detect Tool", "Defect Detection") and self.stackedWidget and self.detectSettingPage:
+            index = self.stackedWidget.indexOf(self.detectSettingPage)
+            if index != -1:
+                self.stackedWidget.setCurrentIndex(index)
+
+    def _on_remove_tool_from_job(self):
+        # Xóa tool được chọn trong jobView
+        index = self.jobView.currentIndex().row()
+        job = self.job_manager.get_current_job()
+        if job and 0 <= index < len(job.tools):
+            job.tools.pop(index)
+            self._update_job_view()
+
+    def _on_edit_tool_in_job(self):
+        # Chỉnh sửa tool được chọn trong jobView (demo: chỉ in ra tên tool)
+        index = self.jobView.currentIndex().row()
+        job = self.job_manager.get_current_job()
+        if job and 0 <= index < len(job.tools):
+            tool = job.tools[index]
+            print(f"Edit tool: {tool.name}")
         self.ocr_tool = OcrTool()
         self.runJob.clicked.connect(self.run_current_job)
 
+
     def _setup_tool_and_job_views(self):
-        # Hiển thị danh sách tool có thể add
-        tool_names = [tool.name for tool in self.job_manager.get_tool_list()]
-        self.tool_model = QStringListModel(tool_names)
-        self.toolView.setModel(self.tool_model)
-        # Hiển thị danh sách tool trong job hiện tại
+        # Không can thiệp vào toolComboBox, giữ nguyên các item mặc định từ file .ui
+        # Chỉ cập nhật jobView
         self._update_job_view()
+
+
+
 
     def _update_job_view(self):
         job = self.job_manager.get_current_job()
@@ -228,17 +289,16 @@ class MainWindow(QMainWindow):
         self.jobView.setModel(self.job_model)
 
     def _on_add_tool(self):
-        # Lấy tool được chọn trong toolView
-        index = self.toolView.currentIndex().row()
-        if index < 0:
+        # Lấy tool được chọn từ ComboBox
+        tool_name = self.toolComboBox.currentText() if self.toolComboBox else None
+        if not tool_name:
             return
-        tool = self.job_manager.get_tool_list()[index]
         # Nếu chưa có job, tạo job mới
         if not self.job_manager.get_current_job():
             job = Job('Job 1')
             self.job_manager.add_job(job)
         # Thêm tool vào job hiện tại
-        self.job_manager.get_current_job().add_tool(tool)
+        self.job_manager.get_current_job().add_tool(Tool(tool_name))
         self._update_job_view()
 
     def rotate_left(self):

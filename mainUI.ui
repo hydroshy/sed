@@ -22,6 +22,9 @@
   <property name="windowTitle">
    <string>MainWindow</string>
   </property>
+  <property name="animated">
+   <bool>true</bool>
+  </property>
   <widget class="QWidget" name="centralwidget">
    <property name="enabled">
     <bool>true</bool>
@@ -37,8 +40,8 @@
      <rect>
       <x>10</x>
       <y>20</y>
-      <width>1911</width>
-      <height>751</height>
+      <width>1931</width>
+      <height>771</height>
      </rect>
     </property>
     <property name="sizePolicy">
@@ -61,296 +64,14 @@
       <rect>
        <x>9</x>
        <y>9</y>
-       <width>1891</width>
-       <height>731</height>
+       <width>1911</width>
+       <height>751</height>
       </rect>
      </property>
-     <layout class="QHBoxLayout" name="mainLayout" stretch="1,2,1">
-      <item>
-       <layout class="QVBoxLayout" name="settingLayout">
-        <item>
-         <widget class="QFrame" name="settingFrame">
-          <property name="frameShape">
-           <enum>QFrame::StyledPanel</enum>
-          </property>
-          <property name="frameShadow">
-           <enum>QFrame::Raised</enum>
-          </property>
-          <widget class="QSlider" name="exposureSlider">
-           <property name="geometry">
-            <rect>
-             <x>220</x>
-             <y>60</y>
-             <width>241</width>
-             <height>21</height>
-            </rect>
-           </property>
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="orientation">
-            <enum>Qt::Horizontal</enum>
-           </property>
-          </widget>
-          <widget class="QLabel" name="exposureLabel">
-           <property name="geometry">
-            <rect>
-             <x>10</x>
-             <y>10</y>
-             <width>81</width>
-             <height>21</height>
-            </rect>
-           </property>
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="text">
-            <string>Exposure</string>
-           </property>
-           <property name="alignment">
-            <set>Qt::AlignCenter</set>
-           </property>
-          </widget>
-          <widget class="QLineEdit" name="exposureEdit">
-           <property name="geometry">
-            <rect>
-             <x>90</x>
-             <y>60</y>
-             <width>113</width>
-             <height>22</height>
-            </rect>
-           </property>
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-          </widget>
-          <widget class="QLabel" name="gainLabel">
-           <property name="geometry">
-            <rect>
-             <x>10</x>
-             <y>100</y>
-             <width>81</width>
-             <height>21</height>
-            </rect>
-           </property>
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="text">
-            <string>Gain</string>
-           </property>
-           <property name="alignment">
-            <set>Qt::AlignCenter</set>
-           </property>
-          </widget>
-          <widget class="QLineEdit" name="gainEdit">
-           <property name="geometry">
-            <rect>
-             <x>90</x>
-             <y>100</y>
-             <width>113</width>
-             <height>22</height>
-            </rect>
-           </property>
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-          </widget>
-          <widget class="QSlider" name="gainSlider">
-           <property name="geometry">
-            <rect>
-             <x>220</x>
-             <y>100</y>
-             <width>241</width>
-             <height>21</height>
-            </rect>
-           </property>
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="orientation">
-            <enum>Qt::Horizontal</enum>
-           </property>
-          </widget>
-          <widget class="QLabel" name="evLabel">
-           <property name="geometry">
-            <rect>
-             <x>10</x>
-             <y>140</y>
-             <width>81</width>
-             <height>21</height>
-            </rect>
-           </property>
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="text">
-            <string>EV</string>
-           </property>
-           <property name="alignment">
-            <set>Qt::AlignCenter</set>
-           </property>
-          </widget>
-          <widget class="QLineEdit" name="evEdit">
-           <property name="geometry">
-            <rect>
-             <x>90</x>
-             <y>140</y>
-             <width>113</width>
-             <height>22</height>
-            </rect>
-           </property>
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-          </widget>
-          <widget class="QSlider" name="evSlider">
-           <property name="geometry">
-            <rect>
-             <x>220</x>
-             <y>140</y>
-             <width>241</width>
-             <height>21</height>
-            </rect>
-           </property>
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="orientation">
-            <enum>Qt::Horizontal</enum>
-           </property>
-          </widget>
-          <widget class="QPushButton" name="triggerCameraMode">
-           <property name="geometry">
-            <rect>
-             <x>90</x>
-             <y>190</y>
-             <width>171</width>
-             <height>21</height>
-            </rect>
-           </property>
-           <property name="text">
-            <string>Trigger Camera Mode</string>
-           </property>
-          </widget>
-          <widget class="QPushButton" name="liveCameraMode">
-           <property name="geometry">
-            <rect>
-             <x>290</x>
-             <y>190</y>
-             <width>161</width>
-             <height>21</height>
-            </rect>
-           </property>
-           <property name="text">
-            <string>Live Camera Mode</string>
-           </property>
-          </widget>
-          <widget class="QLabel" name="modeLabel">
-           <property name="geometry">
-            <rect>
-             <x>10</x>
-             <y>190</y>
-             <width>81</width>
-             <height>21</height>
-            </rect>
-           </property>
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="text">
-            <string>Mode</string>
-           </property>
-           <property name="alignment">
-            <set>Qt::AlignCenter</set>
-           </property>
-          </widget>
-          <widget class="QPushButton" name="cancleSetting">
-           <property name="geometry">
-            <rect>
-             <x>10</x>
-             <y>700</y>
-             <width>451</width>
-             <height>23</height>
-            </rect>
-           </property>
-           <property name="text">
-            <string>Cancle</string>
-           </property>
-          </widget>
-          <widget class="QPushButton" name="applySetting">
-           <property name="geometry">
-            <rect>
-             <x>10</x>
-             <y>670</y>
-             <width>451</width>
-             <height>23</height>
-            </rect>
-           </property>
-           <property name="text">
-            <string>Apply</string>
-           </property>
-          </widget>
-          <widget class="QPushButton" name="manualExposure">
-           <property name="geometry">
-            <rect>
-             <x>90</x>
-             <y>10</y>
-             <width>161</width>
-             <height>28</height>
-            </rect>
-           </property>
-           <property name="text">
-            <string>Manual</string>
-           </property>
-          </widget>
-          <widget class="QPushButton" name="autoExposure">
-           <property name="geometry">
-            <rect>
-             <x>290</x>
-             <y>10</y>
-             <width>161</width>
-             <height>28</height>
-            </rect>
-           </property>
-           <property name="text">
-            <string>Auto</string>
-           </property>
-          </widget>
-         </widget>
-        </item>
-       </layout>
-      </item>
+     <layout class="QHBoxLayout" name="mainLayout" stretch="2,1,1">
+      <property name="spacing">
+       <number>10</number>
+      </property>
       <item>
        <layout class="QVBoxLayout" name="cameraLayout">
         <item>
@@ -369,8 +90,8 @@
             <rect>
              <x>20</x>
              <y>80</y>
-             <width>901</width>
-             <height>601</height>
+             <width>911</width>
+             <height>501</height>
             </rect>
            </property>
            <property name="sizePolicy">
@@ -452,8 +173,8 @@
            <property name="geometry">
             <rect>
              <x>20</x>
-             <y>690</y>
-             <width>901</width>
+             <y>590</y>
+             <width>911</width>
              <height>31</height>
             </rect>
            </property>
@@ -611,7 +332,7 @@
        </layout>
       </item>
       <item>
-       <layout class="QVBoxLayout" name="paletteLayout" stretch="0,2,1">
+       <layout class="QVBoxLayout" name="paletteLayout" stretch="0,2">
         <item>
          <widget class="QLabel" name="label">
           <property name="text">
@@ -656,7 +377,7 @@
              <property name="geometry">
               <rect>
                <x>10</x>
-               <y>10</y>
+               <y>0</y>
                <width>421</width>
                <height>331</height>
               </rect>
@@ -764,69 +485,523 @@
             </attribute>
            </widget>
           </widget>
+          <widget class="QFrame" name="toolLayout">
+           <property name="geometry">
+            <rect>
+             <x>0</x>
+             <y>480</y>
+             <width>470</width>
+             <height>241</height>
+            </rect>
+           </property>
+           <property name="frameShape">
+            <enum>QFrame::StyledPanel</enum>
+           </property>
+           <property name="frameShadow">
+            <enum>QFrame::Raised</enum>
+           </property>
+           <widget class="QPushButton" name="addTool">
+            <property name="enabled">
+             <bool>true</bool>
+            </property>
+            <property name="geometry">
+             <rect>
+              <x>370</x>
+              <y>10</y>
+              <width>93</width>
+              <height>31</height>
+             </rect>
+            </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="text">
+             <string>Add</string>
+            </property>
+           </widget>
+           <widget class="QComboBox" name="toolComboBox">
+            <property name="geometry">
+             <rect>
+              <x>10</x>
+              <y>10</y>
+              <width>351</width>
+              <height>31</height>
+             </rect>
+            </property>
+            <item>
+             <property name="text">
+              <string>Detect Tool</string>
+             </property>
+            </item>
+           </widget>
+          </widget>
          </widget>
         </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QVBoxLayout" name="settingLayout">
         <item>
-         <widget class="QFrame" name="toolLayout">
-          <property name="frameShape">
-           <enum>QFrame::StyledPanel</enum>
+         <widget class="QStackedWidget" name="stackedWidget">
+          <property name="currentIndex">
+           <number>0</number>
           </property>
-          <property name="frameShadow">
-           <enum>QFrame::Raised</enum>
-          </property>
-          <widget class="QPushButton" name="addTool">
-           <property name="enabled">
-            <bool>true</bool>
-           </property>
-           <property name="geometry">
-            <rect>
-             <x>370</x>
-             <y>10</y>
-             <width>93</width>
-             <height>28</height>
-            </rect>
-           </property>
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="text">
-            <string>Add</string>
-           </property>
+          <widget class="QWidget" name="cameraSettingPage">
+           <widget class="QFrame" name="settingFrame">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>0</y>
+              <width>467</width>
+              <height>727</height>
+             </rect>
+            </property>
+            <property name="frameShape">
+             <enum>QFrame::StyledPanel</enum>
+            </property>
+            <property name="frameShadow">
+             <enum>QFrame::Raised</enum>
+            </property>
+            <widget class="QSlider" name="exposureSlider">
+             <property name="geometry">
+              <rect>
+               <x>220</x>
+               <y>60</y>
+               <width>241</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+            </widget>
+            <widget class="QLabel" name="exposureLabel">
+             <property name="geometry">
+              <rect>
+               <x>10</x>
+               <y>10</y>
+               <width>81</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="text">
+              <string>Exposure</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignCenter</set>
+             </property>
+            </widget>
+            <widget class="QLineEdit" name="exposureEdit">
+             <property name="geometry">
+              <rect>
+               <x>90</x>
+               <y>60</y>
+               <width>113</width>
+               <height>22</height>
+              </rect>
+             </property>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+            </widget>
+            <widget class="QLabel" name="gainLabel">
+             <property name="geometry">
+              <rect>
+               <x>10</x>
+               <y>100</y>
+               <width>81</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="text">
+              <string>Gain</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignCenter</set>
+             </property>
+            </widget>
+            <widget class="QLineEdit" name="gainEdit">
+             <property name="geometry">
+              <rect>
+               <x>90</x>
+               <y>100</y>
+               <width>113</width>
+               <height>22</height>
+              </rect>
+             </property>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+            </widget>
+            <widget class="QSlider" name="gainSlider">
+             <property name="geometry">
+              <rect>
+               <x>220</x>
+               <y>100</y>
+               <width>241</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+            </widget>
+            <widget class="QLabel" name="evLabel">
+             <property name="geometry">
+              <rect>
+               <x>10</x>
+               <y>140</y>
+               <width>81</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="text">
+              <string>EV</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignCenter</set>
+             </property>
+            </widget>
+            <widget class="QLineEdit" name="evEdit">
+             <property name="geometry">
+              <rect>
+               <x>90</x>
+               <y>140</y>
+               <width>113</width>
+               <height>22</height>
+              </rect>
+             </property>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+            </widget>
+            <widget class="QSlider" name="evSlider">
+             <property name="geometry">
+              <rect>
+               <x>220</x>
+               <y>140</y>
+               <width>241</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+            </widget>
+            <widget class="QPushButton" name="triggerCameraMode">
+             <property name="geometry">
+              <rect>
+               <x>90</x>
+               <y>190</y>
+               <width>171</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Trigger Camera Mode</string>
+             </property>
+            </widget>
+            <widget class="QPushButton" name="liveCameraMode">
+             <property name="geometry">
+              <rect>
+               <x>290</x>
+               <y>190</y>
+               <width>161</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Live Camera Mode</string>
+             </property>
+            </widget>
+            <widget class="QLabel" name="modeLabel">
+             <property name="geometry">
+              <rect>
+               <x>10</x>
+               <y>190</y>
+               <width>81</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="text">
+              <string>Mode</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignCenter</set>
+             </property>
+            </widget>
+            <widget class="QPushButton" name="cancleSetting">
+             <property name="geometry">
+              <rect>
+               <x>10</x>
+               <y>700</y>
+               <width>451</width>
+               <height>23</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Cancle</string>
+             </property>
+            </widget>
+            <widget class="QPushButton" name="applySetting">
+             <property name="geometry">
+              <rect>
+               <x>10</x>
+               <y>670</y>
+               <width>451</width>
+               <height>23</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Apply</string>
+             </property>
+            </widget>
+            <widget class="QPushButton" name="manualExposure">
+             <property name="geometry">
+              <rect>
+               <x>90</x>
+               <y>10</y>
+               <width>161</width>
+               <height>28</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Manual</string>
+             </property>
+            </widget>
+            <widget class="QPushButton" name="autoExposure">
+             <property name="geometry">
+              <rect>
+               <x>290</x>
+               <y>10</y>
+               <width>161</width>
+               <height>28</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Auto</string>
+             </property>
+            </widget>
+           </widget>
           </widget>
-          <widget class="QListView" name="toolView">
-           <property name="geometry">
-            <rect>
-             <x>10</x>
-             <y>10</y>
-             <width>351</width>
-             <height>211</height>
-            </rect>
-           </property>
-          </widget>
-          <widget class="QPushButton" name="cancleTool">
-           <property name="enabled">
-            <bool>true</bool>
-           </property>
-           <property name="geometry">
-            <rect>
-             <x>370</x>
-             <y>60</y>
-             <width>93</width>
-             <height>28</height>
-            </rect>
-           </property>
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="text">
-            <string>Cancle</string>
-           </property>
+          <widget class="QWidget" name="detectSettingPage">
+           <widget class="QFrame" name="frame">
+            <property name="geometry">
+             <rect>
+              <x>10</x>
+              <y>-10</y>
+              <width>471</width>
+              <height>751</height>
+             </rect>
+            </property>
+            <property name="frameShape">
+             <enum>QFrame::StyledPanel</enum>
+            </property>
+            <property name="frameShadow">
+             <enum>QFrame::Raised</enum>
+            </property>
+            <widget class="QPushButton" name="drawAreaButton">
+             <property name="geometry">
+              <rect>
+               <x>10</x>
+               <y>20</y>
+               <width>91</width>
+               <height>23</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Draw area</string>
+             </property>
+            </widget>
+            <widget class="QLineEdit" name="yPositionLineEdit">
+             <property name="geometry">
+              <rect>
+               <x>80</x>
+               <y>80</y>
+               <width>113</width>
+               <height>20</height>
+              </rect>
+             </property>
+            </widget>
+            <widget class="QLineEdit" name="xPositionLineEdit">
+             <property name="geometry">
+              <rect>
+               <x>80</x>
+               <y>50</y>
+               <width>113</width>
+               <height>20</height>
+              </rect>
+             </property>
+            </widget>
+            <widget class="QLabel" name="yPositionLabel">
+             <property name="geometry">
+              <rect>
+               <x>20</x>
+               <y>80</y>
+               <width>51</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Y position </string>
+             </property>
+            </widget>
+            <widget class="QLabel" name="algorithmLabel">
+             <property name="geometry">
+              <rect>
+               <x>10</x>
+               <y>170</y>
+               <width>61</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Algorithm</string>
+             </property>
+            </widget>
+            <widget class="QComboBox" name="algorithmComboBox">
+             <property name="geometry">
+              <rect>
+               <x>80</x>
+               <y>170</y>
+               <width>82</width>
+               <height>20</height>
+              </rect>
+             </property>
+             <property name="sizeAdjustPolicy">
+              <enum>QComboBox::AdjustToMinimumContentsLengthWithIcon</enum>
+             </property>
+            </widget>
+            <widget class="QLabel" name="xPositionLabel">
+             <property name="geometry">
+              <rect>
+               <x>20</x>
+               <y>50</y>
+               <width>51</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>X position </string>
+             </property>
+            </widget>
+            <widget class="QScrollArea" name="classificationScrollArea">
+             <property name="geometry">
+              <rect>
+               <x>10</x>
+               <y>250</y>
+               <width>441</width>
+               <height>101</height>
+              </rect>
+             </property>
+             <property name="verticalScrollBarPolicy">
+              <enum>Qt::ScrollBarAlwaysOn</enum>
+             </property>
+             <property name="widgetResizable">
+              <bool>true</bool>
+             </property>
+             <widget class="QWidget" name="classificationScrollAreaWidgetContents">
+              <property name="geometry">
+               <rect>
+                <x>0</x>
+                <y>0</y>
+                <width>422</width>
+                <height>99</height>
+               </rect>
+              </property>
+             </widget>
+            </widget>
+            <widget class="QComboBox" name="classificationComboBox">
+             <property name="geometry">
+              <rect>
+               <x>10</x>
+               <y>220</y>
+               <width>181</width>
+               <height>22</height>
+              </rect>
+             </property>
+            </widget>
+            <widget class="QPushButton" name="addClassificationButton">
+             <property name="geometry">
+              <rect>
+               <x>210</x>
+               <y>220</y>
+               <width>111</width>
+               <height>23</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Add</string>
+             </property>
+            </widget>
+            <widget class="QPushButton" name="removeClassificationButton">
+             <property name="geometry">
+              <rect>
+               <x>340</x>
+               <y>220</y>
+               <width>111</width>
+               <height>23</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Remove</string>
+             </property>
+            </widget>
+           </widget>
           </widget>
          </widget>
         </item>
@@ -843,7 +1018,7 @@
      <x>0</x>
      <y>0</y>
      <width>1961</width>
-     <height>26</height>
+     <height>21</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
