@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file 'mainUI.ui'
+# Form implementation generated from reading ui file 'e:\PROJECT\sed\mainUI.ui'
 #
 # Created by: PyQt5 UI code generator 5.15.11
 #
@@ -15,7 +15,7 @@ class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         MainWindow.setObjectName("MainWindow")
         MainWindow.setEnabled(True)
-        MainWindow.resize(1961, 840)
+        MainWindow.resize(1961, 951)
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
@@ -31,7 +31,7 @@ class Ui_MainWindow(object):
         self.centralwidget.setSizePolicy(sizePolicy)
         self.centralwidget.setObjectName("centralwidget")
         self.mainFrame = QtWidgets.QFrame(self.centralwidget)
-        self.mainFrame.setGeometry(QtCore.QRect(10, 20, 1931, 771))
+        self.mainFrame.setGeometry(QtCore.QRect(10, 20, 1931, 881))
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
@@ -42,7 +42,7 @@ class Ui_MainWindow(object):
         self.mainFrame.setLineWidth(2)
         self.mainFrame.setObjectName("mainFrame")
         self.horizontalLayoutWidget = QtWidgets.QWidget(self.mainFrame)
-        self.horizontalLayoutWidget.setGeometry(QtCore.QRect(9, 9, 1911, 751))
+        self.horizontalLayoutWidget.setGeometry(QtCore.QRect(9, 9, 1911, 851))
         self.horizontalLayoutWidget.setObjectName("horizontalLayoutWidget")
         self.mainLayout = QtWidgets.QHBoxLayout(self.horizontalLayoutWidget)
         self.mainLayout.setContentsMargins(0, 0, 0, 0)
@@ -56,8 +56,8 @@ class Ui_MainWindow(object):
         self.cameraFrame.setFrameShadow(QtWidgets.QFrame.Raised)
         self.cameraFrame.setObjectName("cameraFrame")
         self.cameraView = QtWidgets.QGraphicsView(self.cameraFrame)
-        self.cameraView.setGeometry(QtCore.QRect(20, 80, 911, 501))
-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        self.cameraView.setGeometry(QtCore.QRect(20, 80, 911, 621))
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.cameraView.sizePolicy().hasHeightForWidth())
@@ -70,6 +70,10 @@ class Ui_MainWindow(object):
         self.cameraView.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
         self.cameraView.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
         self.cameraView.setSizeAdjustPolicy(QtWidgets.QAbstractScrollArea.AdjustToContents)
+        self.cameraView.setInteractive(True)
+        self.cameraView.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
+        self.cameraView.setResizeAnchor(QtWidgets.QGraphicsView.AnchorViewCenter)
+        self.cameraView.setViewportUpdateMode(QtWidgets.QGraphicsView.FullViewportUpdate)
         self.cameraView.setObjectName("cameraView")
         self.liveCamera = QtWidgets.QPushButton(self.cameraFrame)
         self.liveCamera.setEnabled(False)
@@ -90,7 +94,7 @@ class Ui_MainWindow(object):
         self.triggerCamera.setSizePolicy(sizePolicy)
         self.triggerCamera.setObjectName("triggerCamera")
         self.focusBar = QtWidgets.QProgressBar(self.cameraFrame)
-        self.focusBar.setGeometry(QtCore.QRect(20, 590, 911, 31))
+        self.focusBar.setGeometry(QtCore.QRect(20, 710, 911, 31))
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)

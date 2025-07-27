@@ -1,7 +1,7 @@
 from camera.camera_stream import CameraStream
 from PyQt5.QtGui import QImage, QPixmap, QIntValidator, QDoubleValidator
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QWidget,QStackedWidget,QComboBox,QGraphicsView, QPushButton, QSlider, QLineEdit, QProgressBar, QLCDNumber, QTabWidget, QListView, QTreeView
+from PyQt5.QtWidgets import QGraphicsScene,QGraphicsPixmapItem,QWidget,QStackedWidget,QComboBox,QGraphicsView, QPushButton, QSlider, QLineEdit, QProgressBar, QLCDNumber, QTabWidget, QListView, QTreeView
 import numpy as np
 import cv2
 from PyQt5.QtWidgets import QMainWindow, QPushButton
@@ -11,6 +11,10 @@ from job.job_manager import JobManager, Tool, Job
 from PyQt5.QtCore import QStringListModel
 from detection.ocr_tool import OcrTool
 from PyQt5.QtGui import QPen, QColor, QPainter, QFont
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class MainWindow(QMainWindow):
     # ==== CAMERA PARAMETER UI LOGIC ====
@@ -175,8 +179,6 @@ class MainWindow(QMainWindow):
         self.zoom_level = 1.0
         self.zoom_step = 0.1
         self.current_frame = None
-        self._scene = None
-        self._fit_on_next_frame = True
         self.rotation_angle = 0  # Góc xoay hiện tại
 
         # Kết nối nút
@@ -203,19 +205,45 @@ class MainWindow(QMainWindow):
         self._pan_start_pos = None
         self._scene_offset = [0, 0]
         self._scene_offset_max = [0, 0]
+        # Enable dragging for cameraView
         self.cameraView.setDragMode(QGraphicsView.ScrollHandDrag)
-        # Cho phép kéo hình ảnh bằng chuột trái
         self.cameraView.viewport().setCursor(Qt.OpenHandCursor)
         self.cameraView.viewport().installEventFilter(self)
 
+        # Initialize fit-on-next-frame flag
+        self._fit_on_next_frame = False
+
+        # Initialize the QGraphicsScene for the camera view
+        self._scene = QGraphicsScene()
+        self.cameraView.setScene(self._scene)
+
     def eventFilter(self, obj, event):
-        # Cho phép kéo hình ảnh trong cameraView bằng chuột trái
+        # Handle mouse events for dragging
         if obj == self.cameraView.viewport():
             if event.type() == event.MouseButtonPress and event.button() == Qt.LeftButton:
-                self.cameraView.setDragMode(QGraphicsView.ScrollHandDrag)
+                self._is_panning = True
+                self._pan_start_pos = event.pos()
                 self.cameraView.viewport().setCursor(Qt.ClosedHandCursor)
+            elif event.type() == event.MouseMove and self._is_panning:
+                delta = event.pos() - self._pan_start_pos
+                self._pan_start_pos = event.pos()
+                scale_factor = 1 / self.zoom_level  # Adjust movement based on zoom level
+
+                # Adjust delta based on rotation angle
+                angle_rad = np.radians(self.rotation_angle)
+                cos_angle = np.cos(angle_rad)
+                sin_angle = np.sin(angle_rad)
+                adjusted_delta_x = delta.x() * cos_angle + delta.y() * sin_angle
+                adjusted_delta_y = -delta.x() * sin_angle + delta.y() * cos_angle
+
+                self.cameraView.horizontalScrollBar().setValue(
+                    int(self.cameraView.horizontalScrollBar().value() - adjusted_delta_x * scale_factor)
+                )
+                self.cameraView.verticalScrollBar().setValue(
+                    int(self.cameraView.verticalScrollBar().value() - adjusted_delta_y * scale_factor)
+                )
             elif event.type() == event.MouseButtonRelease and event.button() == Qt.LeftButton:
-                self.cameraView.setDragMode(QGraphicsView.ScrollHandDrag)
+                self._is_panning = False
                 self.cameraView.viewport().setCursor(Qt.OpenHandCursor)
         return super().eventFilter(obj, event)
 
@@ -311,8 +339,9 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         # Nếu đang ở chế độ fit, fit lại khi resize cửa sổ
-        if self._scene is not None and self._fit_on_next_frame:
-            self.cameraView.fitInView(self._scene.itemsBoundingRect(), Qt.KeepAspectRatio)
+        if self._fit_on_next_frame:
+            self.cameraView.fitInView(self.cameraView.sceneRect(), Qt.KeepAspectRatio)
+            self._fit_on_next_frame = False
     # Đã hợp nhất các hàm __init__ thành 1 hàm duy nhất phía trên
     def toggle_live_camera(self):
         if self.liveCamera.isChecked():
@@ -325,18 +354,34 @@ class MainWindow(QMainWindow):
             self.liveCamera.setText("Live Camera")
 
     def display_frame(self, frame):
-        self.current_frame = frame.copy()  # Lưu lại frame cuối cùng
+        if frame is None or frame.size == 0:
+            logging.error("Invalid frame received")
+            return
+
+        logging.debug("Frame received with shape: %s", frame.shape)
+
+        # Handle RGBA format if detected
+        if frame.shape[2] == 4:  # RGBA format
+            logging.debug("Converting RGBA to RGB")
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2RGB)
+
+        self.current_frame = frame  # Avoid unnecessary copy
         self._show_frame_with_zoom()
-        # Tính sharpness bằng variance of Laplacian
-        import cv2
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
-        # Chuẩn hóa về 0-100 (giới hạn max cho mượt)
-        sharpness_norm = min(int(sharpness / 10), 100)
-        self.focusBar.setValue(sharpness_norm)
-        # FPS counter
+
+        try:
+            # Calculate sharpness using variance of Laplacian
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
+            sharpness_norm = min(int(sharpness / 10), 100)  # Normalize to 0-100
+            self.focusBar.setValue(sharpness_norm)
+            logging.debug("Sharpness calculated: %d", sharpness_norm)
+        except Exception as e:
+            logging.error("Error calculating sharpness: %s", e)
+
+        # Update FPS counter
         if self.liveCamera.isChecked():
             self._fps_count += 1
+
     def _update_fps_display(self):
         if self.liveCamera.isChecked():
             self._fps_value = self._fps_count
@@ -349,53 +394,72 @@ class MainWindow(QMainWindow):
 
     def _show_frame_with_zoom(self):
         if self.current_frame is None:
+            logging.warning("No current frame to display")
             return
-        frame = np.array(self.current_frame)
-        if frame.ndim == 2:
-            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-        rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        h, w, ch = rgb_image.shape
-        bytes_per_line = ch * w
-        qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
-        pixmap = QPixmap.fromImage(qt_image)
-        from PyQt5.QtWidgets import QGraphicsScene, QGraphicsPixmapItem
-        # Khởi tạo scene nếu chưa có
-        if self._scene is None:
-            self._scene = QGraphicsScene()
-            self.cameraView.setScene(self._scene)
-        self._scene.clear()
-        # Tạo QGraphicsPixmapItem và đặt tâm xoay ở giữa
-        self._pixmap_item = QGraphicsPixmapItem(pixmap)
-        self._pixmap_item.setTransformationMode(Qt.SmoothTransformation)
-        self._pixmap_item.setTransformOriginPoint(w/2, h/2)
-        angle = int(getattr(self, 'rotation_angle', 0)) % 360
-        self._pixmap_item.setRotation(angle)
-        self._scene.addItem(self._pixmap_item)
-        # Đặt sceneRect đúng bằng kích thước hình ảnh (cho pan tự do thì có thể lớn hơn)
-        self._scene.setSceneRect(0, 0, w, h)
-        self.cameraView.setSceneRect(0, 0, w, h)
-        self.cameraView.resetTransform()
-        # Fit hoặc scale theo zoom
-        if self._fit_on_next_frame:
-            self.cameraView.fitInView(self._pixmap_item, Qt.KeepAspectRatio)
-            self.zoom_level = 1.0
-            self._fit_on_next_frame = False
-        else:
-            self.cameraView.scale(self.zoom_level, self.zoom_level)
-        # Luôn căn giữa hình ảnh trong viewport
-        self.cameraView.centerOn(self._pixmap_item)
 
+        try:
+            # Convert the current frame to QPixmap
+            h, w, ch = self.current_frame.shape
+            bytes_per_line = ch * w
+            rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+            qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(qt_image)
+
+            # Ensure the scene exists and clear it
+            if self._scene is None:
+                self._scene = QGraphicsScene()
+                self.cameraView.setScene(self._scene)
+
+            # Safely manage _pixmap_item
+            if hasattr(self, '_pixmap_item') and self._pixmap_item is not None:
+                if self._pixmap_item.scene() is not None:
+                    self._scene.removeItem(self._pixmap_item)
+                self._pixmap_item = None
+
+            self._pixmap_item = QGraphicsPixmapItem(pixmap)
+            self._pixmap_item.setTransformationMode(Qt.SmoothTransformation)
+            self._scene.addItem(self._pixmap_item)
+
+            # Apply zoom and rotation using QGraphicsPixmapItem
+            self._pixmap_item.setScale(self.zoom_level)
+            self._pixmap_item.setRotation(self.rotation_angle)
+
+            # Center the view on the pixmap
+            self.cameraView.centerOn(self._pixmap_item)
+
+            # Adjust cursor and drag mode based on zoom level
+            if self.zoom_level > 1.0:
+                self.cameraView.setDragMode(QGraphicsView.ScrollHandDrag)
+                self.cameraView.viewport().setCursor(Qt.OpenHandCursor)
+            else:
+                self.cameraView.setDragMode(QGraphicsView.NoDrag)
+                self.cameraView.viewport().setCursor(Qt.ArrowCursor)
+
+            # Fit the view if required
+            if self._fit_on_next_frame:
+                self.cameraView.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
+                self.zoom_level = 1.0
+                self._fit_on_next_frame = False
+            else:
+                self.cameraView.resetTransform()
+                self.cameraView.scale(self.zoom_level, self.zoom_level)
+
+            logging.debug("Frame displayed with zoom level: %f and rotation angle: %d", self.zoom_level, self.rotation_angle)
+        except Exception as e:
+            logging.error("Error displaying frame: %s", e)
 
     def zoom_in(self):
         self.zoom_level += self.zoom_step
-        self._fit_on_next_frame = False
-        self._show_frame_with_zoom()
+        self.cameraView.scale(1 + self.zoom_step, 1 + self.zoom_step)
 
     def zoom_out(self):
         self.zoom_level -= self.zoom_step
+        # Ensure zoom level does not go below a minimum value
+        self.zoom_level -= self.zoom_step
         if self.zoom_level < 0.01:
             self.zoom_level = 0.01
-        self._fit_on_next_frame = False
+
+        # Refresh the frame with the updated zoom level
         self._show_frame_with_zoom()
 
     def set_manual_exposure_mode(self):
@@ -466,4 +530,6 @@ class MainWindow(QMainWindow):
         self._scene.setSceneRect(0, 0, w, h)
         self.cameraView.setSceneRect(0, 0, w, h)
         self.cameraView.resetTransform()
-        self.cameraView.centerOn(self._pixmap_item)
+        # Ensure self._pixmap_item exists and is added to the scene before centering
+        if self._pixmap_item and self._scene and self._pixmap_item.scene() == self._scene:
+            self.cameraView.centerOn(self._pixmap_item)

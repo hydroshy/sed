@@ -1,6 +1,7 @@
 import numpy as np
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer
 from picamera2 import Picamera2
+import threading
 
 class CameraStream(QObject):
     frame_ready = pyqtSignal(np.ndarray)
@@ -26,7 +27,7 @@ class CameraStream(QObject):
             self.picam2.stop()
             self.picam2.configure(self.preview_config)
             self.picam2.start()
-            self.timer.start(1)  # 5 ms ~ 200 FPS (nếu phần cứng hỗ trợ)
+            self.timer.start(33)  # Adjusted to ~30 FPS for better performance
             self.is_live = True
 
     def stop_live(self):
@@ -39,7 +40,13 @@ class CameraStream(QObject):
     def _query_frame(self):
         frame = self.picam2.capture_array()
         if frame is not None:
-            self.frame_ready.emit(frame)
+            # Process frame in a separate thread to avoid blocking
+            threading.Thread(target=self._process_frame, args=(frame,), daemon=True).start()
+
+    def _process_frame(self, frame):
+        # Placeholder for frame processing logic
+        # Add any heavy processing here
+        self.frame_ready.emit(frame)
 
     def trigger_capture(self):
         # Chuyển sang chế độ still, chụp ảnh, sau đó về preview
