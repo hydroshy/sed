@@ -247,21 +247,7 @@ class MainWindow(QMainWindow):
                 self.cameraView.viewport().setCursor(Qt.OpenHandCursor)
         return super().eventFilter(obj, event)
 
-        # FPS counter
-        self._fps_count = 0
-        self._fps_last_update = 0
-        self._fps_value = 0
-        from PyQt5.QtCore import QTimer
-        self._fps_timer = QTimer()
-        self._fps_timer.timeout.connect(self._update_fps_display)
-        self._fps_timer.start(1000)
 
-        # Job manager
-        self.job_manager = JobManager()
-        self._setup_tool_and_job_views()
-        self.addTool.clicked.connect(self._on_add_tool_combo)
-        self.removeJob.clicked.connect(self._on_remove_tool_from_job)
-        self.editJob.clicked.connect(self._on_edit_tool_in_job)
     def _on_add_tool_combo(self):
         # Lấy tên tool được chọn từ ComboBox
         tool_name = self.toolComboBox.currentText() if self.toolComboBox else None
@@ -420,12 +406,21 @@ class MainWindow(QMainWindow):
             self._pixmap_item.setTransformationMode(Qt.SmoothTransformation)
             self._scene.addItem(self._pixmap_item)
 
-            # Apply zoom and rotation using QGraphicsPixmapItem
-            self._pixmap_item.setScale(self.zoom_level)
+            # Ensure the transform origin point is set to the center of the pixmap
+            self._pixmap_item.setTransformOriginPoint(self._pixmap_item.boundingRect().width() / 2, self._pixmap_item.boundingRect().height() / 2)
+
+            # Apply the rotation angle
             self._pixmap_item.setRotation(self.rotation_angle)
 
-            # Center the view on the pixmap
-            self.cameraView.centerOn(self._pixmap_item)
+            # Adjust the scene rectangle to match the pixmap's bounding rectangle
+            self._scene.setSceneRect(self._pixmap_item.boundingRect())
+
+            # Center the view on the pixmap's center
+            pixmap_center = self._pixmap_item.boundingRect().center()
+            self.cameraView.centerOn(pixmap_center)
+
+            # Ensure alignment is set to center the content
+            self.cameraView.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
 
             # Adjust cursor and drag mode based on zoom level
             if self.zoom_level > 1.0:
