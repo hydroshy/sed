@@ -557,12 +557,12 @@
       <item>
        <layout class="QVBoxLayout" name="settingLayout" stretch="8,1">
         <item>
-         <widget class="QStackedWidget" name="stackedWidget">
+         <widget class="QStackedWidget" name="settingStackedWidget">
           <property name="currentIndex">
            <number>0</number>
           </property>
           <widget class="QWidget" name="cameraSettingPage">
-           <widget class="QFrame" name="settingFrame">
+           <widget class="QFrame" name="cameraSettingFrame">
             <property name="geometry">
              <rect>
               <x>0</x>
@@ -825,7 +825,7 @@
            </widget>
           </widget>
           <widget class="QWidget" name="detectSettingPage">
-           <widget class="QFrame" name="frame">
+           <widget class="QFrame" name="detectSettingFrame">
             <property name="geometry">
              <rect>
               <x>10</x>
@@ -945,7 +945,7 @@
                <rect>
                 <x>0</x>
                 <y>0</y>
-                <width>412</width>
+                <width>408</width>
                 <height>89</height>
                </rect>
               </property>
@@ -1040,7 +1040,7 @@
      <x>0</x>
      <y>0</y>
      <width>1961</width>
-     <height>21</height>
+     <height>26</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">

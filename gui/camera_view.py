@@ -1,0 +1,344 @@
+import logging
+import cv2
+import time
+from PyQt5.QtCore import Qt, pyqtSignal, QObject
+from PyQt5.QtGui import QImage, QPixmap, QCursor, QPainter, QPen, QColor, QFont
+from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+class CameraView(QObject):
+    """
+    Lớp quản lý và hiển thị hình ảnh từ camera
+    """
+    
+    # Tín hiệu để thông báo khi các thông số focus được tính toán
+    focus_calculated = pyqtSignal(int)
+    
+    # Tín hiệu để thông báo cập nhật FPS
+    fps_updated = pyqtSignal(float)
+
+    def __init__(self, graphics_view):
+        """
+        Khởi tạo camera view
+        
+        Args:
+            graphics_view: QGraphicsView widget từ UI để hiển thị hình ảnh
+        """
+        super().__init__()
+        self.graphics_view = graphics_view
+        
+        # Khởi tạo các biến thành viên
+        self.current_frame = None
+        self.zoom_level = 1.0
+        self.zoom_step = 0.1
+        self.rotation_angle = 0
+        self.fit_on_next_frame = False
+        
+        # Biến tính toán FPS
+        self.prev_frame_time = 0
+        self.fps = 0
+        self.fps_alpha = 0.9  # Hệ số trung bình động cho FPS
+        self.show_fps = True
+        
+        # Khởi tạo scene và cấu hình graphics view
+        self.scene = QGraphicsScene()
+        self.graphics_view.setScene(self.scene)
+        self.pixmap_item = None
+        
+        # Cấu hình thuộc tính khác
+        self.graphics_view.setRenderHints(QPainter.SmoothPixmapTransform)
+        self.graphics_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.graphics_view.setDragMode(QGraphicsView.NoDrag)
+        
+        # Khởi tạo offset cho scene
+        self.scene_offset = [0, 0]
+        self.scene_offset_max = [0, 0]
+
+    def display_frame(self, frame):
+        """
+        Hiển thị frame từ camera
+        
+        Args:
+            frame: Numpy array chứa hình ảnh BGR từ camera
+        """
+        if frame is None or frame.size == 0:
+            logging.error("Invalid frame received")
+            return
+
+        logging.debug("Frame received with shape: %s", frame.shape)
+
+        # Handle RGBA format if detected
+        if frame.shape[2] == 4:  # RGBA format
+            logging.debug("Converting RGBA to RGB")
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2RGB)
+
+        self.current_frame = frame  # Lưu frame hiện tại
+        self._show_frame_with_zoom()
+        self._calculate_fps()
+
+        try:
+            # Tính toán độ sắc nét sử dụng Laplacian
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
+            sharpness_norm = min(int(sharpness / 10), 100)  # Chuẩn hóa về 0-100
+            self.focus_calculated.emit(sharpness_norm)
+            logging.debug("Sharpness calculated: %d", sharpness_norm)
+        except Exception as e:
+            logging.error("Error calculating sharpness: %s", e)
+            
+    def _calculate_fps(self):
+        """
+        Tính toán và cập nhật FPS
+        """
+        current_time = time.time()
+        if self.prev_frame_time > 0:
+            # Tính FPS tức thời
+            instant_fps = 1 / (current_time - self.prev_frame_time)
+            
+            # Áp dụng trung bình động để làm mượt giá trị FPS
+            if self.fps > 0:
+                self.fps = self.fps_alpha * self.fps + (1 - self.fps_alpha) * instant_fps
+            else:
+                self.fps = instant_fps
+                
+            # Phát tín hiệu cập nhật FPS
+            self.fps_updated.emit(self.fps)
+            
+        self.prev_frame_time = current_time
+
+    def _show_frame_with_zoom(self):
+        """
+        Hiển thị frame hiện tại với mức zoom và xoay đã cài đặt
+        """
+        if self.current_frame is None:
+            logging.warning("No current frame to display")
+            return
+
+        try:
+            # Chuyển đổi frame thành QPixmap
+            h, w, ch = self.current_frame.shape
+            bytes_per_line = ch * w
+            rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+            qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(qt_image)
+            
+            # Vẽ FPS lên pixmap nếu được bật
+            if self.show_fps and self.fps > 0:
+                painter = QPainter(pixmap)
+                font = QFont()
+                font.setPointSize(14)
+                painter.setFont(font)
+                painter.setPen(QColor(0, 255, 0))  # Màu xanh lá
+                painter.drawText(10, 30, f"FPS: {self.fps:.1f}")
+                painter.end()
+
+            # Quản lý pixmap_item
+            if self.pixmap_item is not None:
+                if self.pixmap_item.scene() is not None:
+                    self.scene.removeItem(self.pixmap_item)
+                self.pixmap_item = None
+
+            self.pixmap_item = QGraphicsPixmapItem(pixmap)
+            self.pixmap_item.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
+            self.scene.addItem(self.pixmap_item)
+
+            # Đặt điểm xoay ở giữa pixmap
+            self.pixmap_item.setTransformOriginPoint(self.pixmap_item.boundingRect().width() / 2, 
+                                                  self.pixmap_item.boundingRect().height() / 2)
+
+            # Áp dụng góc xoay
+            self.pixmap_item.setRotation(self.rotation_angle)
+
+            # Điều chỉnh scene rectangle
+            self.scene.setSceneRect(self.pixmap_item.boundingRect())
+
+            # Căn giữa view
+            pixmap_center = self.pixmap_item.boundingRect().center()
+            self.graphics_view.centerOn(pixmap_center)
+
+            # Đảm bảo căn chỉnh ở giữa
+            self.graphics_view.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+
+            # Điều chỉnh con trỏ và chế độ kéo dựa trên mức zoom
+            if self.zoom_level > 1.0:
+                self.graphics_view.setDragMode(QGraphicsView.ScrollHandDrag)
+                self.graphics_view.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
+            else:
+                self.graphics_view.setDragMode(QGraphicsView.NoDrag)
+                self.graphics_view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+
+            # Fit view nếu cần
+            if self.fit_on_next_frame:
+                self.graphics_view.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+                self.zoom_level = 1.0
+                self.fit_on_next_frame = False
+            else:
+                self.graphics_view.resetTransform()
+                self.graphics_view.scale(self.zoom_level, self.zoom_level)
+
+            logging.debug("Frame displayed with zoom level: %f and rotation angle: %d", 
+                        self.zoom_level, self.rotation_angle)
+        except Exception as e:
+            logging.error("Error displaying frame: %s", e)
+
+    def zoom_in(self):
+        """
+        Tăng mức zoom và áp dụng
+        """
+        self.zoom_level += self.zoom_step
+        self.graphics_view.scale(1 + self.zoom_step, 1 + self.zoom_step)
+
+    def zoom_out(self):
+        """
+        Giảm mức zoom và áp dụng
+        """
+        # Giảm mức zoom và đảm bảo không thấp hơn giá trị tối thiểu
+        self.zoom_level -= self.zoom_step
+        if self.zoom_level < 0.01:
+            self.zoom_level = 0.01
+
+        # Cập nhật hiển thị với mức zoom mới
+        self._show_frame_with_zoom()
+
+    def rotate_left(self):
+        """
+        Xoay ngược chiều kim đồng hồ 90 độ
+        """
+        self.rotation_angle = (self.rotation_angle - 90) % 360
+        self._show_frame_with_zoom()
+
+    def rotate_right(self):
+        """
+        Xoay theo chiều kim đồng hồ 90 độ
+        """
+        self.rotation_angle = (self.rotation_angle + 90) % 360
+        self._show_frame_with_zoom()
+
+    def reset_view(self):
+        """
+        Đặt lại mức zoom và xoay về mặc định
+        """
+        self.zoom_level = 1.0
+        self.rotation_angle = 0
+        self.fit_on_next_frame = True
+        self._show_frame_with_zoom()
+
+    def fit_to_view(self):
+        """
+        Phóng to/thu nhỏ để vừa khung nhìn
+        """
+        self.fit_on_next_frame = True
+        self._show_frame_with_zoom()
+
+    def get_current_frame(self):
+        """
+        Lấy frame hiện tại
+        
+        Returns:
+            Numpy array chứa frame hiện tại hoặc None nếu không có
+        """
+        return self.current_frame
+
+    def handle_resize_event(self):
+        """
+        Xử lý sự kiện khi view được resize
+        """
+        # Nếu đang ở chế độ fit, fit lại khi resize
+        if self.fit_on_next_frame:
+            self.graphics_view.fitInView(self.graphics_view.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+            self.fit_on_next_frame = False
+            
+    def toggle_fps_display(self, show_fps):
+        """
+        Bật/tắt hiển thị FPS
+        
+        Args:
+            show_fps: Boolean cho biết có hiển thị FPS hay không
+        """
+        self.show_fps = show_fps
+        # Cập nhật lại hiển thị nếu có frame
+        if self.current_frame is not None:
+            self._show_frame_with_zoom()
+            
+    def display_frame_with_ocr_boxes(self, frame, boxes):
+        """
+        Hiển thị frame với các box OCR được vẽ lên
+        
+        Args:
+            frame: Numpy array chứa hình ảnh BGR từ camera
+            boxes: Danh sách các box OCR, mỗi box là một mảng các điểm
+        """
+        if frame is None or frame.size == 0:
+            logging.error("Invalid frame received for OCR boxes")
+            return
+
+        try:
+            # Chuyển đổi frame thành QPixmap
+            rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            h, w, ch = rgb_image.shape
+            bytes_per_line = ch * w
+            qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(qt_image)
+            
+            # Vẽ các box OCR lên pixmap
+            painter = QPainter(pixmap)
+            pen = QPen(QColor(0, 255, 0), 2)  # Màu xanh lá, độ dày 2px
+            painter.setPen(pen)
+            font = QFont()
+            font.setPointSize(10)
+            painter.setFont(font)
+            
+            for idx, box in enumerate(boxes):
+                pts = [tuple(map(int, pt)) for pt in box]
+                # Vẽ đa giác nối các điểm
+                for i in range(4):
+                    painter.drawLine(pts[i][0], pts[i][1], pts[(i+1)%4][0], pts[(i+1)%4][1])
+                # Vẽ chỉ số box
+                painter.drawText(pts[0][0], pts[0][1]-5, f"Box {idx+1}")
+            
+            # Vẽ FPS nếu được bật
+            if self.show_fps and self.fps > 0:
+                painter.setPen(QColor(0, 255, 0))  # Màu xanh lá
+                font = QFont()
+                font.setPointSize(14)
+                painter.setFont(font)
+                painter.drawText(10, 30, f"FPS: {self.fps:.1f}")
+                
+            painter.end()
+
+            # Cập nhật scene với pixmap mới
+            if self.pixmap_item is not None:
+                if self.pixmap_item.scene() is not None:
+                    self.scene.removeItem(self.pixmap_item)
+                self.pixmap_item = None
+
+            self.pixmap_item = QGraphicsPixmapItem(pixmap)
+            self.pixmap_item.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
+            self.scene.addItem(self.pixmap_item)
+
+            # Đặt điểm xoay ở giữa pixmap
+            self.pixmap_item.setTransformOriginPoint(w/2, h/2)
+            
+            # Áp dụng góc xoay
+            self.pixmap_item.setRotation(self.rotation_angle)
+            
+            # Cập nhật kích thước scene
+            self.scene.setSceneRect(0, 0, w, h)
+            self.graphics_view.setSceneRect(0, 0, w, h)
+            
+            # Reset transform trước khi áp dụng zoom
+            self.graphics_view.resetTransform()
+            self.graphics_view.scale(self.zoom_level, self.zoom_level)
+            
+            # Căn giữa nếu pixmap đã được thêm vào scene
+            if self.pixmap_item and self.pixmap_item.scene() == self.scene:
+                self.graphics_view.centerOn(self.pixmap_item)
+                
+            self._calculate_fps()  # Cập nhật FPS
+                
+            logging.debug("Frame with OCR boxes displayed successfully")
+        except Exception as e:
+            logging.error("Error displaying frame with OCR boxes: %s", e)

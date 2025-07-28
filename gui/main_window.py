@@ -12,6 +12,7 @@ from PyQt5.QtCore import QStringListModel
 from detection.ocr_tool import OcrTool
 from PyQt5.QtGui import QPen, QColor, QPainter, QFont
 import logging
+from gui.camera_view import CameraView
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -132,8 +133,10 @@ class MainWindow(QMainWindow):
         self.addTool = self.findChild(QPushButton, 'addTool')
         self.cancleTool = self.findChild(QPushButton, 'cancleTool')
         self.toolComboBox = self.findChild(QComboBox, 'toolComboBox')
-        self.stackedWidget = self.findChild(QStackedWidget, 'stackedWidget')
-        self.detectSettingPage = self.findChild(QWidget, 'detectSettingPage')
+        
+        # Tạo StackedWidget và các trang cài đặt tool vì chúng không có trong file UI
+        self._create_stacked_widget_and_pages()
+        
         self.removeJob = self.findChild(QPushButton, 'removeJob')
         self.editJob = self.findChild(QPushButton, 'editJob')
         self.exposureEdit = self.findChild(QLineEdit, 'exposureEdit')
@@ -153,8 +156,11 @@ class MainWindow(QMainWindow):
         self.gainSlider.setMaximum(100)
         self.evSlider.setMinimum(-1)
         self.evSlider.setMaximum(1)
-        self.applySetting = self.findChild(QPushButton, 'applySetting')
-        self.cancleSetting = self.findChild(QPushButton, 'cancleSetting')
+        
+        # Don't redefine these buttons as they're already set up in _create_stacked_widget_and_pages
+        # self.applySetting = self.findChild(QPushButton, 'applySetting')
+        # self.cancleSetting = self.findChild(QPushButton, 'cancleSetting')
+        
         self.triggerCameraMode = self.findChild(QPushButton, 'triggerCameraMode')
         self.liveCameraMode = self.findChild(QPushButton, 'liveCameraMode')
         self.rotateLeft = self.findChild(QPushButton, 'rotateLeft')
@@ -169,16 +175,18 @@ class MainWindow(QMainWindow):
 
         # Khởi tạo camera stream
         self.camera_stream = CameraStream()
-        self.camera_stream.frame_ready.connect(self.display_frame)
 
+        # Khởi tạo camera view
+        self.camera_view = CameraView(self.cameraView)
+        self.camera_stream.frame_ready.connect(self.camera_view.display_frame)
+        self.camera_view.focus_calculated.connect(self.update_focus_value)
+        self.camera_view.fps_updated.connect(self.update_fps_display)
+        
+        # Bật hiển thị FPS
+        self.camera_view.toggle_fps_display(True)
+        
         # Khởi tạo mặc định auto exposure sau khi đã có camera_stream
         self.set_auto_exposure_mode()
-
-        # Zoom/rotate state
-        self.zoom_level = 1.0
-        self.zoom_step = 0.1
-        self.current_frame = None
-        self.rotation_angle = 0  # Góc xoay hiện tại
 
         # Kết nối nút
         # Kết nối signal cho các tham số camera
@@ -186,35 +194,18 @@ class MainWindow(QMainWindow):
         self.liveCamera.setCheckable(True)
         self.liveCamera.clicked.connect(self.toggle_live_camera)
         self.triggerCamera.clicked.connect(self.camera_stream.trigger_capture)
-        self.zoomIn.clicked.connect(self.zoom_in)
-        self.zoomOut.clicked.connect(self.zoom_out)
+        self.zoomIn.clicked.connect(self.camera_view.zoom_in)
+        self.zoomOut.clicked.connect(self.camera_view.zoom_out)
         self.liveCamera.setEnabled(True)
         self.triggerCamera.setEnabled(True)
         self.zoomIn.setEnabled(True)
         self.zoomOut.setEnabled(True)
         if self.rotateLeft:
-            self.rotateLeft.clicked.connect(self.rotate_left)
+            self.rotateLeft.clicked.connect(self.camera_view.rotate_left)
             self.rotateLeft.setEnabled(True)
         if self.rotateRight:
-            self.rotateRight.clicked.connect(self.rotate_right)
+            self.rotateRight.clicked.connect(self.camera_view.rotate_right)
             self.rotateRight.setEnabled(True)
-
-        # Pan/drag state for cameraView
-        self._is_panning = False
-        self._pan_start_pos = None
-        self._scene_offset = [0, 0]
-        self._scene_offset_max = [0, 0]
-        # Enable dragging for cameraView
-        self.cameraView.setDragMode(QGraphicsView.ScrollHandDrag)
-        self.cameraView.viewport().setCursor(Qt.OpenHandCursor)
-        self.cameraView.viewport().installEventFilter(self)
-
-        # Initialize fit-on-next-frame flag
-        self._fit_on_next_frame = False
-
-        # Initialize the QGraphicsScene for the camera view
-        self._scene = QGraphicsScene()
-        self.cameraView.setScene(self._scene)
 
         # Ensure addTool button is connected to _on_add_tool
         if self.addTool:
@@ -224,18 +215,68 @@ class MainWindow(QMainWindow):
         # Initialize job_manager
         self.job_manager = JobManager()
         logging.info("JobManager initialized.")
+        
+        # Set up the tool and job views
+        self._setup_tool_and_job_views()
+        logging.info("Tool and job views setup completed.")
 
-        # Verify detectSettingPage initialization and addition to stackedWidget
-        if not self.detectSettingPage:
-            logging.error("detectSettingPage is not initialized.")
-        elif self.stackedWidget.indexOf(self.detectSettingPage) == -1:
-            logging.error("detectSettingPage is not added to stackedWidget.")
-
-        # Ensure detectSettingPage is added to stackedWidget
-        if self.detectSettingPage and self.stackedWidget.indexOf(self.detectSettingPage) == -1:
-            logging.info("Adding detectSettingPage to stackedWidget.")
-            self.stackedWidget.addWidget(self.detectSettingPage)
-            logging.info("detectSettingPage added to stackedWidget.")
+    def _create_stacked_widget_and_pages(self):
+        """Kết nối các widget từ giao diện UI có sẵn"""
+        from PyQt5.QtWidgets import QSpinBox, QDoubleSpinBox
+        
+        logging.info("_create_stacked_widget_and_pages: Starting to find UI widgets")
+        
+        # Tìm các widget đã được tạo trong file UI
+        self.settingStackedWidget = self.findChild(QStackedWidget, 'settingStackedWidget')
+        logging.info(f"settingStackedWidget found: {self.settingStackedWidget is not None}")
+        
+        self.cameraSettingPage = self.findChild(QWidget, 'cameraSettingPage')
+        logging.info(f"cameraSettingPage found: {self.cameraSettingPage is not None}")
+        
+        self.detectSettingPage = self.findChild(QWidget, 'detectSettingPage')
+        logging.info(f"detectSettingPage found: {self.detectSettingPage is not None}")
+        
+        self.cameraSettingFrame = self.findChild(QWidget, 'cameraSettingFrame')
+        logging.info(f"cameraSettingFrame found: {self.cameraSettingFrame is not None}")
+        
+        self.detectSettingFrame = self.findChild(QWidget, 'detectSettingFrame')
+        logging.info(f"detectSettingFrame found: {self.detectSettingFrame is not None}")
+        
+        # Tìm các nút Apply và Cancel
+        self.applySetting = self.findChild(QPushButton, 'applySetting')
+        logging.info(f"applySetting button found: {self.applySetting is not None}")
+        
+        self.cancleSetting = self.findChild(QPushButton, 'cancleSetting')
+        logging.info(f"cancleSetting button found: {self.cancleSetting is not None}")
+        
+        # Log current state of settingStackedWidget
+        if self.settingStackedWidget:
+            current_index = self.settingStackedWidget.currentIndex()
+            count = self.settingStackedWidget.count()
+            logging.info(f"settingStackedWidget state: index={current_index}, count={count}")
+            
+            # Log pages in the stacked widget
+            for i in range(count):
+                widget = self.settingStackedWidget.widget(i)
+                widget_name = widget.objectName() if widget else "None"
+                logging.info(f"Page {i}: {widget_name}")
+        
+        # Tìm các widget cài đặt cho Detect Tool trong detectSettingFrame
+        if self.detectSettingFrame:
+            self.thresholdSlider = self.findChild(QSlider, 'thresholdSlider')
+            self.thresholdSpinBox = self.findChild(QSpinBox, 'thresholdSpinBox')
+            self.minConfidenceEdit = self.findChild(QDoubleSpinBox, 'minConfidenceEdit')
+            
+            # Kết nối slider và spinbox nếu cả hai đều tồn tại
+            if self.thresholdSlider and self.thresholdSpinBox:
+                self.thresholdSlider.valueChanged.connect(self.thresholdSpinBox.setValue)
+                self.thresholdSpinBox.valueChanged.connect(self.thresholdSlider.setValue)
+        
+        # Kết nối nút Apply và Cancel
+        if self.applySetting:
+            self.applySetting.clicked.connect(self._on_apply_setting)
+        if self.cancleSetting:
+            self.cancleSetting.clicked.connect(self._on_cancel_setting)
 
     def eventFilter(self, obj, event):
         # Handle mouse events for dragging
@@ -318,9 +359,13 @@ class MainWindow(QMainWindow):
         # Connect addTool button to add tool logic
         self.addTool.clicked.connect(self._on_add_tool)
 
-        # Connect applySetting and cancleSetting buttons to return to cameraSettingPage
-        self.applySetting.clicked.connect(self._return_to_camera_setting_page)
-        self.cancleSetting.clicked.connect(self._return_to_camera_setting_page)
+        # Connect applySetting and cancleSetting buttons 
+        self.applySetting.clicked.connect(self._on_apply_setting)
+        self.cancleSetting.clicked.connect(self._on_cancel_setting)
+        
+        # Khởi tạo biến cho tool đang chờ xử lý
+        self._pending_tool = None
+        self._pending_tool_config = None
 
     def _on_add_tool(self):
         logging.info("_on_add_tool invoked.")
@@ -330,19 +375,55 @@ class MainWindow(QMainWindow):
             logging.warning("No tool selected in toolComboBox.")
             return
 
-        # Use the refactored helper function
-        self.add_tool_to_job(tool_name)
+        # Lưu tool được chọn vào biến tạm để xử lý sau khi nhấn applySetting
+        self._pending_tool = tool_name
+        logging.info(f"Saved pending tool: {self._pending_tool}")
 
-        # Switch to detectSettingPage if the tool is "Detect Tool"
-        if tool_name == "Detect Tool" and self.stackedWidget and self.detectSettingPage:
-            index = self.stackedWidget.indexOf(self.detectSettingPage)
-            logging.info(f"Index of detectSettingPage in stackedWidget: {index}")
+        # Chuyển đến trang cài đặt tool tương ứng
+        self._switch_to_tool_setting_page(tool_name)
+    def _switch_to_tool_setting_page(self, tool_name):
+        """Chuyển đến trang cài đặt tương ứng với tool được chọn"""
+        logging.info(f"_switch_to_tool_setting_page called with tool: {tool_name}")
+        
+        if not tool_name:
+            logging.error("tool_name is empty")
+            return
+            
+        if not hasattr(self, 'settingStackedWidget') or self.settingStackedWidget is None:
+            logging.error("settingStackedWidget not found")
+            return
+            
+        # Log current state of the stacked widget
+        current_index = self.settingStackedWidget.currentIndex()
+        count = self.settingStackedWidget.count()
+        logging.info(f"Current settingStackedWidget state: index={current_index}, count={count}")
+            
+        # Xác định trang cài đặt dựa trên tên tool
+        target_page = None
+        if tool_name == "Detect Tool" and hasattr(self, 'detectSettingPage'):
+            target_page = self.detectSettingPage
+            logging.info("Target page is detectSettingPage")
+        elif tool_name == "Other Tool" and hasattr(self, 'otherToolSettingPage'):
+            target_page = self.otherToolSettingPage
+            logging.info("Target page is otherToolSettingPage")
+        else:
+            logging.error(f"No matching page found for tool: {tool_name}")
+        # Thêm các tool khác tại đây
+            
+        # Chuyển đến trang cài đặt nếu tìm thấy
+        if target_page:
+            index = self.settingStackedWidget.indexOf(target_page)
+            logging.info(f"Found target page at index: {index}")
             if index != -1:
-                logging.info(f"Switching to detectSettingPage with index {index}.")
-                self.stackedWidget.setCurrentIndex(index)
-                logging.info("Switched to detectSettingPage in stackedWidget.")
+                logging.info(f"Switching to {tool_name} setting page with index {index}.")
+                self.settingStackedWidget.setCurrentIndex(index)
+                # Verify the switch
+                new_index = self.settingStackedWidget.currentIndex()
+                logging.info(f"After switch, current index is: {new_index}")
             else:
-                logging.error("detectSettingPage not found in stackedWidget.")
+                logging.error(f"Setting page for {tool_name} not found in settingStackedWidget.")
+        else:
+            logging.error(f"No setting page defined for {tool_name}")
 
     def add_tool_to_job(self, tool_name):
         if not tool_name:
@@ -369,17 +450,120 @@ class MainWindow(QMainWindow):
 
     def _return_to_camera_setting_page(self):
         # Switch back to cameraSettingPage
-        if self.stackedWidget and self.cameraSettingPage:
-            index = self.stackedWidget.indexOf(self.cameraSettingPage)
+        if hasattr(self, 'settingStackedWidget') and self.settingStackedWidget and hasattr(self, 'cameraSettingPage') and self.cameraSettingPage:
+            index = self.settingStackedWidget.indexOf(self.cameraSettingPage)
             if index != -1:
-                self.stackedWidget.setCurrentIndex(index)
+                logging.info(f"Returning to camera setting page with index {index}.")
+                self.settingStackedWidget.setCurrentIndex(index)
+            else:
+                logging.error("cameraSettingPage not found in settingStackedWidget.")
+        else:
+            logging.error("settingStackedWidget or cameraSettingPage not available.")
 
-    def _setup_tool_and_job_views(self):
-        # Không can thiệp vào toolComboBox, giữ nguyên các item mặc định từ file .ui
-        # Chỉ cập nhật jobView
+    def _on_apply_setting(self):
+        """
+        Xử lý khi người dùng nhấn nút Apply trong trang cài đặt tool.
+        - Thêm tool và cấu hình vào job hiện tại
+        - Quay lại trang cài đặt camera
+        """
+        if self._pending_tool:
+            logging.info(f"Applying settings for tool: {self._pending_tool}")
+            
+            # Thu thập cấu hình từ UI tương ứng với tool
+            config = self._collect_tool_config(self._pending_tool)
+            
+            # Tạo đối tượng Tool với cấu hình đã thu thập
+            tool = self._create_tool_with_config(self._pending_tool, config)
+            
+            # Thêm tool vào job hiện tại
+            if tool:
+                self.add_tool_to_job_with_tool(tool)
+                logging.info(f"Tool '{self._pending_tool}' with configuration added to job")
+            
+            # Reset biến tạm
+            self._pending_tool = None
+            self._pending_tool_config = None
+        
+        # Quay lại trang cài đặt camera
+        self._return_to_camera_setting_page()
+    
+    def _on_cancel_setting(self):
+        """
+        Xử lý khi người dùng nhấn nút Cancel trong trang cài đặt tool.
+        - Hủy bỏ thao tác thêm tool
+        - Quay lại trang cài đặt camera
+        """
+        logging.info("Cancelling tool settings")
+        
+        # Reset biến tạm
+        self._pending_tool = None
+        self._pending_tool_config = None
+        
+        # Quay lại trang cài đặt camera
+        self._return_to_camera_setting_page()
+    
+    def _collect_tool_config(self, tool_name):
+        """Thu thập cấu hình từ UI tương ứng với từng loại tool"""
+        config = {}
+        
+        # Thu thập cấu hình dựa trên loại tool
+        if tool_name == "Detect Tool":
+            # Ví dụ: Thu thập cấu hình từ UI cho Detect Tool
+            if hasattr(self, 'thresholdSlider'):
+                config['threshold'] = self.thresholdSlider.value()
+            if hasattr(self, 'minConfidenceEdit'):
+                try:
+                    config['min_confidence'] = float(self.minConfidenceEdit.text())
+                except (ValueError, AttributeError):
+                    config['min_confidence'] = 0.5  # Giá trị mặc định
+        
+        # Thêm xử lý cho các loại tool khác tại đây
+        
+        logging.info(f"Collected config for {tool_name}: {config}")
+        return config
+    
+    def _create_tool_with_config(self, tool_name, config):
+        """Tạo đối tượng Tool với cấu hình đã thu thập"""
+        from job.job_manager import Tool, ToolConfig
+        
+        # Tạo đối tượng ToolConfig
+        tool_config = ToolConfig(config)
+        
+        # Tạo đối tượng Tool tương ứng
+        if tool_name == "Detect Tool":
+            from detection.ocr_tool import OcrTool
+            tool = OcrTool(config=tool_config)
+        else:
+            # Mặc định sử dụng Tool cơ bản
+            tool = Tool(tool_name, config=tool_config)
+        
+        return tool
+    
+    def add_tool_to_job_with_tool(self, tool):
+        """Thêm đối tượng Tool đã tạo vào job hiện tại"""
+        # Ensure job_manager is initialized
+        if not hasattr(self, 'job_manager') or not self.job_manager:
+            logging.error("JobManager is not initialized.")
+            return False
+
+        # If no current job, create a new one
+        current_job = self.job_manager.get_current_job()
+        if not current_job:
+            logging.info("No current job found. Creating a new job.")
+            current_job = Job("Job 1")
+            self.job_manager.add_job(current_job)
+
+        # Add the tool to the current job
+        current_job.add_tool(tool)
         self._update_job_view()
+        logging.info(f"Tool '{tool.name}' added to the current job.")
+        return True
 
-
+    # This method has been merged with the one above
+    # def _setup_tool_and_job_views(self):
+    #     # Không can thiệp vào toolComboBox, giữ nguyên các item mặc định từ file .ui
+    #     # Chỉ cập nhật jobView
+    #     self._update_job_view()
 
 
     def _update_job_view(self):
@@ -392,17 +576,19 @@ class MainWindow(QMainWindow):
         self.jobView.setModel(self.job_model)
 
     def _on_add_tool(self):
-        # Lấy tool được chọn từ ComboBox
+        logging.info("_on_add_tool invoked.")
         tool_name = self.toolComboBox.currentText() if self.toolComboBox else None
+        logging.info(f"Selected tool: {tool_name}")
         if not tool_name:
+            logging.warning("No tool selected in toolComboBox.")
             return
-        # Nếu chưa có job, tạo job mới
-        if not self.job_manager.get_current_job():
-            job = Job('Job 1')
-            self.job_manager.add_job(job)
-        # Thêm tool vào job hiện tại
-        self.job_manager.get_current_job().add_tool(Tool(tool_name))
-        self._update_job_view()
+
+        # Lưu tool được chọn vào biến tạm để xử lý sau khi nhấn applySetting
+        self._pending_tool = tool_name
+        logging.info(f"Saved pending tool: {self._pending_tool}")
+
+        # Chuyển đến trang cài đặt tool tương ứng
+        self._switch_to_tool_setting_page(tool_name)
 
     def rotate_left(self):
         self.rotation_angle = (self.rotation_angle - 90) % 360
@@ -411,14 +597,23 @@ class MainWindow(QMainWindow):
     def rotate_right(self):
         self.rotation_angle = (self.rotation_angle + 90) % 360
         self._show_frame_with_zoom()
+    def update_focus_value(self, value):
+        """Cập nhật giá trị độ sắc nét trên thanh focusBar"""
+        self.focusBar.setValue(value)
+        
+    def update_fps_display(self, fps_value):
+        """Cập nhật giá trị FPS lên LCD display"""
+        if hasattr(self, 'fpsNum') and self.fpsNum is not None:
+            self.fpsNum.display(f"{fps_value:.1f}")
+
     def resizeEvent(self, event):
+        """Xử lý sự kiện khi cửa sổ thay đổi kích thước"""
         super().resizeEvent(event)
-        # Nếu đang ở chế độ fit, fit lại khi resize cửa sổ
-        if self._fit_on_next_frame:
-            self.cameraView.fitInView(self.cameraView.sceneRect(), Qt.KeepAspectRatio)
-            self._fit_on_next_frame = False
+        if hasattr(self, 'camera_view'):
+            self.camera_view.handle_resize_event()
     # Đã hợp nhất các hàm __init__ thành 1 hàm duy nhất phía trên
     def toggle_live_camera(self):
+        """Bật/tắt chế độ camera trực tiếp"""
         if self.liveCamera.isChecked():
             self.camera_stream.start_live()
             self.triggerCamera.setEnabled(False)
@@ -428,19 +623,19 @@ class MainWindow(QMainWindow):
             self.triggerCamera.setEnabled(True)
             self.liveCamera.setText("Live Camera")
 
+    def run_current_job(self):
+        """Chạy job hiện tại"""
+        logging.info("Running current job")
+        # Kiểm tra và thực hiện công việc
+        # Phần xử lý job sẽ được thêm vào sau
+
     def display_frame(self, frame):
-        if frame is None or frame.size == 0:
-            logging.error("Invalid frame received")
-            return
-
-        logging.debug("Frame received with shape: %s", frame.shape)
-
-        # Handle RGBA format if detected
-        if frame.shape[2] == 4:  # RGBA format
-            logging.debug("Converting RGBA to RGB")
-            frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2RGB)
-
-        self.current_frame = frame  # Avoid unnecessary copy
+        """
+        Phương thức xử lý frame từ camera
+        Phương thức này không còn được sử dụng sau khi tách CameraView
+        """
+        logging.debug("This method is deprecated - use camera_view.display_frame() instead")
+        pass
         self._show_frame_with_zoom()
 
         try:
@@ -547,6 +742,7 @@ class MainWindow(QMainWindow):
         self._show_frame_with_zoom()
 
     def set_manual_exposure_mode(self):
+        """Chuyển sang chế độ phơi sáng thủ công"""
         self._is_auto_exposure = False
         self.camera_stream.set_auto_exposure(False)
         self.exposureEdit.setEnabled(True)
@@ -557,6 +753,7 @@ class MainWindow(QMainWindow):
             self.autoExposure.setEnabled(True)
 
     def set_auto_exposure_mode(self):
+        """Chuyển sang chế độ phơi sáng tự động"""
         self._is_auto_exposure = True
         self.camera_stream.set_auto_exposure(True)
         self.exposureEdit.setEnabled(False)
@@ -567,53 +764,26 @@ class MainWindow(QMainWindow):
             self.autoExposure.setEnabled(False)
 
     def run_current_job(self):
-        # Chỉ demo cho tool OCR đầu tiên trong job
+        """Chạy job hiện tại với frame hiện tại"""
+        # Lấy job hiện tại
         job = self.job_manager.get_current_job()
         if not job or not job.tools:
+            logging.warning("Không có job hoặc job không có công cụ nào")
             return
-        if self.current_frame is None:
+            
+        # Lấy frame hiện tại từ camera view
+        current_frame = self.camera_view.get_current_frame()
+        if current_frame is None:
+            logging.warning("Không có frame để xử lý")
             return
+            
         # Nếu tool đầu tiên là OCR thì chạy nhận diện
         if job.tools[0].name == 'OCR':
-            frame = self.current_frame.copy()
+            frame = current_frame.copy()
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             boxes = self.ocr_tool.detect(rgb)
             self._show_frame_with_ocr_boxes(frame, boxes)
 
     def _show_frame_with_ocr_boxes(self, frame, boxes):
-        rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        h, w, ch = rgb_image.shape
-        bytes_per_line = ch * w
-        qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
-        pixmap = QPixmap.fromImage(qt_image)
-        painter = QPainter(pixmap)
-        pen = QPen(QColor(0, 255, 0), 2)
-        painter.setPen(pen)
-        font = QFont()
-        font.setPointSize(10)
-        painter.setFont(font)
-        for box in boxes:
-            pts = [tuple(map(int, pt)) for pt in box]
-            # Draw polygon
-            for i in range(4):
-                painter.drawLine(pts[i][0], pts[i][1], pts[(i+1)%4][0], pts[(i+1)%4][1])
-            # Draw text (demo: chỉ số thứ tự)
-            painter.drawText(pts[0][0], pts[0][1]-5, f"Text")
-        painter.end()
-        from PyQt5.QtWidgets import QGraphicsScene, QGraphicsPixmapItem
-        if self._scene is None:
-            self._scene = QGraphicsScene()
-            self.cameraView.setScene(self._scene)
-        self._scene.clear()
-        self._pixmap_item = QGraphicsPixmapItem(pixmap)
-        self._pixmap_item.setTransformationMode(Qt.SmoothTransformation)
-        self._pixmap_item.setTransformOriginPoint(w/2, h/2)
-        angle = int(getattr(self, 'rotation_angle', 0)) % 360
-        self._pixmap_item.setRotation(angle)
-        self._scene.addItem(self._pixmap_item)
-        self._scene.setSceneRect(0, 0, w, h)
-        self.cameraView.setSceneRect(0, 0, w, h)
-        self.cameraView.resetTransform()
-        # Ensure self._pixmap_item exists and is added to the scene before centering
-        if self._pixmap_item and self._scene and self._pixmap_item.scene() == self._scene:
-            self.cameraView.centerOn(self._pixmap_item)
+        """Hiển thị frame với các box OCR"""
+        self.camera_view.display_frame_with_ocr_boxes(frame, boxes)
