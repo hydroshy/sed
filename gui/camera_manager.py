@@ -11,17 +11,37 @@ class CameraManager(QObject):
         super().__init__(parent)
         self.camera_stream = None
         self.camera_view = None
-        self.exposure_slider = None
-        self.exposure_edit = None
+        self.exposure_edit = None  # Chỉ còn exposure edit, không có slider
         self.gain_slider = None
         self.gain_edit = None
         self.ev_slider = None
         self.ev_edit = None
         self.focus_bar = None
         self.fps_num = None
-        self._is_auto_exposure = True
+        self.width_spinbox = None
+        self.height_spinbox = None
         
-    def setup(self, camera_view_widget, exposure_slider, exposure_edit,
+        # Settings synchronization
+        self.settings_manager = None  # Will be set by main window
+        
+        # Camera mode state
+        self.current_mode = None  # 'live' hoặc 'trigger' hoặc None
+        self.live_camera_btn = None
+        self.trigger_camera_btn = None
+        
+        # Exposure settings state
+        self._is_auto_exposure = False  # Bắt đầu với manual mode để user có thể chỉnh exposure
+        self._pending_exposure_settings = {}  # Lưu settings chưa apply
+        self._instant_apply = True  # Enable instant apply cho better UX
+        self.auto_exposure_btn = None
+        self.manual_exposure_btn = None
+        self.apply_settings_btn = None
+        self.cancel_settings_btn = None
+        
+        # UI state
+        self.ui_enabled = False
+        
+    def setup(self, camera_view_widget, exposure_edit,
              gain_slider, gain_edit, ev_slider, ev_edit, focus_bar, fps_num):
         """Thiết lập các tham chiếu đến các widget UI và khởi tạo camera"""
         # Khởi tạo camera stream
@@ -31,8 +51,7 @@ class CameraManager(QObject):
         self.camera_view = CameraView(camera_view_widget)
         self.camera_stream.frame_ready.connect(self.camera_view.display_frame)
         
-        # Kết nối các widget
-        self.exposure_slider = exposure_slider
+        # Kết nối các widget - bỏ exposure_slider
         self.exposure_edit = exposure_edit
         self.gain_slider = gain_slider
         self.gain_edit = gain_edit
@@ -45,8 +64,15 @@ class CameraManager(QObject):
         self.camera_view.focus_calculated.connect(self.update_focus_value)
         self.camera_view.fps_updated.connect(self.update_fps_display)
         
-        # Bật hiển thị FPS
-        self.camera_view.toggle_fps_display(True)
+        # Tắt hiển thị FPS trên góc hình ảnh preview
+        self.camera_view.toggle_fps_display(False)
+        
+        # Set initial manual exposure mode
+        self.set_manual_exposure_mode()
+        self.update_exposure_mode_ui()
+        
+        # Sync initial camera parameters (chỉ khi camera sẵn sàng)
+        # self.update_camera_params_from_camera()  # Hoãn lại đến khi camera start
         
         # Khởi tạo mặc định auto exposure
         self.set_auto_exposure_mode()
@@ -56,13 +82,125 @@ class CameraManager(QObject):
         
         logging.info("CameraManager: Setup completed")
         
+        # Disable UI initially
+        self.set_ui_enabled(False)
+        
+    def setup_camera_buttons(self, live_camera_btn=None, trigger_camera_btn=None, 
+                           auto_exposure_btn=None, manual_exposure_btn=None,
+                           apply_settings_btn=None, cancel_settings_btn=None):
+        """
+        Thiết lập các button điều khiển camera và exposure
+        
+        Args:
+            live_camera_btn: Button Live Camera
+            trigger_camera_btn: Button Trigger Camera
+            auto_exposure_btn: Button Auto Exposure
+            manual_exposure_btn: Button Manual Exposure
+            apply_settings_btn: Button Apply Settings
+            cancel_settings_btn: Button Cancel Settings
+        """
+        self.live_camera_btn = live_camera_btn
+        self.trigger_camera_btn = trigger_camera_btn
+        self.auto_exposure_btn = auto_exposure_btn
+        self.manual_exposure_btn = manual_exposure_btn
+        self.apply_settings_btn = apply_settings_btn
+        self.cancel_settings_btn = cancel_settings_btn
+        
+        # Log missing widgets
+        missing_widgets = []
+        if not self.live_camera_btn:
+            missing_widgets.append('liveCamera')
+        if not self.trigger_camera_btn:
+            missing_widgets.append('triggerCamera')
+        if not self.auto_exposure_btn:
+            missing_widgets.append('autoExposure')
+        if not self.manual_exposure_btn:
+            missing_widgets.append('manualExposure')
+        if not self.apply_settings_btn:
+            missing_widgets.append('applySetting')
+        if not self.cancel_settings_btn:
+            missing_widgets.append('cancelSetting')
+            
+        if missing_widgets:
+            logging.warning(f"Missing UI widgets: {', '.join(missing_widgets)}")
+        
+        # Kết nối signals
+        if self.live_camera_btn:
+            self.live_camera_btn.clicked.connect(self.on_live_camera_clicked)
+        if self.trigger_camera_btn:
+            self.trigger_camera_btn.clicked.connect(self.on_trigger_camera_clicked)
+        if self.auto_exposure_btn:
+            self.auto_exposure_btn.clicked.connect(self.on_auto_exposure_clicked)
+        if self.manual_exposure_btn:
+            self.manual_exposure_btn.clicked.connect(self.on_manual_exposure_clicked)
+        if self.apply_settings_btn:
+            self.apply_settings_btn.clicked.connect(self.on_apply_settings_clicked)
+        if self.cancel_settings_btn:
+            self.cancel_settings_btn.clicked.connect(self.on_cancel_settings_clicked)
+            
+        # Khởi tạo UI state
+        self.update_camera_mode_ui()
+        self.update_exposure_mode_ui()
+        
+    def _apply_setting_if_manual(self, setting_type, value):
+        """Helper method: Apply setting ngay lập tức nếu đang ở manual mode và instant_apply enabled"""
+        if self._instant_apply and not self._is_auto_exposure and self.camera_stream:
+            try:
+                if setting_type == 'exposure':
+                    self.camera_stream.set_exposure(value)
+                elif setting_type == 'gain':
+                    self.camera_stream.set_gain(value)
+                elif setting_type == 'ev':
+                    self.camera_stream.set_ev(value)
+            except AttributeError:
+                # Camera stream không có method này, skip
+                pass
+    
+    def set_instant_apply(self, enabled):
+        """Enable/disable instant apply cho exposure settings"""
+        self._instant_apply = enabled
+        logging.info(f"Instant apply {'enabled' if enabled else 'disabled'}")
+        
+    def set_ui_enabled(self, enabled):
+        """Bật/tắt toàn bộ UI camera"""
+        self.ui_enabled = enabled
+        
+        # Camera buttons
+        if self.live_camera_btn:
+            self.live_camera_btn.setEnabled(enabled)
+        if self.trigger_camera_btn:
+            self.trigger_camera_btn.setEnabled(enabled)
+            
+        # Settings controls
+        self.set_settings_controls_enabled(enabled and not self._is_auto_exposure)
+        
+        # Apply/Cancel buttons
+        if self.apply_settings_btn:
+            self.apply_settings_btn.setEnabled(enabled)
+        if self.cancel_settings_btn:
+            self.cancel_settings_btn.setEnabled(enabled)
+    
+    def set_settings_controls_enabled(self, enabled):
+        """Bật/tắt các control settings (exposure, gain, ev)"""
+        if self.exposure_edit:
+            self.exposure_edit.setEnabled(enabled)
+        if self.gain_slider:
+            self.gain_slider.setEnabled(enabled)
+        if self.gain_edit:
+            self.gain_edit.setEnabled(enabled)
+        if self.ev_slider:
+            self.ev_slider.setEnabled(enabled)
+        if self.ev_edit:
+            self.ev_edit.setEnabled(enabled)
+        
     def setup_camera_param_signals(self):
         """Kết nối các signal và slot cho các tham số camera"""
-        # Exposure
-        if self.exposure_slider:
-            self.exposure_slider.valueChanged.connect(self.on_exposure_slider_changed)
+        # Exposure - chỉ dùng edit box
         if self.exposure_edit:
-            self.exposure_edit.editingFinished.connect(self.on_exposure_edit_changed)
+            if hasattr(self.exposure_edit, 'valueChanged'):  # QDoubleSpinBox
+                self.exposure_edit.valueChanged.connect(self.on_exposure_edit_changed)
+            else:  # QLineEdit fallback
+                self.exposure_edit.editingFinished.connect(self.on_exposure_edit_changed)
         # Gain
         if self.gain_slider:
             self.gain_slider.valueChanged.connect(self.on_gain_slider_changed)
@@ -74,12 +212,66 @@ class CameraManager(QObject):
         if self.ev_edit:
             self.ev_edit.editingFinished.connect(self.on_ev_edit_changed)
             
+    def setup_frame_size_spinboxes(self, width_spinbox=None, height_spinbox=None):
+        """
+        Thiết lập các spinbox để điều chỉnh kích thước frame camera
+        
+        Args:
+            width_spinbox: QSpinBox cho chiều rộng
+            height_spinbox: QSpinBox cho chiều cao
+        """
+        self.width_spinbox = width_spinbox
+        self.height_spinbox = height_spinbox
+        
+        if self.width_spinbox:
+            # Cấu hình spinbox chiều rộng
+            self.width_spinbox.setMinimum(64)
+            self.width_spinbox.setMaximum(1456)
+            self.width_spinbox.setValue(1456)  # Giá trị mặc định
+            self.width_spinbox.setSuffix(" px")
+            self.width_spinbox.valueChanged.connect(self.on_frame_size_changed)
+            
+        if self.height_spinbox:
+            # Cấu hình spinbox chiều cao
+            self.height_spinbox.setMinimum(64)
+            self.height_spinbox.setMaximum(1088)
+            self.height_spinbox.setValue(1088)  # Giá trị mặc định
+            self.height_spinbox.setSuffix(" px")
+            self.height_spinbox.valueChanged.connect(self.on_frame_size_changed)
+    
+    def on_frame_size_changed(self):
+        """Xử lý khi kích thước frame thay đổi"""
+        if self.width_spinbox and self.height_spinbox and self.camera_stream:
+            width = self.width_spinbox.value()
+            height = self.height_spinbox.value()
+            self.camera_stream.set_frame_size(width, height)
+    
+    def get_frame_size(self):
+        """Lấy kích thước frame hiện tại"""
+        if self.camera_stream:
+            return self.camera_stream.get_frame_size()
+        return (1456, 1088)  # Mặc định
+    
+    def set_frame_size(self, width, height):
+        """Đặt kích thước frame và cập nhật UI"""
+        # Cập nhật spinboxes
+        if self.width_spinbox:
+            self.width_spinbox.setValue(width)
+        if self.height_spinbox:
+            self.height_spinbox.setValue(height)
+        
+        # Cập nhật camera stream
+        if self.camera_stream:
+            self.camera_stream.set_frame_size(width, height)
+            
     def set_exposure(self, value):
         """Đặt giá trị phơi sáng cho camera"""
         if self.exposure_edit:
-            self.exposure_edit.setText(str(value))
-        if self.exposure_slider:
-            self.exposure_slider.setValue(int(value))
+            # Hiển thị trực tiếp giá trị microseconds
+            if hasattr(self.exposure_edit, 'setValue'):  # QDoubleSpinBox
+                self.exposure_edit.setValue(value)
+            else:  # QLineEdit fallback
+                self.exposure_edit.setText(str(value))
         if hasattr(self.camera_stream, 'set_exposure'):
             self.camera_stream.set_exposure(value)
 
@@ -101,24 +293,37 @@ class CameraManager(QObject):
         if hasattr(self.camera_stream, 'set_ev'):
             self.camera_stream.set_ev(value)
 
-    def on_exposure_slider_changed(self, value):
-        """Xử lý khi người dùng thay đổi slider phơi sáng"""
-        if self.exposure_edit:
-            self.exposure_edit.setText(str(value))
-        if hasattr(self.camera_stream, 'set_exposure'):
-            self.camera_stream.set_exposure(value)
-
     def on_exposure_edit_changed(self):
-        """Xử lý khi người dùng thay đổi giá trị phơi sáng trong ô văn bản"""
+        """Xử lý khi người dùng thay đổi giá trị exposure trong spinbox - chỉ lưu vào pending"""
+        print(f"DEBUG: on_exposure_edit_changed called")
         try:
             if self.exposure_edit:
-                value = int(self.exposure_edit.text())
-                if self.exposure_slider:
-                    self.exposure_slider.setValue(value)
-                if hasattr(self.camera_stream, 'set_exposure'):
-                    self.camera_stream.set_exposure(value)
-        except ValueError:
-            pass
+                # Get value from spinbox (microseconds) - không cần convert
+                if hasattr(self.exposure_edit, 'value'):  # QDoubleSpinBox
+                    value_us = self.exposure_edit.value()
+                else:  # QLineEdit fallback
+                    value_us = float(self.exposure_edit.text())
+                
+                print(f"DEBUG: New exposure value: {value_us} μs")
+                print(f"DEBUG: Manual mode: {not self._is_auto_exposure}")
+                
+                # Lưu trực tiếp giá trị microseconds vào pending settings
+                self._pending_exposure_settings['exposure'] = value_us
+                print(f"DEBUG: Saved to pending settings")
+                
+                # Notify settings manager about the change for synchronization
+                if self.settings_manager:
+                    self.settings_manager.mark_page_changed('camera')
+                    # Optionally trigger immediate sync
+                    # self.settings_manager.sync_settings_across_pages()
+                
+        except (ValueError, AttributeError) as e:
+            print(f"DEBUG: Error in exposure edit changed: {e}")
+    
+    def set_settings_manager(self, settings_manager):
+        """Set reference to settings manager for synchronization"""
+        self.settings_manager = settings_manager
+        print(f"DEBUG: CameraManager linked to SettingsManager")
 
     def on_gain_slider_changed(self, value):
         """Xử lý khi người dùng thay đổi slider gain"""
@@ -160,16 +365,32 @@ class CameraManager(QObject):
 
     def update_camera_params_from_camera(self):
         """Cập nhật các tham số từ camera hiện tại"""
+        if not self.camera_stream:
+            return
+            
         # Lấy giá trị thực tế từ camera nếu có API
         if hasattr(self.camera_stream, 'get_exposure'):
             exposure = self.camera_stream.get_exposure()
-            self.set_exposure(exposure)
+            print(f"DEBUG: Got exposure from camera: {exposure}")
+            if exposure:  # Chỉ update nếu có giá trị hợp lệ
+                if self.exposure_edit:
+                    if hasattr(self.exposure_edit, 'setValue'):
+                        self.exposure_edit.setValue(float(exposure))
+                        print(f"DEBUG: Set exposure in UI: {exposure}")
+                    else:
+                        self.exposure_edit.setText(str(exposure))
+                        
         if hasattr(self.camera_stream, 'get_gain'):
             gain = self.camera_stream.get_gain()
-            self.set_gain(gain)
+            print(f"DEBUG: Got gain from camera: {gain}")
+            if gain:
+                self.set_gain(gain)
+                
         if hasattr(self.camera_stream, 'get_ev'):
             ev = self.camera_stream.get_ev()
-            self.set_ev(ev)
+            print(f"DEBUG: Got EV from camera: {ev}")
+            if ev is not None:
+                self.set_ev(ev)
             
     def toggle_live_camera(self, checked):
         """Bật/tắt chế độ camera trực tiếp"""
@@ -178,6 +399,11 @@ class CameraManager(QObject):
             
         if checked:
             self.camera_stream.start_live()
+            # Sync camera params sau một chút delay để camera start hoàn toàn
+            from PyQt5.QtCore import QTimer
+            # Thử sync multiple times để đảm bảo camera đã sẵn sàng
+            QTimer.singleShot(1000, self.update_camera_params_from_camera)  # 1s delay
+            QTimer.singleShot(2000, self.update_camera_params_from_camera)  # retry sau 2s
         else:
             self.camera_stream.stop_live()
             
@@ -188,8 +414,6 @@ class CameraManager(QObject):
             self.camera_stream.set_auto_exposure(True)
         
         # Disable các widget điều chỉnh phơi sáng
-        if self.exposure_slider:
-            self.exposure_slider.setEnabled(False)
         if self.exposure_edit:
             self.exposure_edit.setEnabled(False)
         if self.gain_slider:
@@ -206,12 +430,12 @@ class CameraManager(QObject):
         self._is_auto_exposure = False
         if hasattr(self.camera_stream, 'set_auto_exposure'):
             self.camera_stream.set_auto_exposure(False)
+            print("DEBUG: Set camera auto exposure to False")
         
         # Enable các widget điều chỉnh phơi sáng
-        if self.exposure_slider:
-            self.exposure_slider.setEnabled(True)
         if self.exposure_edit:
             self.exposure_edit.setEnabled(True)
+            print("DEBUG: Enabled exposure_edit")
         if self.gain_slider:
             self.gain_slider.setEnabled(True)
         if self.gain_edit:
@@ -220,6 +444,8 @@ class CameraManager(QObject):
             self.ev_slider.setEnabled(True)
         if self.ev_edit:
             self.ev_edit.setEnabled(True)
+            
+        print(f"DEBUG: Manual exposure mode set, _is_auto_exposure = {self._is_auto_exposure}")
             
     @pyqtSlot(int)
     def update_focus_value(self, value):
@@ -262,3 +488,204 @@ class CameraManager(QObject):
         """Xử lý sự kiện khi cửa sổ thay đổi kích thước"""
         if self.camera_view:
             self.camera_view.handle_resize_event()
+    
+    # ============ CAMERA MODE HANDLERS ============
+    
+    def on_live_camera_clicked(self):
+        """Xử lý khi click Live Camera button"""
+        if self.current_mode == 'live':
+            # Đang ở live mode, tắt live
+            self.toggle_live_camera(False)
+            self.current_mode = None
+        else:
+            # Chuyển sang live mode
+            self.current_mode = 'live'
+            self.toggle_live_camera(True)
+        
+        self.update_camera_mode_ui()
+    
+    def on_trigger_camera_clicked(self):
+        """Xử lý khi click Trigger Camera button"""
+        if self.current_mode == 'trigger':
+            # Đang ở trigger mode, tắt
+            self.current_mode = None
+        else:
+            # Chuyển sang trigger mode
+            if self.current_mode == 'live':
+                # Tắt live trước
+                self.toggle_live_camera(False)
+            self.current_mode = 'trigger'
+            # Trigger capture ngay
+            self.trigger_capture()
+        
+        self.update_camera_mode_ui()
+    
+    def update_camera_mode_ui(self):
+        """Cập nhật UI theo camera mode hiện tại"""
+        if self.live_camera_btn and self.trigger_camera_btn:
+            if self.current_mode == 'live':
+                self.live_camera_btn.setText("Stop Live")
+                self.live_camera_btn.setStyleSheet("background-color: #ff6b6b")  # Red
+                self.trigger_camera_btn.setEnabled(False)
+            elif self.current_mode == 'trigger':
+                self.trigger_camera_btn.setText("Trigger")
+                self.trigger_camera_btn.setStyleSheet("background-color: #4ecdc4")  # Teal
+                self.live_camera_btn.setEnabled(False)
+            else:
+                # No mode selected
+                self.live_camera_btn.setText("Live Camera")
+                self.live_camera_btn.setStyleSheet("")
+                self.trigger_camera_btn.setText("Trigger Camera")
+                self.trigger_camera_btn.setStyleSheet("")
+                self.live_camera_btn.setEnabled(True)
+                self.trigger_camera_btn.setEnabled(True)
+    
+    # ============ EXPOSURE MODE HANDLERS ============
+    
+    def on_auto_exposure_clicked(self):
+        """Xử lý khi click Auto Exposure button"""
+        self._is_auto_exposure = True
+        # Áp dụng auto mode ngay lập tức
+        self.set_auto_exposure_mode()
+        self.update_exposure_mode_ui()
+        # Lưu vào pending settings
+        self._pending_exposure_settings['auto_exposure'] = True
+    
+    def on_manual_exposure_clicked(self):
+        """Xử lý khi click Manual Exposure button"""
+        self._is_auto_exposure = False
+        # Áp dụng manual mode ngay lập tức
+        self.set_manual_exposure_mode()
+        self.update_exposure_mode_ui()
+        # Lưu vào pending settings
+        self._pending_exposure_settings['auto_exposure'] = False
+    
+    def update_exposure_mode_ui(self):
+        """Cập nhật UI theo exposure mode hiện tại"""
+        # Enable/disable manual controls
+        self.set_settings_controls_enabled(not self._is_auto_exposure and self.ui_enabled)
+        
+        # Update button states
+        if self.auto_exposure_btn and self.manual_exposure_btn:
+            if self._is_auto_exposure:
+                self.auto_exposure_btn.setStyleSheet("background-color: #51cf66")  # Green
+                self.manual_exposure_btn.setStyleSheet("")
+            else:
+                self.auto_exposure_btn.setStyleSheet("")
+                self.manual_exposure_btn.setStyleSheet("background-color: #ffd43b")  # Yellow
+    
+    # ============ SETTINGS HANDLERS ============
+    
+    def on_apply_settings_clicked(self):
+        """Áp dụng tất cả settings đã thay đổi"""
+        try:
+            # Kiểm tra xem có đang ở chế độ live camera không
+            was_live_active = self.current_mode == 'live' and self.camera_stream and self.camera_stream.is_live
+            
+            # Nếu đang live, tạm dừng để apply settings
+            if was_live_active:
+                self.camera_stream.stop_live()
+            
+            # Apply exposure mode
+            if 'auto_exposure' in self._pending_exposure_settings:
+                auto_mode = self._pending_exposure_settings['auto_exposure']
+                if self.camera_stream:
+                    self.camera_stream.set_auto_exposure(auto_mode)
+            
+            # Apply exposure values
+            if 'exposure' in self._pending_exposure_settings:
+                exposure_value = self._pending_exposure_settings['exposure']
+                print(f"DEBUG: Applying exposure: {exposure_value}μs")
+                if self.camera_stream:
+                    self.camera_stream.set_exposure(exposure_value)
+                    print(f"DEBUG: Called set_exposure with {exposure_value}")
+                else:
+                    print("DEBUG: No camera_stream available")
+            
+            # Apply gain
+            if 'gain' in self._pending_exposure_settings:
+                if self.camera_stream:
+                    self.camera_stream.set_gain(self._pending_exposure_settings['gain'])
+            
+            # Apply EV
+            if 'ev' in self._pending_exposure_settings:
+                if self.camera_stream:
+                    self.camera_stream.set_ev(self._pending_exposure_settings['ev'])
+            
+            # Nếu trước đó đang live, restart live preview với settings mới
+            if was_live_active:
+                self.camera_stream.start_live()
+            
+            # Không sync lại UI từ camera để tránh reset về default
+            # Giữ nguyên giá trị user đã set
+            # self.update_camera_params_from_camera()
+            
+            # Clear pending settings
+            self._pending_exposure_settings.clear()
+            
+            # Hiển thị dialog thông báo thành công
+            from PyQt5.QtWidgets import QMessageBox
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Information)
+            msg.setWindowTitle("Thành công")
+            msg.setText("Đã áp dụng cài đặt camera thành công!")
+            msg.setStandardButtons(QMessageBox.Ok)
+            msg.exec_()
+            
+            logging.info("Camera settings applied successfully")
+            
+        except Exception as e:
+            logging.error(f"Error applying camera settings: {str(e)}")
+    
+    def on_cancel_settings_clicked(self):
+        """Hủy bỏ tất cả thay đổi và khôi phục giá trị mặc định"""
+        try:
+            # Reset to default values
+            self._is_auto_exposure = True
+            
+            # Reset UI values
+            if self.exposure_edit:
+                self.exposure_edit.setValue(10000.0)  # 10000 microseconds (10ms)
+            if self.gain_slider:
+                self.gain_slider.setValue(100)  # 1.0 gain
+            if self.gain_edit:
+                self.gain_edit.setValue(1.0)
+            if self.ev_slider:
+                self.ev_slider.setValue(0)
+            if self.ev_edit:
+                self.ev_edit.setValue(0.0)
+            
+            # Clear pending settings
+            self._pending_exposure_settings.clear()
+            
+            # Update UI
+            self.update_exposure_mode_ui()
+            
+            logging.info("Camera settings cancelled and reset to defaults")
+            
+        except Exception as e:
+            logging.error(f"Error cancelling camera settings: {str(e)}")
+            
+    def cleanup(self):
+        """Dọn dẹp tài nguyên camera khi thoát ứng dụng"""
+        logger = logging.getLogger(__name__)
+        try:
+            # Dừng live preview nếu đang chạy
+            if self.camera_stream and hasattr(self.camera_stream, 'stop_live'):
+                logger.info("Stopping camera live preview...")
+                self.camera_stream.stop_live()
+            
+            # Dọn dẹp camera stream
+            if self.camera_stream and hasattr(self.camera_stream, 'cleanup'):
+                logger.info("Cleaning up camera stream...")
+                self.camera_stream.cleanup()
+            
+            # Dọn dẹp camera view
+            if self.camera_view:
+                logger.info("Cleaning up camera view...")
+                self.camera_view = None
+                
+            logger.info("Camera manager cleanup completed successfully")
+            
+        except Exception as e:
+            logger.error(f"Error during camera manager cleanup: {str(e)}", exc_info=True)

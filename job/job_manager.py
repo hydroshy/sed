@@ -55,8 +55,11 @@ class ToolConfig:
 class Tool:
     """Lớp cơ sở cho tất cả các công cụ xử lý"""
     
-    def __init__(self, name: str, config: Optional[Union[Dict[str, Any], ToolConfig]] = None):
+    def __init__(self, name: str, config: Optional[Union[Dict[str, Any], ToolConfig]] = None, tool_id: Optional[int] = None):
         self.name = name
+        self.tool_id = tool_id  # Unique ID for tool in job
+        self.display_name = self._generate_display_name()
+        
         if config is None:
             self.config = ToolConfig({})
         elif isinstance(config, ToolConfig):
@@ -64,6 +67,17 @@ class Tool:
         else:
             self.config = ToolConfig(config)
         self.setup_config()
+    
+    def _generate_display_name(self) -> str:
+        """Generate display name with ID"""
+        if self.tool_id is not None:
+            return f"{self.name} #{self.tool_id}"
+        return self.name
+    
+    def set_tool_id(self, tool_id: int) -> None:
+        """Set tool ID and update display name"""
+        self.tool_id = tool_id
+        self.display_name = self._generate_display_name()
         
     def setup_config(self) -> None:
         """Thiết lập các giá trị mặc định và xác thực cho cấu hình"""
@@ -88,7 +102,9 @@ class Tool:
         return {
             'name': self.name,
             'type': self.__class__.__name__,
-            'config': self.config.to_dict()
+            'config': self.config.to_dict(),
+            'tool_id': self.tool_id,
+            'display_name': self.display_name
         }
     
     @staticmethod
@@ -130,11 +146,34 @@ class Job:
         self.status = "ready"  # ready, running, completed, failed
         self.last_run_time = 0.0
         self.execution_time = 0.0
+        self._next_tool_id = 1  # Counter for tool IDs
+        
+        # Assign IDs to existing tools
+        self._assign_tool_ids()
+        
+    def _assign_tool_ids(self) -> None:
+        """Assign IDs to tools that don't have them"""
+        for tool in self.tools:
+            if tool.tool_id is None:
+                tool.set_tool_id(self._next_tool_id)
+                self._next_tool_id += 1
         
     def add_tool(self, tool: Tool) -> None:
         """Thêm một công cụ vào chuỗi xử lý"""
+        if tool.tool_id is None:
+            tool.set_tool_id(self._next_tool_id)
+            self._next_tool_id += 1
+        
         self.tools.append(tool)
         self.status = "ready"
+        logger.info(f"Added tool: {tool.display_name} to job {self.name}")
+        
+    def get_tool_by_id(self, tool_id: int) -> Optional[Tool]:
+        """Get tool by ID"""
+        for tool in self.tools:
+            if tool.tool_id == tool_id:
+                return tool
+        return None
         
     def remove_tool(self, index: int) -> bool:
         """Xóa một công cụ theo chỉ số"""

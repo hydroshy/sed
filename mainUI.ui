@@ -577,31 +577,12 @@
             <property name="frameShadow">
              <enum>QFrame::Raised</enum>
             </property>
-            <widget class="QSlider" name="exposureSlider">
-             <property name="geometry">
-              <rect>
-               <x>220</x>
-               <y>60</y>
-               <width>241</width>
-               <height>21</height>
-              </rect>
-             </property>
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-               <horstretch>0</horstretch>
-               <verstretch>0</verstretch>
-              </sizepolicy>
-             </property>
-             <property name="orientation">
-              <enum>Qt::Horizontal</enum>
-             </property>
-            </widget>
             <widget class="QLabel" name="exposureLabel">
              <property name="geometry">
               <rect>
-               <x>10</x>
-               <y>10</y>
-               <width>81</width>
+               <x>30</x>
+               <y>100</y>
+               <width>61</width>
                <height>21</height>
               </rect>
              </property>
@@ -612,34 +593,21 @@
               </sizepolicy>
              </property>
              <property name="text">
-              <string>Exposure</string>
+              <string>Exposure (μs)</string>
+             </property>
+             <property name="scaledContents">
+              <bool>false</bool>
              </property>
              <property name="alignment">
-              <set>Qt::AlignCenter</set>
-             </property>
-            </widget>
-            <widget class="QLineEdit" name="exposureEdit">
-             <property name="geometry">
-              <rect>
-               <x>90</x>
-               <y>60</y>
-               <width>113</width>
-               <height>22</height>
-              </rect>
-             </property>
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-               <horstretch>0</horstretch>
-               <verstretch>0</verstretch>
-              </sizepolicy>
+              <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
              </property>
             </widget>
             <widget class="QLabel" name="gainLabel">
              <property name="geometry">
               <rect>
-               <x>10</x>
-               <y>100</y>
-               <width>81</width>
+               <x>40</x>
+               <y>140</y>
+               <width>61</width>
                <height>21</height>
               </rect>
              </property>
@@ -659,8 +627,8 @@
             <widget class="QLineEdit" name="gainEdit">
              <property name="geometry">
               <rect>
-               <x>90</x>
-               <y>100</y>
+               <x>100</x>
+               <y>140</y>
                <width>113</width>
                <height>22</height>
               </rect>
@@ -675,9 +643,9 @@
             <widget class="QSlider" name="gainSlider">
              <property name="geometry">
               <rect>
-               <x>220</x>
-               <y>100</y>
-               <width>241</width>
+               <x>230</x>
+               <y>140</y>
+               <width>231</width>
                <height>21</height>
               </rect>
              </property>
@@ -694,8 +662,8 @@
             <widget class="QLabel" name="evLabel">
              <property name="geometry">
               <rect>
-               <x>10</x>
-               <y>140</y>
+               <x>20</x>
+               <y>180</y>
                <width>81</width>
                <height>21</height>
               </rect>
@@ -716,8 +684,8 @@
             <widget class="QLineEdit" name="evEdit">
              <property name="geometry">
               <rect>
-               <x>90</x>
-               <y>140</y>
+               <x>100</x>
+               <y>180</y>
                <width>113</width>
                <height>22</height>
               </rect>
@@ -732,9 +700,9 @@
             <widget class="QSlider" name="evSlider">
              <property name="geometry">
               <rect>
-               <x>220</x>
-               <y>140</y>
-               <width>241</width>
+               <x>230</x>
+               <y>180</y>
+               <width>231</width>
                <height>21</height>
               </rect>
              </property>
@@ -751,8 +719,8 @@
             <widget class="QPushButton" name="triggerCameraMode">
              <property name="geometry">
               <rect>
-               <x>90</x>
-               <y>190</y>
+               <x>100</x>
+               <y>230</y>
                <width>171</width>
                <height>21</height>
               </rect>
@@ -764,8 +732,8 @@
             <widget class="QPushButton" name="liveCameraMode">
              <property name="geometry">
               <rect>
-               <x>290</x>
-               <y>190</y>
+               <x>300</x>
+               <y>230</y>
                <width>161</width>
                <height>21</height>
               </rect>
@@ -777,8 +745,8 @@
             <widget class="QLabel" name="modeLabel">
              <property name="geometry">
               <rect>
-               <x>10</x>
-               <y>190</y>
+               <x>20</x>
+               <y>230</y>
                <width>81</width>
                <height>21</height>
               </rect>
@@ -797,11 +765,14 @@
              </property>
             </widget>
             <widget class="QPushButton" name="manualExposure">
+             <property name="enabled">
+              <bool>true</bool>
+             </property>
              <property name="geometry">
               <rect>
-               <x>90</x>
-               <y>10</y>
-               <width>161</width>
+               <x>210</x>
+               <y>100</y>
+               <width>101</width>
                <height>28</height>
               </rect>
              </property>
@@ -810,16 +781,122 @@
              </property>
             </widget>
             <widget class="QPushButton" name="autoExposure">
+             <property name="enabled">
+              <bool>true</bool>
+             </property>
              <property name="geometry">
               <rect>
-               <x>290</x>
-               <y>10</y>
-               <width>161</width>
+               <x>90</x>
+               <y>100</y>
+               <width>101</width>
                <height>28</height>
               </rect>
              </property>
              <property name="text">
               <string>Auto</string>
+             </property>
+            </widget>
+            <widget class="QSpinBox" name="heightCameraFrameSpinBox">
+             <property name="enabled">
+              <bool>true</bool>
+             </property>
+             <property name="geometry">
+              <rect>
+               <x>90</x>
+               <y>60</y>
+               <width>101</width>
+               <height>21</height>
+              </rect>
+             </property>
+            </widget>
+            <widget class="QSpinBox" name="widthCameraFrameSpinBox">
+             <property name="enabled">
+              <bool>true</bool>
+             </property>
+             <property name="geometry">
+              <rect>
+               <x>340</x>
+               <y>60</y>
+               <width>101</width>
+               <height>21</height>
+              </rect>
+             </property>
+            </widget>
+            <widget class="QLabel" name="heightCameraFrameLabel">
+             <property name="geometry">
+              <rect>
+               <x>30</x>
+               <y>60</y>
+               <width>55</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Height</string>
+             </property>
+            </widget>
+            <widget class="QLabel" name="widthCameraFrameLabel">
+             <property name="geometry">
+              <rect>
+               <x>260</x>
+               <y>60</y>
+               <width>55</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Width</string>
+             </property>
+            </widget>
+            <widget class="QDoubleSpinBox" name="exposureEdit">
+             <property name="enabled">
+              <bool>true</bool>
+             </property>
+             <property name="geometry">
+              <rect>
+               <x>340</x>
+               <y>100</y>
+               <width>101</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="minimum">
+              <double>1.000000000000000</double>
+             </property>
+             <property name="maximum">
+              <double>10000000.000000000000000</double>
+             </property>
+             <property name="value">
+              <double>10000.000000000000000</double>
+             </property>
+             <property name="suffix">
+              <string> μs</string>
+             </property>
+            </widget>
+            <widget class="QComboBox" name="formatCameraComboBox">
+             <property name="enabled">
+              <bool>false</bool>
+             </property>
+             <property name="geometry">
+              <rect>
+               <x>90</x>
+               <y>20</y>
+               <width>351</width>
+               <height>22</height>
+              </rect>
+             </property>
+            </widget>
+            <widget class="QLabel" name="formatCameraLabel">
+             <property name="geometry">
+              <rect>
+               <x>30</x>
+               <y>20</y>
+               <width>55</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Format</string>
              </property>
             </widget>
            </widget>

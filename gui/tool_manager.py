@@ -1,4 +1,5 @@
 from PyQt5.QtCore import QObject, QStringListModel
+from PyQt5.QtGui import QStandardItemModel, QStandardItem
 from job.job_manager import Tool, Job, JobManager
 import logging
 
@@ -105,58 +106,158 @@ class ToolManager(QObject):
 
     def add_tool_to_job_with_tool(self, tool):
         """Thêm đối tượng Tool đã tạo vào job hiện tại"""
+        print(f"DEBUG: add_tool_to_job_with_tool called with tool: {tool.name}")
+        
         # Ensure job_manager is initialized
         if not self.job_manager:
+            print("DEBUG: JobManager is not initialized!")
             logging.error("ToolManager: JobManager is not initialized.")
             return False
 
         # If no current job, create a new one
         current_job = self.job_manager.get_current_job()
+        print(f"DEBUG: Current job before adding: {current_job}")
+        
         if not current_job:
+            print("DEBUG: No current job found. Creating a new job.")
             logging.info("ToolManager: No current job found. Creating a new job.")
             current_job = Job("Job 1")
             self.job_manager.add_job(current_job)
+            print(f"DEBUG: Created new job: {current_job.name}")
 
         # Add the tool to the current job
+        print(f"DEBUG: Adding tool to job. Current tools count: {len(current_job.tools)}")
         current_job.add_tool(tool)
+        print(f"DEBUG: After adding tool. Tools count: {len(current_job.tools)}")
+        print(f"DEBUG: Tool added: {tool.display_name}")
+        
         self._update_job_view()
         logging.info(f"ToolManager: Tool '{tool.name}' added to the current job.")
         return True
 
     def _update_job_view(self):
-        """Cập nhật hiển thị job trong UI"""
+        """Cập nhật hiển thị job trong UI với QTreeView"""
+        print(f"DEBUG: _update_job_view called")
+        print(f"DEBUG: _job_view exists: {self._job_view is not None}")
+        print(f"DEBUG: job_manager exists: {self.job_manager is not None}")
+        
         if not self._job_view or not self.job_manager:
+            print("DEBUG: Missing job_view or job_manager")
             return
             
+        # Create tree model
+        model = QStandardItemModel()
+        model.setHorizontalHeaderLabels(["Tools"])
+        
         job = self.job_manager.get_current_job()
+        print(f"DEBUG: Current job: {job}")
+        
         if job:
-            tool_names = [tool.name for tool in job.tools]
+            # Create job root item
+            job_item = QStandardItem(f"📁 {job.name}")
+            job_item.setEditable(False)
+            
+            # Add tools as children
+            for tool in job.tools:
+                tool_item = QStandardItem(f"🔧 {tool.display_name}")
+                tool_item.setEditable(False)
+                # Store tool reference for later use
+                tool_item.setData(tool, role=256)  # Custom role
+                job_item.appendRow(tool_item)
+                print(f"DEBUG: Added tool item: {tool.display_name}")
+            
+            model.appendRow(job_item)
+            print(f"DEBUG: Added job item with {len(job.tools)} tools")
         else:
-            tool_names = []
-        self._job_model = QStringListModel(tool_names)
-        self._job_view.setModel(self._job_model)
+            # Create empty job item
+            empty_item = QStandardItem("📁 No Job")
+            empty_item.setEditable(False)
+            model.appendRow(empty_item)
+            print("DEBUG: No current job, added empty item")
+            
+        self._job_view.setModel(model)
+        # Expand all items to show tools
+        self._job_view.expandAll()
+        print(f"DEBUG: Updated tree view model")
         
     def on_remove_tool_from_job(self):
         """Xóa tool được chọn trong jobView"""
         if not self._job_view or not self.job_manager:
             return
             
-        index = self._job_view.currentIndex().row()
-        job = self.job_manager.get_current_job()
-        if job and 0 <= index < len(job.tools):
-            job.tools.pop(index)
-            self._update_job_view()
+        # Get selected index from tree view
+        selection = self._job_view.selectionModel()
+        if not selection.hasSelection():
+            print("DEBUG: No item selected for removal")
+            return
+            
+        index = selection.currentIndex()
+        model = self._job_view.model()
+        
+        if not model:
+            return
+            
+        # Get item from model
+        item = model.itemFromIndex(index)
+        if not item:
+            return
+        
+        # Check if it's a tool item
+        tool = item.data(role=256)
+        if tool:
+            job = self.job_manager.get_current_job()
+            if job:
+                # Find and remove tool from job
+                for i, job_tool in enumerate(job.tools):
+                    if job_tool.tool_id == tool.tool_id:
+                        removed_tool = job.tools.pop(i)
+                        self._update_job_view()
+                        logging.info(f"ToolManager: Removed tool: {removed_tool.display_name}")
+                        break
             
     def on_edit_tool_in_job(self):
         """Chỉnh sửa tool được chọn trong jobView"""
         if not self._job_view or not self.job_manager:
-            return
+            return None
             
-        index = self._job_view.currentIndex().row()
-        job = self.job_manager.get_current_job()
-        if job and 0 <= index < len(job.tools):
-            tool = job.tools[index]
-            logging.info(f"ToolManager: Edit tool: {tool.name}")
-            return tool
+        # Get selected index from tree view
+        selection = self._job_view.selectionModel()
+        if not selection.hasSelection():
+            print("DEBUG: No item selected in job view")
+            return None
+            
+        index = selection.currentIndex()
+        model = self._job_view.model()
         
-        return None
+        if not model:
+            print("DEBUG: No model set for job view")
+            return None
+            
+        # Get item from model
+        item = model.itemFromIndex(index)
+        if not item:
+            print("DEBUG: No item found at selected index")
+            return None
+        
+        # Check if it's a tool item (has tool data)
+        tool = item.data(role=256)  # Custom role where we stored tool reference
+        if tool:
+            logging.info(f"ToolManager: Edit tool: {tool.display_name}")
+            
+            # Set as current editing tool
+            self._current_editing_tool = tool
+            self._current_editing_index = None  # Not needed for tree view
+            
+            return tool
+        else:
+            print("DEBUG: Selected item is not a tool")
+            return None
+    
+    def get_current_editing_tool(self):
+        """Get currently editing tool"""
+        return getattr(self, '_current_editing_tool', None)
+    
+    def clear_current_editing_tool(self):
+        """Clear current editing tool"""
+        self._current_editing_tool = None
+        self._current_editing_index = None

@@ -1,9 +1,10 @@
 import logging
 import cv2
 import time
-from PyQt5.QtCore import Qt, pyqtSignal, QObject
+from PyQt5.QtCore import Qt, pyqtSignal, QObject, QRectF
 from PyQt5.QtGui import QImage, QPixmap, QCursor, QPainter, QPen, QColor, QFont
 from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
+from gui.resizable_rect_item import ResizableRectItem
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -19,6 +20,9 @@ class CameraView(QObject):
     
     # Tín hiệu để thông báo cập nhật FPS
     fps_updated = pyqtSignal(float)
+    
+    # Tín hiệu để thông báo khi area được vẽ
+    area_drawn = pyqtSignal(int, int, int, int)  # x1, y1, x2, y2
 
     def __init__(self, graphics_view):
         """
@@ -43,6 +47,14 @@ class CameraView(QObject):
         self.fps_alpha = 0.9  # Hệ số trung bình động cho FPS
         self.show_fps = True
         
+        # Drawing mode variables
+        self.draw_mode = False
+        self.drawing = False
+        self.start_point = None
+        self.end_point = None
+        self.current_area = None  # ResizableRectItem
+        self.saved_areas = []  # List of ResizableRectItem objects
+        
         # Khởi tạo scene và cấu hình graphics view
         self.scene = QGraphicsScene()
         self.graphics_view.setScene(self.scene)
@@ -52,6 +64,11 @@ class CameraView(QObject):
         self.graphics_view.setRenderHints(QPainter.SmoothPixmapTransform)
         self.graphics_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.graphics_view.setDragMode(QGraphicsView.NoDrag)
+        
+        # Setup mouse event handling for drawing
+        self.graphics_view.mousePressEvent = self._mouse_press_event
+        self.graphics_view.mouseMoveEvent = self._mouse_move_event
+        self.graphics_view.mouseReleaseEvent = self._mouse_release_event
         
         # Khởi tạo offset cho scene
         self.scene_offset = [0, 0]
@@ -338,7 +355,108 @@ class CameraView(QObject):
                 self.graphics_view.centerOn(self.pixmap_item)
                 
             self._calculate_fps()  # Cập nhật FPS
-                
-            logging.debug("Frame with OCR boxes displayed successfully")
+            
         except Exception as e:
-            logging.error("Error displaying frame with OCR boxes: %s", e)
+            logging.error(f"Error displaying frame with OCR boxes: {e}")
+    
+    # ===== DRAWING MODE METHODS =====
+    
+    def set_draw_mode(self, enabled):
+        """Enable/disable drawing mode"""
+        self.draw_mode = enabled
+        print(f"DEBUG: Drawing mode set to {enabled}")
+        if enabled:
+            self.graphics_view.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+        else:
+            self.graphics_view.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+            self.drawing = False
+            self.start_point = None
+            self.end_point = None
+    
+    def _mouse_press_event(self, event):
+        """Handle mouse press events for drawing"""
+        if self.draw_mode and event.button() == Qt.MouseButton.LeftButton:
+            # Convert screen coordinates to scene coordinates
+            scene_pos = self.graphics_view.mapToScene(event.pos())
+            self.start_point = (scene_pos.x(), scene_pos.y())
+            self.drawing = True
+            print(f"DEBUG: Started drawing at {self.start_point}")
+    
+    def _mouse_move_event(self, event):
+        """Handle mouse move events for drawing"""
+        if self.draw_mode and self.drawing:
+            scene_pos = self.graphics_view.mapToScene(event.pos())
+            self.end_point = (scene_pos.x(), scene_pos.y())
+            self._update_current_area()
+    
+    def _mouse_release_event(self, event):
+        """Handle mouse release events for drawing"""
+        if self.draw_mode and self.drawing and event.button() == Qt.MouseButton.LeftButton:
+            scene_pos = self.graphics_view.mapToScene(event.pos())
+            self.end_point = (scene_pos.x(), scene_pos.y())
+            self.drawing = False
+            
+            if self.start_point and self.end_point:
+                # Calculate final area coordinates
+                x1, y1 = self.start_point
+                x2, y2 = self.end_point
+                
+                # Ensure x1 < x2 and y1 < y2
+                x1, x2 = min(x1, x2), max(x1, x2)
+                y1, y2 = min(y1, y2), max(y1, y2)
+                
+                # Create resizable rectangle
+                rect = QRectF(x1, y1, x2-x1, y2-y1)
+                resizable_rect = ResizableRectItem(rect)
+                self.scene.addItem(resizable_rect)
+                
+                # Select the new rectangle
+                resizable_rect.set_selected(True)
+                self.current_area = resizable_rect
+                
+                print(f"DEBUG: Created resizable rectangle: ({x1}, {y1}) to ({x2}, {y2})")
+                
+                # Emit the area_drawn signal
+                self.area_drawn.emit(int(x1), int(y1), int(x2), int(y2))
+    
+    def _update_current_area(self):
+        """Update the current drawing area visualization"""
+        # This could be used to show real-time rectangle while drawing
+        # For now, we'll implement it later if needed
+        pass
+    
+    def add_detection_area(self, x1, y1, x2, y2, label="Detection Area"):
+        """Add a detection area to be displayed on camera view"""
+        rect = QRectF(x1, y1, x2-x1, y2-y1)
+        resizable_rect = ResizableRectItem(rect)
+        self.scene.addItem(resizable_rect)
+        self.saved_areas.append(resizable_rect)
+        print(f"DEBUG: Added resizable detection area: ({x1}, {y1}) to ({x2}, {y2})")
+        return resizable_rect
+    
+    def clear_detection_areas(self):
+        """Clear all detection areas"""
+        for area in self.saved_areas:
+            if area.scene():
+                self.scene.removeItem(area)
+        self.saved_areas.clear()
+        
+        # Also clear current area if exists
+        if self.current_area and self.current_area.scene():
+            self.scene.removeItem(self.current_area)
+            self.current_area = None
+            
+        print("DEBUG: Cleared all detection areas")
+    
+    def get_current_area_coords(self):
+        """Get current area coordinates"""
+        if self.current_area:
+            return self.current_area.get_area_coords()
+        return None
+    
+    def get_all_area_coords(self):
+        """Get all detection area coordinates"""
+        coords_list = []
+        for area in self.saved_areas:
+            coords_list.append(area.get_area_coords())
+        return coords_list
