@@ -15,9 +15,9 @@ class ResizableRectItem(QGraphicsRectItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         
-        # Thiết lập style
+        # Thiết lập style - chỉ có viền, không có nền
         pen = QPen(QColor(255, 0, 0), 2)  # Viền đỏ, độ dày 2px
-        brush = QBrush(QColor(255, 0, 0, 50))  # Nền đỏ trong suốt
+        brush = QBrush(Qt.BrushStyle.NoBrush)  # Không có nền
         self.setPen(pen)
         self.setBrush(brush)
         
@@ -82,6 +82,29 @@ class ResizableRectItem(QGraphicsRectItem):
         for handle in self.handles:
             handle.setVisible(selected)
         self.setSelected(selected)
+        
+    def set_style(self, border_color=None, fill_color=None, border_width=None, fill_opacity=None, transparent_fill=True):
+        """Tùy chỉnh style của rectangle"""
+        if border_color is None:
+            border_color = QColor(255, 0, 0)  # Đỏ
+        if border_width is None:
+            border_width = 2
+            
+        pen = QPen(border_color, border_width)
+        
+        if transparent_fill:
+            # Không có nền - chỉ khung
+            brush = QBrush(Qt.BrushStyle.NoBrush)
+        else:
+            # Có nền mờ
+            if fill_color is None:
+                fill_color = QColor(255, 255, 255)  # Trắng
+            if fill_opacity is None:
+                fill_opacity = 30  # Mờ nhẹ
+            brush = QBrush(QColor(fill_color.red(), fill_color.green(), fill_color.blue(), fill_opacity))
+            
+        self.setPen(pen)
+        self.setBrush(brush)
         
     def get_area_coords(self):
         """Lấy tọa độ area (x1, y1, x2, y2)"""

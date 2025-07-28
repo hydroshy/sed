@@ -160,6 +160,9 @@ class CameraView(QObject):
 
             self.pixmap_item = QGraphicsPixmapItem(pixmap)
             self.pixmap_item.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
+            
+            # Đặt pixmap_item ở z-level thấp nhất để detection areas nằm trên
+            self.pixmap_item.setZValue(-1)
             self.scene.addItem(self.pixmap_item)
 
             # Đặt điểm xoay ở giữa pixmap
@@ -169,8 +172,17 @@ class CameraView(QObject):
             # Áp dụng góc xoay
             self.pixmap_item.setRotation(self.rotation_angle)
 
-            # Điều chỉnh scene rectangle
-            self.scene.setSceneRect(self.pixmap_item.boundingRect())
+            # Điều chỉnh scene rectangle để bao gồm cả pixmap và các detection areas
+            scene_rect = self.pixmap_item.boundingRect()
+            # Mở rộng scene rect để chứa các detection areas
+            if self.saved_areas:
+                for area in self.saved_areas:
+                    if area.scene() == self.scene:
+                        scene_rect = scene_rect.united(area.boundingRect())
+            if self.current_area and self.current_area.scene() == self.scene:
+                scene_rect = scene_rect.united(self.current_area.boundingRect())
+            
+            self.scene.setSceneRect(scene_rect)
 
             # Căn giữa view
             pixmap_center = self.pixmap_item.boundingRect().center()
@@ -408,6 +420,8 @@ class CameraView(QObject):
                 # Create resizable rectangle
                 rect = QRectF(x1, y1, x2-x1, y2-y1)
                 resizable_rect = ResizableRectItem(rect)
+                # Đặt z-value cao để detection area luôn hiển thị trên frame
+                resizable_rect.setZValue(1)
                 self.scene.addItem(resizable_rect)
                 
                 # Select the new rectangle
@@ -429,6 +443,8 @@ class CameraView(QObject):
         """Add a detection area to be displayed on camera view"""
         rect = QRectF(x1, y1, x2-x1, y2-y1)
         resizable_rect = ResizableRectItem(rect)
+        # Đặt z-value cao để detection area luôn hiển thị trên frame
+        resizable_rect.setZValue(1)
         self.scene.addItem(resizable_rect)
         self.saved_areas.append(resizable_rect)
         print(f"DEBUG: Added resizable detection area: ({x1}, {y1}) to ({x2}, {y2})")
