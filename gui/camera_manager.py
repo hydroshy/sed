@@ -10,6 +10,7 @@ class CameraManager(QObject):
     """
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.main_window = parent  # Store reference to main window
         self.camera_stream = None
         self.camera_view = None
         self.exposure_edit = None  # Chỉ còn exposure edit, không có slider
@@ -52,8 +53,8 @@ class CameraManager(QObject):
         # Khởi tạo camera stream
         self.camera_stream = CameraStream()
         
-        # Khởi tạo camera view
-        self.camera_view = CameraView(camera_view_widget)
+        # Khởi tạo camera view với main_window reference
+        self.camera_view = CameraView(camera_view_widget, self.main_window)
         self.camera_stream.frame_ready.connect(self.camera_view.display_frame)
         
         # Kết nối các widget - bỏ exposure_slider

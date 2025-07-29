@@ -1,7 +1,7 @@
 import logging
 import cv2
 import time
-from PyQt5.QtCore import Qt, pyqtSignal, QObject, QRectF
+from PyQt5.QtCore import Qt, pyqtSignal, QObject, QRectF, QPoint
 from PyQt5.QtGui import QImage, QPixmap, QCursor, QPainter, QPen, QColor, QFont
 from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
 from gui.detection_area_overlay import DetectionAreaOverlay
@@ -27,15 +27,17 @@ class CameraView(QObject):
     # Tín hiệu để thông báo khi area thay đổi (move/resize)
     area_changed = pyqtSignal(int, int, int, int)  # x1, y1, x2, y2
 
-    def __init__(self, graphics_view):
+    def __init__(self, graphics_view, main_window=None):
         """
         Khởi tạo camera view
         
         Args:
             graphics_view: QGraphicsView widget từ UI để hiển thị hình ảnh
+            main_window: Reference to MainWindow for job manager access
         """
         super().__init__()
         self.graphics_view = graphics_view
+        self.main_window = main_window  # Store reference to main window
         
         # Khởi tạo các biến thành viên
         self.current_frame = None
@@ -58,6 +60,9 @@ class CameraView(QObject):
         self.current_overlay = None  # Overlay hiện tại đang edit
         self.overlays = {}  # Dict mapping tool_id -> DetectionAreaOverlay
         self.overlay_edit_mode = False  # Trạng thái có thể chỉnh sửa overlay
+        self.saved_areas = []  # List of saved detection areas
+        self.current_area = None  # Current area being worked with
+        self.detection_results = []  # Store detection results for visualization
         
         # Khởi tạo scene và cấu hình graphics view
         self.scene = QGraphicsScene()
@@ -103,16 +108,191 @@ class CameraView(QObject):
             frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2RGB)
 
         self.current_frame = frame  # Lưu frame hiện tại
+        
+        # Run job manager processing if available
+        self._run_job_processing(frame)
+        
         self._show_frame_with_zoom()
         self._calculate_fps()
+        
+    def _run_job_processing(self, frame):
+        """
+        Run job manager processing on current frame
+        
+        Args:
+            frame: Current frame to process
+        """
+        try:
+            # Get job manager from main window
+            if hasattr(self, 'main_window') and hasattr(self.main_window, 'job_manager'):
+                job_manager = self.main_window.job_manager
+                current_job = job_manager.get_current_job()
+                
+                if current_job and current_job.tools:
+                    logging.debug(f"Running job: {current_job.name} with {len(current_job.tools)} tools")
+                    
+                    # Process frame through job pipeline
+                    processed_frame, results = current_job.run(frame)
+                    
+                    logging.info(f"=== JOB RESULTS DEBUG ===")
+                    logging.info(f"Results type: {type(results)}")
+                    logging.info(f"Results keys: {list(results.keys()) if isinstance(results, dict) else 'Not a dict'}")
+                    
+                    # Get actual tool results - they might be nested under 'results' key
+                    tool_results = results
+                    if 'results' in results and isinstance(results['results'], dict):
+                        tool_results = results['results']
+                        logging.info(f"Found nested results, tool result keys: {list(tool_results.keys())}")
+                    
+                    # Handle detection results if available - check all tool results
+                    has_detections = False
+                    for tool_name, tool_result in tool_results.items():
+                        if isinstance(tool_result, dict):
+                            logging.info(f"Checking tool {tool_name}, result keys: {list(tool_result.keys())}")
+                            # Check if this tool has detection data
+                            if 'data' in tool_result:
+                                tool_data = tool_result['data']
+                                if isinstance(tool_data, dict) and 'detections' in tool_data:
+                                    logging.info(f"Found detections in tool {tool_name} data")
+                                    has_detections = True
+                                    break
+                            # Also check direct detections field
+                            elif 'detections' in tool_result:
+                                logging.info(f"Found direct detections in tool {tool_name}")
+                                has_detections = True
+                                break
+                    
+                    if has_detections:
+                        logging.info("Processing detection results...")
+                        self._handle_detection_results(tool_results, processed_frame)
+                    else:
+                        logging.warning("No detection results found in any tool")
+                        # Debug: show what's actually in the results
+                        for tool_name, tool_result in tool_results.items():
+                            if isinstance(tool_result, dict):
+                                logging.info(f"Tool {tool_name} available keys: {list(tool_result.keys())}")
+                        
+                    logging.debug(f"Job processing completed: {len(tool_results)} tool results")
+                else:
+                    logging.debug("No active job with tools to run")
+            else:
+                logging.debug("Job manager not available")
+                
+        except Exception as e:
+            logging.error(f"Error in job processing: {e}")
+    
+    def _draw_detection_boxes_on_pixmap(self, pixmap):
+        """
+        Draw detection bounding boxes on pixmap
+        
+        Args:
+            pixmap: QPixmap to draw on
+        """
+        try:
+            painter = QPainter(pixmap)
+            
+            # Set pen for bounding boxes
+            pen = QPen(QColor(255, 0, 0), 2)  # Red color, 2px width
+            painter.setPen(pen)
+            
+            # Set font for labels
+            font = QFont()
+            font.setPointSize(10)
+            painter.setFont(font)
+            
+            for detection in self.detection_results:
+                bbox = detection.get('bbox', [])
+                if len(bbox) >= 4:
+                    x1, y1, x2, y2 = bbox
+                    
+                    # Draw bounding box
+                    painter.drawRect(x1, y1, x2 - x1, y2 - y1)
+                    
+                    # Prepare label text
+                    class_name = detection.get('class_name', 'Unknown')
+                    confidence = detection.get('confidence', 0)
+                    label = f"{class_name}: {confidence:.2f}"
+                    
+                    # Draw label background
+                    label_rect = painter.fontMetrics().boundingRect(label)
+                    label_rect.moveTopLeft(QPoint(x1, y1 - label_rect.height() - 2))
+                    painter.fillRect(label_rect, QColor(255, 0, 0, 180))  # Semi-transparent red
+                    
+                    # Draw label text
+                    painter.setPen(QColor(255, 255, 255))  # White text
+                    painter.drawText(label_rect, Qt.AlignCenter, label)
+                    
+                    # Reset pen for next box
+                    painter.setPen(pen)
+            
+            painter.end()
+            logging.debug(f"Drew {len(self.detection_results)} detection boxes")
+            
+        except Exception as e:
+            logging.error(f"Error drawing detection boxes: {e}")
+    
+    def _handle_detection_results(self, results, processed_frame):
+        """
+        Handle detection results and display bounding boxes
+        
+        Args:
+            results: Results from job execution
+            processed_frame: Processed frame from detection
+        """
+        try:
+            logging.info(f"=== HANDLING DETECTION RESULTS ===")
+            logging.info(f"Results keys: {list(results.keys())}")
+            
+            # Find detection results
+            detection_results = None
+            for tool_name, tool_result in results.items():
+                logging.info(f"Tool: {tool_name}, Result type: {type(tool_result)}")
+                if isinstance(tool_result, dict):
+                    logging.info(f"Tool {tool_name} result keys: {list(tool_result.keys())}")
+                    if 'detect' in tool_name.lower() and 'data' in tool_result:
+                        detection_results = tool_result['data']
+                        logging.info(f"Found detection data in {tool_name}")
+                        break
+                    elif 'detect' in tool_name.lower() and 'detections' in tool_result:
+                        detection_results = tool_result
+                        logging.info(f"Found direct detections in {tool_name}")
+                        break
+            
+            if detection_results and 'detections' in detection_results:
+                detections = detection_results['detections']
+                logging.info(f"=== FOUND {len(detections)} DETECTIONS ===")
+                
+                for i, det in enumerate(detections):
+                    logging.info(f"Detection {i+1}: {det}")
+                
+                # Store detection results for visualization
+                self.detection_results = detections
+                logging.info(f"Stored {len(detections)} detections for visualization")
+                
+                # Force refresh display to show detection boxes
+                self._show_frame_with_zoom()
+                logging.info("Refreshed frame display to show detections")
+            else:
+                logging.warning("No detection results found in job output")
+                logging.info(f"Available data: {results}")
+                
+        except Exception as e:
+            logging.error(f"Error handling detection results: {e}")
+            import traceback
+            traceback.print_exc()
 
+    def _calculate_fps(self):
+        """
+        Tính toán và cập nhật FPS
+        """
         try:
             # Tính toán độ sắc nét sử dụng Laplacian
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
-            sharpness_norm = min(int(sharpness / 10), 100)  # Chuẩn hóa về 0-100
-            self.focus_calculated.emit(sharpness_norm)
-            logging.debug("Sharpness calculated: %d", sharpness_norm)
+            if self.current_frame is not None:
+                gray = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2GRAY)
+                sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
+                sharpness_norm = min(int(sharpness / 10), 100)  # Chuẩn hóa về 0-100
+                self.focus_calculated.emit(sharpness_norm)
+                logging.debug("Sharpness calculated: %d", sharpness_norm)
         except Exception as e:
             logging.error("Error calculating sharpness: %s", e)
             
@@ -161,6 +341,10 @@ class CameraView(QObject):
                 painter.setPen(QColor(0, 255, 0))  # Màu xanh lá
                 painter.drawText(10, 30, f"FPS: {self.fps:.1f}")
                 painter.end()
+            
+            # Vẽ detection boxes nếu có
+            if self.detection_results:
+                self._draw_detection_boxes_on_pixmap(pixmap)
 
             # Quản lý pixmap_item
             if self.pixmap_item is not None:

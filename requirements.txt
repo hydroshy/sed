@@ -9,6 +9,7 @@ opencv-python>=4.5.0
 
 # Object detection
 ultralytics>=8.0.0
+onnxruntime>=1.15.0  # For ONNX model inference
 
 # OCR dependencies (optional, choose one)
 # EasyOCR (recommended)

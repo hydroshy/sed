@@ -145,6 +145,7 @@ class MainWindow(QMainWindow):
         self.addClassificationButton = self.findChild(QPushButton, 'addClassificationButton')
         self.removeClassificationButton = self.findChild(QPushButton, 'removeClassificationButton')
         self.classificationScrollArea = self.findChild(QWidget, 'classificationScrollArea')  # QScrollArea or QListWidget
+        self.classificationListView = self.findChild(QListView, 'listView')  # For displaying selected classes
         
         # Debug logging for widget finding
         logging.info(f"detectSettingFrame found: {self.detectSettingFrame is not None}")
@@ -153,6 +154,7 @@ class MainWindow(QMainWindow):
         logging.info(f"Found addClassificationButton: {self.addClassificationButton is not None}")
         logging.info(f"Found removeClassificationButton: {self.removeClassificationButton is not None}")
         logging.info(f"Found classificationScrollArea: {self.classificationScrollArea is not None}")
+        logging.info(f"Found classificationListView: {self.classificationListView is not None}")
         
         # Log actual widget addresses if found
         if self.algorithmComboBox:
@@ -228,7 +230,8 @@ class MainWindow(QMainWindow):
                 classification_combo=self.classificationComboBox,
                 add_btn=self.addClassificationButton,
                 remove_btn=self.removeClassificationButton,
-                scroll_area=self.classificationScrollArea
+                scroll_area=self.classificationScrollArea,
+                list_view=self.classificationListView
             )
         else:
             logging.error("DetectToolManager not initialized!")
@@ -392,6 +395,23 @@ class MainWindow(QMainWindow):
         
         # Handle detection settings page
         elif current_page == "detection":
+            logging.debug(f"Detection page - tool_manager has _pending_tool: {hasattr(self.tool_manager, '_pending_tool')}")
+            if hasattr(self.tool_manager, '_pending_tool'):
+                logging.debug(f"_pending_tool value: {getattr(self.tool_manager, '_pending_tool', 'None')}")
+                
+            # Check if we're working with Detect Tool
+            if hasattr(self.tool_manager, '_pending_tool') and self.tool_manager._pending_tool == "Detect Tool":
+                logging.info("Applying Detect Tool configuration...")
+                # Apply Detect Tool configuration
+                success = self.detect_tool_manager.apply_detect_tool_to_job()
+                if success:
+                    logging.info("Detect Tool applied to job successfully")
+                else:
+                    logging.error("Failed to apply Detect Tool to job")
+            else:
+                logging.debug("Detect Tool not selected or _pending_tool not set correctly")
+                    
+            # Continue with existing detection settings logic
             # Thu thập cấu hình từ UI
             ui_widgets = {
                 'threshold_slider': getattr(self, 'thresholdSlider', None),

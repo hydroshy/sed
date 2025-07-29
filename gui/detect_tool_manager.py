@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Optional
 from PyQt5.QtWidgets import QListWidget, QListWidgetItem, QScrollArea, QVBoxLayout, QWidget, QLabel, QPushButton, QHBoxLayout
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal, QStringListModel
 from detection.model_manager import ModelManager
 
 class DetectToolManager:
@@ -33,7 +33,72 @@ class DetectToolManager:
         
         logging.info("DetectToolManager initialized")
     
-    def setup_ui_components(self, algorithm_combo, classification_combo, add_btn, remove_btn, scroll_area):
+    def create_detect_tool_job(self):
+        """Create DetectTool job from current configuration"""
+        try:
+            from detection.detect_tool import create_detect_tool_from_manager_config
+            
+            # Get current tool configuration
+            config = self.get_tool_config()
+            
+            # Validate configuration
+            if not config['model_name'] or not config['model_path']:
+                logging.error("Cannot create DetectTool: No model selected")
+                return None
+            
+            if not config['selected_classes']:
+                logging.warning("No classes selected for detection")
+            
+            # Create detect tool
+            detect_tool = create_detect_tool_from_manager_config(config)
+            
+            logging.info(f"Created DetectTool job - Model: {config['model_name']}, Classes: {len(config['selected_classes'])}")
+            return detect_tool
+            
+        except ImportError:
+            logging.error("Cannot create DetectTool: Job system not available")
+            return None
+        except Exception as e:
+            logging.error(f"Error creating DetectTool job: {e}")
+            return None
+    
+    def apply_detect_tool_to_job(self):
+        """Apply current detect tool configuration to job manager"""
+        try:
+            # Create detect tool
+            detect_tool = self.create_detect_tool_job()
+            if not detect_tool:
+                logging.error("Failed to create DetectTool job")
+                return False
+            
+            # Add to job manager via main window
+            if hasattr(self.main_window, 'job_manager'):
+                # Get current job or create new one
+                job_manager = self.main_window.job_manager
+                current_job = job_manager.get_current_job()
+                
+                if current_job is None:
+                    # Create new job with detect tool
+                    job_manager.create_job("Detection Job")
+                    current_job = job_manager.get_current_job()
+                
+                if current_job:
+                    # Add detect tool to current job
+                    current_job.add_tool(detect_tool)
+                    logging.info(f"Added DetectTool to job: {current_job.name}")
+                    return True
+                else:
+                    logging.error("No current job available")
+                    return False
+            else:
+                logging.error("Job manager not available")
+                return False
+                
+        except Exception as e:
+            logging.error(f"Error applying DetectTool to job: {e}")
+            return False
+    
+    def setup_ui_components(self, algorithm_combo, classification_combo, add_btn, remove_btn, scroll_area, list_view=None):
         """
         Setup UI components
         
@@ -43,12 +108,14 @@ class DetectToolManager:
             add_btn: QPushButton for adding classes
             remove_btn: QPushButton for removing classes
             scroll_area: QScrollArea for displaying selected classes
+            list_view: QListView for displaying selected classes (optional, fallback to creating QListWidget)
         """
         self.algorithm_combo = algorithm_combo
         self.classification_combo = classification_combo
         self.add_classification_btn = add_btn
         self.remove_classification_btn = remove_btn
         self.classification_scroll_area = scroll_area
+        self.classification_list = list_view  # Use provided list view if available
         
         # Debug logging for widget availability
         logging.info(f"DetectToolManager setup - Algorithm combo: {algorithm_combo is not None}")
@@ -56,8 +123,9 @@ class DetectToolManager:
         logging.info(f"DetectToolManager setup - Add button: {add_btn is not None}")
         logging.info(f"DetectToolManager setup - Remove button: {remove_btn is not None}")
         logging.info(f"DetectToolManager setup - Scroll area: {scroll_area is not None}")
+        logging.info(f"DetectToolManager setup - List view: {list_view is not None}")
         
-        # Create custom list widget for selected classes
+        # Setup classification list (use provided or create new)
         self._setup_classification_list()
         
         # Connect signals
@@ -91,7 +159,18 @@ class DetectToolManager:
     
     def _setup_classification_list(self):
         """Setup the classification list widget inside scroll area"""
+        # If we already have a list view, set up its model
+        if self.classification_list:
+            # QListView uses a model, set up a simple string list model
+            from PyQt5.QtCore import QStringListModel
+            self.classification_model = QStringListModel()
+            self.classification_list.setModel(self.classification_model)
+            logging.info("Classification list view setup completed with model")
+            return
+            
+        # Fallback: create QListWidget inside scroll area if no ListView provided
         if not self.classification_scroll_area:
+            logging.warning("No scroll area or list view available for classification list")
             return
             
         # Create a widget to hold the list
@@ -101,6 +180,7 @@ class DetectToolManager:
         layout.setSpacing(2)
         
         # Create list widget for selected classes
+        from PyQt5.QtWidgets import QListWidget
         self.classification_list = QListWidget()
         self.classification_list.setSelectionMode(QListWidget.SingleSelection)
         layout.addWidget(self.classification_list)
@@ -109,7 +189,7 @@ class DetectToolManager:
         self.classification_scroll_area.setWidget(container_widget)
         self.classification_scroll_area.setWidgetResizable(True)
         
-        logging.info("Classification list widget setup completed")
+        logging.info("Classification list widget setup completed (fallback)")
     
     def _connect_signals(self):
         """Connect UI signals to handlers"""
@@ -127,7 +207,13 @@ class DetectToolManager:
             self.remove_classification_btn.clicked.connect(self._on_remove_classification)
         
         if self.classification_list:
-            self.classification_list.itemSelectionChanged.connect(self._on_class_selection_changed)
+            # Connect selection change signals (handle both QListView and QListWidget)
+            if hasattr(self.classification_list, 'selectionModel'):
+                # QListView
+                self.classification_list.selectionModel().selectionChanged.connect(self._on_class_selection_changed)
+            elif hasattr(self.classification_list, 'itemSelectionChanged'):
+                # QListWidget  
+                self.classification_list.itemSelectionChanged.connect(self._on_class_selection_changed)
         
         logging.info("DetectToolManager signals connected")
     
@@ -313,8 +399,12 @@ class DetectToolManager:
             # Add to selected classes list
             self.selected_classes.append(selected_class)
             
-            # Add to UI list
-            self.classification_list.addItem(selected_class)
+            # Add to UI list (handle both QListView and QListWidget)
+            self._add_item_to_list(selected_class)
+            
+            # Reset combo box to "Select Class..." to allow adding more classes
+            if self.classification_combo:
+                self.classification_combo.setCurrentIndex(0)  # Set to "Select Class..."
             
             # Update button states
             self._update_button_states()
@@ -324,32 +414,91 @@ class DetectToolManager:
         except Exception as e:
             logging.error(f"Error adding classification: {e}")
     
+    def _add_item_to_list(self, item_text: str):
+        """Add item to classification list (handles both QListView and QListWidget)"""
+        if hasattr(self.classification_list, 'model') and self.classification_list.model():
+            # QListView with model
+            model = self.classification_list.model()
+            current_items = model.stringList()
+            current_items.append(item_text)
+            model.setStringList(current_items)
+        elif hasattr(self.classification_list, 'addItem'):
+            # QListWidget
+            self.classification_list.addItem(item_text)
+        else:
+            logging.warning("Unknown list widget type for adding item")
+    
+    def _remove_item_from_list(self, item_text: str):
+        """Remove item from classification list (handles both QListView and QListWidget)"""
+        if hasattr(self.classification_list, 'model') and self.classification_list.model():
+            # QListView with model
+            model = self.classification_list.model()
+            current_items = model.stringList()
+            if item_text in current_items:
+                current_items.remove(item_text)
+                model.setStringList(current_items)
+        elif hasattr(self.classification_list, 'takeItem'):
+            # QListWidget
+            for i in range(self.classification_list.count()):
+                item = self.classification_list.item(i)
+                if item and item.text() == item_text:
+                    self.classification_list.takeItem(i)
+                    break
+        else:
+            logging.warning("Unknown list widget type for removing item")
+    
+    def _clear_classification_list(self):
+        """Clear classification list (handles both QListView and QListWidget)"""
+        if not self.classification_list:
+            return
+            
+        if hasattr(self.classification_list, 'model') and self.classification_list.model():
+            # QListView with model
+            model = self.classification_list.model()
+            model.setStringList([])
+        elif hasattr(self.classification_list, 'clear'):
+            # QListWidget
+            self.classification_list.clear()
+        else:
+            logging.warning("Unknown list widget type for clearing")
+    
+    def _get_selected_item_text(self):
+        """Get selected item text (handles both QListView and QListWidget)"""
+        if hasattr(self.classification_list, 'currentIndex'):
+            # QListView with model
+            current_index = self.classification_list.currentIndex()
+            if current_index.isValid():
+                return current_index.data()
+        elif hasattr(self.classification_list, 'currentItem'):
+            # QListWidget
+            current_item = self.classification_list.currentItem()
+            if current_item:
+                return current_item.text()
+        return None
+    
     def _on_remove_classification(self):
         """Handle remove classification button click"""
         if not self.classification_list:
             return
         
         try:
-            # Get selected item
-            current_item = self.classification_list.currentItem()
-            if not current_item:
+            # Get selected item text
+            selected_text = self._get_selected_item_text()
+            if not selected_text:
                 logging.warning("No class selected for removal")
                 return
             
-            class_name = current_item.text()
-            
             # Remove from selected classes list
-            if class_name in self.selected_classes:
-                self.selected_classes.remove(class_name)
+            if selected_text in self.selected_classes:
+                self.selected_classes.remove(selected_text)
             
             # Remove from UI list
-            row = self.classification_list.row(current_item)
-            self.classification_list.takeItem(row)
+            self._remove_item_from_list(selected_text)
             
             # Update button states
             self._update_button_states()
             
-            logging.info(f"Removed class: {class_name}")
+            logging.info(f"Removed class: {selected_text}")
             
         except Exception as e:
             logging.error(f"Error removing classification: {e}")
@@ -362,20 +511,32 @@ class DetectToolManager:
         """Update button enabled states based on current selections"""
         if self.add_classification_btn:
             # Enable add button if model and class are selected and class not already added
+            current_text = self.classification_combo.currentText() if self.classification_combo else ""
             can_add = (
                 self.current_model is not None and
                 self.classification_combo and
-                self.classification_combo.currentText() not in ["Select Class...", ""] and
-                self.classification_combo.currentText() not in self.selected_classes
+                current_text not in ["Select Class...", ""] and
+                current_text not in self.selected_classes
             )
             self.add_classification_btn.setEnabled(can_add)
+            
+            # Debug logging
+            logging.debug(f"Add button state - Model: {self.current_model is not None}, "
+                         f"Current text: '{current_text}', "
+                         f"Already selected: {current_text in self.selected_classes}, "
+                         f"Can add: {can_add}")
         
         if self.remove_classification_btn:
             # Enable remove button if a class is selected in the list
-            can_remove = (
-                self.classification_list and
-                self.classification_list.currentItem() is not None
-            )
+            can_remove = False
+            if self.classification_list:
+                # Check for selection in both QListView and QListWidget
+                if hasattr(self.classification_list, 'currentIndex'):
+                    # QListView
+                    can_remove = self.classification_list.currentIndex().isValid()
+                elif hasattr(self.classification_list, 'currentItem'):
+                    # QListWidget
+                    can_remove = self.classification_list.currentItem() is not None
             self.remove_classification_btn.setEnabled(can_remove)
     
     def get_selected_classes(self) -> List[str]:
@@ -391,15 +552,13 @@ class DetectToolManager:
         try:
             # Clear current selection
             self.selected_classes.clear()
-            if self.classification_list:
-                self.classification_list.clear()
+            self._clear_classification_list()
             
             # Add new classes
             for class_name in classes:
                 if class_name not in self.selected_classes:
                     self.selected_classes.append(class_name)
-                    if self.classification_list:
-                        self.classification_list.addItem(class_name)
+                    self._add_item_to_list(class_name)
             
             # Update button states
             self._update_button_states()

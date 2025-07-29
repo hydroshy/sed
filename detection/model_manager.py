@@ -242,6 +242,27 @@ class ModelManager:
             logging.error(f"Error loading model classes: {e}")
             return self._default_class_names['coco']
     
+    def get_model_classes(self, model_name: str) -> List[str]:
+        """
+        Get class names for a specified model
+        
+        Args:
+            model_name: Name of the model (without .onnx extension)
+            
+        Returns:
+            List of class names for the model
+        """
+        try:
+            model_path = self.models_dir / f"{model_name}.onnx"
+            if not model_path.exists():
+                logging.error(f"Model file not found: {model_path}")
+                return []
+            
+            return self._load_model_classes(model_path)
+        except Exception as e:
+            logging.error(f"Error getting model classes for {model_name}: {e}")
+            return []
+    
     def create_model_metadata(self, model_name: str, classes: List[str], overwrite: bool = False, additional_info: Dict = None):
         """
         Create a metadata file for a model with class names

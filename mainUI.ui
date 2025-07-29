@@ -1015,32 +1015,6 @@
               <string>X position </string>
              </property>
             </widget>
-            <widget class="QScrollArea" name="classificationScrollArea">
-             <property name="geometry">
-              <rect>
-               <x>10</x>
-               <y>260</y>
-               <width>431</width>
-               <height>91</height>
-              </rect>
-             </property>
-             <property name="verticalScrollBarPolicy">
-              <enum>Qt::ScrollBarAlwaysOn</enum>
-             </property>
-             <property name="widgetResizable">
-              <bool>true</bool>
-             </property>
-             <widget class="QWidget" name="classificationScrollAreaWidgetContents">
-              <property name="geometry">
-               <rect>
-                <x>0</x>
-                <y>0</y>
-                <width>412</width>
-                <height>89</height>
-               </rect>
-              </property>
-             </widget>
-            </widget>
             <widget class="QComboBox" name="classificationComboBox">
              <property name="geometry">
               <rect>
@@ -1075,6 +1049,16 @@
              </property>
              <property name="text">
               <string>Remove</string>
+             </property>
+            </widget>
+            <widget class="QListView" name="listView">
+             <property name="geometry">
+              <rect>
+               <x>10</x>
+               <y>260</y>
+               <width>431</width>
+               <height>101</height>
+              </rect>
              </property>
             </widget>
            </widget>
