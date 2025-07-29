@@ -344,7 +344,7 @@
        </layout>
       </item>
       <item>
-       <layout class="QVBoxLayout" name="paletteLayout" stretch="0,2">
+       <layout class="QVBoxLayout" name="paletteLayout" stretch="0,25,3">
         <item>
          <widget class="QLabel" name="label">
           <property name="text">
@@ -372,10 +372,10 @@
           <widget class="QTabWidget" name="paletteTab">
            <property name="geometry">
             <rect>
-             <x>10</x>
-             <y>0</y>
-             <width>451</width>
-             <height>451</height>
+             <x>0</x>
+             <y>10</y>
+             <width>471</width>
+             <height>721</height>
             </rect>
            </property>
            <property name="currentIndex">
@@ -388,8 +388,8 @@
             <widget class="QTreeView" name="jobView">
              <property name="geometry">
               <rect>
-               <x>10</x>
-               <y>0</y>
+               <x>20</x>
+               <y>10</y>
                <width>421</width>
                <height>331</height>
               </rect>
@@ -398,9 +398,9 @@
             <widget class="QPushButton" name="removeJob">
              <property name="geometry">
               <rect>
-               <x>10</x>
-               <y>350</y>
-               <width>121</width>
+               <x>120</x>
+               <y>390</y>
+               <width>81</width>
                <height>21</height>
               </rect>
              </property>
@@ -411,15 +411,15 @@
               </sizepolicy>
              </property>
              <property name="text">
-              <string>Remove</string>
+              <string>Remove Job</string>
              </property>
             </widget>
-            <widget class="QPushButton" name="editJob">
+            <widget class="QPushButton" name="editTool">
              <property name="geometry">
               <rect>
-               <x>320</x>
-               <y>350</y>
-               <width>121</width>
+               <x>340</x>
+               <y>360</y>
+               <width>101</width>
                <height>21</height>
               </rect>
              </property>
@@ -430,15 +430,15 @@
               </sizepolicy>
              </property>
              <property name="text">
-              <string>Edit</string>
+              <string>Edit Tool</string>
              </property>
             </widget>
             <widget class="QPushButton" name="addJob">
              <property name="geometry">
               <rect>
-               <x>160</x>
-               <y>350</y>
-               <width>131</width>
+               <x>120</x>
+               <y>360</y>
+               <width>81</width>
                <height>21</height>
               </rect>
              </property>
@@ -449,15 +449,15 @@
               </sizepolicy>
              </property>
              <property name="text">
-              <string>Add</string>
+              <string>Add Job</string>
              </property>
             </widget>
             <widget class="QPushButton" name="loadJob">
              <property name="geometry">
               <rect>
-               <x>240</x>
-               <y>390</y>
-               <width>201</width>
+               <x>20</x>
+               <y>360</y>
+               <width>81</width>
                <height>21</height>
               </rect>
              </property>
@@ -474,9 +474,9 @@
             <widget class="QPushButton" name="saveJob">
              <property name="geometry">
               <rect>
-               <x>10</x>
+               <x>20</x>
                <y>390</y>
-               <width>201</width>
+               <width>81</width>
                <height>21</height>
               </rect>
              </property>
@@ -490,6 +490,25 @@
               <string>Save Job</string>
              </property>
             </widget>
+            <widget class="QPushButton" name="removeTool">
+             <property name="geometry">
+              <rect>
+               <x>340</x>
+               <y>390</y>
+               <width>101</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="text">
+              <string>Remove Tool</string>
+             </property>
+            </widget>
            </widget>
            <widget class="QWidget" name="resultTab">
             <attribute name="title">
@@ -497,58 +516,52 @@
             </attribute>
            </widget>
           </widget>
-          <widget class="QFrame" name="toolLayout">
+         </widget>
+        </item>
+        <item>
+         <widget class="QFrame" name="toolLayout">
+          <property name="frameShape">
+           <enum>QFrame::StyledPanel</enum>
+          </property>
+          <property name="frameShadow">
+           <enum>QFrame::Raised</enum>
+          </property>
+          <widget class="QPushButton" name="addTool">
+           <property name="enabled">
+            <bool>true</bool>
+           </property>
            <property name="geometry">
             <rect>
-             <x>0</x>
-             <y>480</y>
-             <width>470</width>
-             <height>241</height>
+             <x>370</x>
+             <y>10</y>
+             <width>93</width>
+             <height>31</height>
             </rect>
            </property>
-           <property name="frameShape">
-            <enum>QFrame::StyledPanel</enum>
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
            </property>
-           <property name="frameShadow">
-            <enum>QFrame::Raised</enum>
+           <property name="text">
+            <string>Add</string>
            </property>
-           <widget class="QPushButton" name="addTool">
-            <property name="enabled">
-             <bool>true</bool>
-            </property>
-            <property name="geometry">
-             <rect>
-              <x>370</x>
-              <y>10</y>
-              <width>93</width>
-              <height>31</height>
-             </rect>
-            </property>
-            <property name="sizePolicy">
-             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-              <horstretch>0</horstretch>
-              <verstretch>0</verstretch>
-             </sizepolicy>
-            </property>
+          </widget>
+          <widget class="QComboBox" name="toolComboBox">
+           <property name="geometry">
+            <rect>
+             <x>10</x>
+             <y>10</y>
+             <width>351</width>
+             <height>31</height>
+            </rect>
+           </property>
+           <item>
             <property name="text">
-             <string>Add</string>
+             <string>Detect Tool</string>
             </property>
-           </widget>
-           <widget class="QComboBox" name="toolComboBox">
-            <property name="geometry">
-             <rect>
-              <x>10</x>
-              <y>10</y>
-              <width>351</width>
-              <height>31</height>
-             </rect>
-            </property>
-            <item>
-             <property name="text">
-              <string>Detect Tool</string>
-             </property>
-            </item>
-           </widget>
+           </item>
           </widget>
          </widget>
         </item>
@@ -582,7 +595,7 @@
               <rect>
                <x>30</x>
                <y>100</y>
-               <width>61</width>
+               <width>51</width>
                <height>21</height>
               </rect>
              </property>
@@ -593,7 +606,7 @@
               </sizepolicy>
              </property>
              <property name="text">
-              <string>Exposure (μs)</string>
+              <string>Exposure</string>
              </property>
              <property name="scaledContents">
               <bool>false</bool>
@@ -860,6 +873,9 @@
                <height>21</height>
               </rect>
              </property>
+             <property name="suffix">
+              <string> μs</string>
+             </property>
              <property name="minimum">
               <double>1.000000000000000</double>
              </property>
@@ -868,9 +884,6 @@
              </property>
              <property name="value">
               <double>10000.000000000000000</double>
-             </property>
-             <property name="suffix">
-              <string> μs</string>
              </property>
             </widget>
             <widget class="QComboBox" name="formatCameraComboBox">
@@ -1022,7 +1035,7 @@
                <rect>
                 <x>0</x>
                 <y>0</y>
-                <width>408</width>
+                <width>412</width>
                 <height>89</height>
                </rect>
               </property>
@@ -1117,7 +1130,7 @@
      <x>0</x>
      <y>0</y>
      <width>1961</width>
-     <height>26</height>
+     <height>21</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">

@@ -87,6 +87,8 @@ class MainWindow(QMainWindow):
         # Tool management widgets
         self.toolView = self.findChild(QListView, 'toolView')
         self.addTool = self.findChild(QPushButton, 'addTool')
+        self.editTool = self.findChild(QPushButton, 'editTool')
+        self.removeTool = self.findChild(QPushButton, 'removeTool')
         self.cancleTool = self.findChild(QPushButton, 'cancleTool')
         self.toolComboBox = self.findChild(QComboBox, 'toolComboBox')
         
@@ -188,6 +190,11 @@ class MainWindow(QMainWindow):
         # Link CameraManager with SettingsManager for synchronization
         self.camera_manager.set_settings_manager(self.settings_manager)
         
+        # Setup area change connections
+        if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+            if hasattr(self.camera_manager.camera_view, 'area_changed'):
+                self.camera_manager.camera_view.area_changed.connect(self._on_area_changed)
+        
         # Enable UI after setup is complete
         self.camera_manager.set_ui_enabled(True)
         
@@ -197,6 +204,14 @@ class MainWindow(QMainWindow):
         if self.addTool:
             self.addTool.clicked.connect(self._on_add_tool)
             logging.info("addTool button connected to _on_add_tool.")
+        
+        if self.editTool:
+            self.editTool.clicked.connect(self._on_edit_tool)
+            logging.info("editTool button connected to _on_edit_tool.")
+            
+        if self.removeTool:
+            self.removeTool.clicked.connect(self._on_remove_tool)
+            logging.info("removeTool button connected to _on_remove_tool.")
         
         if self.cancleTool:
             self.cancleTool.clicked.connect(self.tool_manager.on_remove_tool_from_job)
@@ -269,6 +284,40 @@ class MainWindow(QMainWindow):
             # Chuyển đến trang cài đặt tương ứng
             self.settings_manager.switch_to_tool_setting_page(tool_name)
     
+    def _on_edit_tool(self):
+        """Xử lý khi người dùng nhấn nút Edit Tool"""
+        # Get selected tool from tool view
+        selected_tool = self.tool_manager.get_selected_tool()
+        if selected_tool:
+            # Edit tool overlay in camera view
+            if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                overlay = self.camera_manager.camera_view.edit_tool_overlay(selected_tool.tool_id)
+                if overlay:
+                    print(f"DEBUG: Editing tool #{selected_tool.tool_id}")
+                else:
+                    print(f"DEBUG: Tool #{selected_tool.tool_id} overlay not found")
+            
+            # Switch to detect settings page for editing
+            self.settings_manager.switch_to_tool_setting_page(selected_tool.name)
+            self._load_tool_config_to_ui(selected_tool)
+        else:
+            print("DEBUG: No tool selected for editing")
+    
+    def _on_remove_tool(self):
+        """Xử lý khi người dùng nhấn nút Remove Tool"""
+        # Get selected tool from tool view
+        selected_tool = self.tool_manager.get_selected_tool()
+        if selected_tool:
+            # Remove tool overlay from camera view
+            if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                self.camera_manager.camera_view.remove_tool_overlay(selected_tool.tool_id)
+            
+            # Remove tool from job
+            self.tool_manager.remove_tool_from_job(selected_tool)
+            print(f"DEBUG: Removed tool #{selected_tool.tool_id}")
+        else:
+            print("DEBUG: No tool selected for removal")
+    
     def _on_apply_setting(self):
         """Xử lý khi người dùng nhấn nút Apply trong trang cài đặt"""
         
@@ -300,11 +349,21 @@ class MainWindow(QMainWindow):
             if detection_area:
                 ui_widgets['detection_area'] = detection_area
                 
-                # Add detection area to camera view for visualization
+                # Add detection area to camera view for visualization with tool ID
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                     x1, y1, x2, y2 = detection_area
-                    self.camera_manager.camera_view.add_detection_area(x1, y1, x2, y2, "Detection Area")
+                    # Use current overlay and update its tool_id, or create new one
+                    if self.camera_manager.camera_view.current_overlay:
+                        # Update existing overlay from drawing
+                        overlay = self.camera_manager.camera_view.current_overlay
+                    else:
+                        # Create new overlay
+                        overlay = self.camera_manager.camera_view.add_tool_overlay(x1, y1, x2, y2)
+                    
+                    # Disable edit mode after applying
+                    overlay.set_edit_mode(False)
                     print(f"DEBUG: Added detection area to camera view: {detection_area}")
+                    print("DEBUG: Disabled overlay edit mode after apply")
             
             # Check if we're editing an existing tool or adding a new one
             editing_tool = self.tool_manager.get_current_editing_tool()
@@ -340,8 +399,27 @@ class MainWindow(QMainWindow):
                     )
                     self.tool_manager.set_tool_config(config)
                 
-                # Áp dụng cài đặt detection
-                self.tool_manager.on_apply_setting()
+                # Áp dụng cài đặt detection và get added tool
+                added_tool = self.tool_manager.on_apply_setting()
+                
+                # Update overlay with tool_id if tool was added
+                if added_tool and hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                    if self.camera_manager.camera_view.current_overlay:
+                        overlay = self.camera_manager.camera_view.current_overlay
+                        # Update overlay with tool ID and add to overlays dict
+                        old_id = overlay.tool_id
+                        overlay.tool_id = added_tool.tool_id
+                        overlay.update()  # Trigger repaint to show new ID
+                        
+                        # Move to overlays dict with new tool_id
+                        if old_id in self.camera_manager.camera_view.overlays:
+                            del self.camera_manager.camera_view.overlays[old_id]
+                        self.camera_manager.camera_view.overlays[added_tool.tool_id] = overlay
+                        
+                        # Disable edit mode
+                        overlay.set_edit_mode(False)
+                        self.camera_manager.camera_view.current_overlay = None
+                        print(f"DEBUG: Updated overlay with tool ID #{added_tool.tool_id}")
             
             # Quay lại trang cài đặt camera
             self.settings_manager.return_to_camera_setting_page()
@@ -352,6 +430,11 @@ class MainWindow(QMainWindow):
     
     def _on_cancel_setting(self):
         """Xử lý khi người dùng nhấn nút Cancel trong trang cài đặt"""
+        # Disable overlay edit mode when canceling
+        if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+            self.camera_manager.camera_view.set_overlay_edit_mode(False)
+            print("DEBUG: Disabled overlay edit mode on cancel")
+        
         # Hủy bỏ thao tác thêm tool
         self.tool_manager.on_cancel_setting()
         
@@ -402,10 +485,10 @@ class MainWindow(QMainWindow):
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                     # Clear existing areas first
                     self.camera_manager.camera_view.clear_detection_areas()
-                    # Add the area for editing
-                    resizable_rect = self.camera_manager.camera_view.add_detection_area(x1, y1, x2, y2, f"Edit: {tool.display_name}")
-                    resizable_rect.set_selected(True)
+                    # Add the area for editing with edit mode enabled
+                    overlay = self.camera_manager.camera_view.show_detection_area(x1, y1, x2, y2, editable=True)
                     print(f"DEBUG: Loaded detection area for editing: ({x1}, {y1}) to ({x2}, {y2})")
+                    print("DEBUG: Enabled overlay edit mode for tool editing")
             
             # Load other settings (threshold, confidence, etc.)
             if 'threshold' in config and hasattr(self, 'thresholdSlider'):
@@ -465,11 +548,29 @@ class MainWindow(QMainWindow):
             self.drawAreaButton.setText("Draw area")
             self.drawAreaButton.setEnabled(True)
             
-        # Disable drawing mode
+        # Disable drawing mode but keep overlay editable in pending state
         if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
             self.camera_manager.camera_view.set_draw_mode(False)
+            # Keep overlay editable until applied/canceled
+            self.camera_manager.camera_view.set_overlay_edit_mode(True)
             
             print(f"DEBUG: Updated position fields: X={center_x}, Y={center_y}")
+    
+    def _on_area_changed(self, x1, y1, x2, y2):
+        """Xử lý khi area thay đổi (move/resize)"""
+        print(f"DEBUG: Area changed: ({x1}, {y1}) to ({x2}, {y2})")
+        
+        # Calculate center coordinates
+        center_x = int((x1 + x2) / 2)
+        center_y = int((y1 + y2) / 2)
+        
+        # Update position line edits with center coordinates
+        if self.xPositionLineEdit:
+            self.xPositionLineEdit.setText(str(center_x))
+        if self.yPositionLineEdit:
+            self.yPositionLineEdit.setText(str(center_y))
+            
+        print(f"DEBUG: Updated position fields from area change: X={center_x}, Y={center_y}")
     
     def _collect_detection_area(self):
         """Collect detection area coordinates from UI or current drawn area"""

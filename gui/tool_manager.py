@@ -21,6 +21,13 @@ class ToolManager(QObject):
         self._tool_view = tool_view
         self._job_view = job_view
         self._tool_combo_box = tool_combo_box
+        
+        # Setup job view selection
+        if self._job_view:
+            from PyQt5.QtWidgets import QAbstractItemView
+            self._job_view.setSelectionMode(QAbstractItemView.SingleSelection)
+            self._job_view.setSelectionBehavior(QAbstractItemView.SelectRows)
+            
         self._update_job_view()
         logging.info("ToolManager: Setup completed")
         
@@ -56,11 +63,10 @@ class ToolManager(QObject):
             logging.info(f"ToolManager: Tool '{self._pending_tool}' with configuration added to job")
             
             # Reset biến tạm
-            result_tool = self._pending_tool
             self._pending_tool = None
             self._pending_tool_config = None
             
-            return result_tool
+            return tool  # Return Tool object instead of name
         
         return None
     
@@ -261,3 +267,52 @@ class ToolManager(QObject):
         """Clear current editing tool"""
         self._current_editing_tool = None
         self._current_editing_index = None
+        
+    def get_selected_tool(self):
+        """Get currently selected tool from tool view"""
+        if not self._job_view:
+            return None
+            
+        model = self._job_view.model()
+        if not model:
+            return None
+            
+        selection_model = self._job_view.selectionModel()
+        if not selection_model:
+            return None
+            
+        selected_indexes = selection_model.selectedIndexes()
+        if not selected_indexes:
+            return None
+            
+        # Get the selected item
+        index = selected_indexes[0]
+        item = model.itemFromIndex(index)
+        
+        if item:
+            # Try to get tool data from custom role
+            tool_data = item.data(role=256)  # Custom role where we stored tool
+            if tool_data:
+                return tool_data
+                
+            # Also check for tool_data attribute for backward compatibility
+            if hasattr(item, 'tool_data'):
+                return item.tool_data
+        return None
+        
+    def remove_tool_from_job(self, tool):
+        """Remove tool from current job"""
+        if not self.job_manager:
+            return False
+            
+        current_job = self.job_manager.get_current_job()
+        if not current_job:
+            return False
+            
+        # Remove tool from job
+        if tool in current_job.tools:
+            current_job.tools.remove(tool)
+            self._update_job_view()
+            print(f"DEBUG: Removed tool {tool.name} from job")
+            return True
+        return False

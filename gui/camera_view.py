@@ -4,7 +4,7 @@ import time
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QRectF
 from PyQt5.QtGui import QImage, QPixmap, QCursor, QPainter, QPen, QColor, QFont
 from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
-from gui.resizable_rect_item import ResizableRectItem
+from gui.detection_area_overlay import DetectionAreaOverlay
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -23,6 +23,9 @@ class CameraView(QObject):
     
     # Tín hiệu để thông báo khi area được vẽ
     area_drawn = pyqtSignal(int, int, int, int)  # x1, y1, x2, y2
+    
+    # Tín hiệu để thông báo khi area thay đổi (move/resize)
+    area_changed = pyqtSignal(int, int, int, int)  # x1, y1, x2, y2
 
     def __init__(self, graphics_view):
         """
@@ -52,8 +55,9 @@ class CameraView(QObject):
         self.drawing = False
         self.start_point = None
         self.end_point = None
-        self.current_area = None  # ResizableRectItem
-        self.saved_areas = []  # List of ResizableRectItem objects
+        self.current_overlay = None  # Overlay hiện tại đang edit
+        self.overlays = {}  # Dict mapping tool_id -> DetectionAreaOverlay
+        self.overlay_edit_mode = False  # Trạng thái có thể chỉnh sửa overlay
         
         # Khởi tạo scene và cấu hình graphics view
         self.scene = QGraphicsScene()
@@ -234,12 +238,16 @@ class CameraView(QObject):
         Giảm mức zoom và áp dụng
         """
         # Giảm mức zoom và đảm bảo không thấp hơn giá trị tối thiểu
-        self.zoom_level -= self.zoom_step
-        if self.zoom_level < 0.01:
-            self.zoom_level = 0.01
-
-        # Cập nhật hiển thị với mức zoom mới
-        self._show_frame_with_zoom()
+        new_zoom = self.zoom_level - self.zoom_step
+        if new_zoom < 0.1:
+            new_zoom = 0.1
+        
+        # Calculate scale factor
+        scale_factor = new_zoom / self.zoom_level
+        self.zoom_level = new_zoom
+        
+        # Apply zoom
+        self.graphics_view.scale(scale_factor, scale_factor)
 
     def rotate_left(self):
         """
@@ -439,20 +447,22 @@ class CameraView(QObject):
                 x1, x2 = min(x1, x2), max(x1, x2)
                 y1, y2 = min(y1, y2), max(y1, y2)
                 
-                # Create resizable rectangle
+                # Create new overlay for drawing
                 rect = QRectF(x1, y1, x2-x1, y2-y1)
-                resizable_rect = ResizableRectItem(rect)
-                # Đặt z-value cao để detection area luôn hiển thị trên frame
-                resizable_rect.setZValue(1)
-                self.scene.addItem(resizable_rect)
+                overlay = DetectionAreaOverlay(rect)
+                self.scene.addItem(overlay)
                 
-                # Select the new rectangle
-                resizable_rect.set_selected(True)
-                self.current_area = resizable_rect
+                # Set as current for editing
+                self.current_overlay = overlay
+                self.overlays[overlay.tool_id] = overlay
                 
-                print(f"DEBUG: Created resizable rectangle: ({x1}, {y1}) to ({x2}, {y2})")
+                # Set edit mode for immediate editing
+                overlay.set_edit_mode(True)
+                self.overlay_edit_mode = True
                 
-                # Emit the area_drawn signal
+                print(f"DEBUG: Created detection area overlay #{overlay.tool_id}: ({x1}, {y1}) to ({x2}, {y2})")
+                
+                # Emit the area_drawn signal with tool_id
                 self.area_drawn.emit(int(x1), int(y1), int(x2), int(y2))
         else:
             # Call original handler for normal interaction
@@ -466,38 +476,106 @@ class CameraView(QObject):
     
     def add_detection_area(self, x1, y1, x2, y2, label="Detection Area"):
         """Add a detection area to be displayed on camera view"""
-        rect = QRectF(x1, y1, x2-x1, y2-y1)
-        resizable_rect = ResizableRectItem(rect)
-        # Đặt z-value cao để detection area luôn hiển thị trên frame
-        resizable_rect.setZValue(1)
-        self.scene.addItem(resizable_rect)
-        self.saved_areas.append(resizable_rect)
-        print(f"DEBUG: Added resizable detection area: ({x1}, {y1}) to ({x2}, {y2})")
-        return resizable_rect
+        if self.current_overlay:
+            # Update existing overlay
+            self.current_overlay.update_from_coords(x1, y1, x2, y2)
+        else:
+            # Create new overlay
+            rect = QRectF(x1, y1, x2-x1, y2-y1)
+            self.current_overlay = DetectionAreaOverlay(rect)
+            self.scene.addItem(self.current_overlay)
+            
+        print(f"DEBUG: Added detection area overlay: ({x1}, {y1}) to ({x2}, {y2})")
+        return self.current_overlay
     
     def clear_detection_areas(self):
         """Clear all detection areas"""
-        for area in self.saved_areas:
-            if area.scene():
-                self.scene.removeItem(area)
-        self.saved_areas.clear()
+        # Clear all overlays
+        for overlay in self.overlays.values():
+            if overlay.scene():
+                self.scene.removeItem(overlay)
+        self.overlays.clear()
+        self.current_overlay = None
+        self.overlay_edit_mode = False
+        print("DEBUG: Cleared all detection area overlays")
         
-        # Also clear current area if exists
-        if self.current_area and self.current_area.scene():
-            self.scene.removeItem(self.current_area)
-            self.current_area = None
+    def clear_all_areas(self):
+        """Alias for clear_detection_areas"""
+        self.clear_detection_areas()
+        
+    def add_tool_overlay(self, x1, y1, x2, y2, tool_id=None):
+        """Add overlay for a specific tool"""
+        rect = QRectF(x1, y1, x2-x1, y2-y1)
+        overlay = DetectionAreaOverlay(rect, tool_id)
+        self.scene.addItem(overlay)
+        self.overlays[overlay.tool_id] = overlay
+        print(f"DEBUG: Added tool overlay #{overlay.tool_id}: ({x1}, {y1}) to ({x2}, {y2})")
+        return overlay
+        
+    def remove_tool_overlay(self, tool_id):
+        """Remove overlay for a specific tool"""
+        if tool_id in self.overlays:
+            overlay = self.overlays[tool_id]
+            if overlay.scene():
+                self.scene.removeItem(overlay)
+            del self.overlays[tool_id]
+            if self.current_overlay and self.current_overlay.tool_id == tool_id:
+                self.current_overlay = None
+            print(f"DEBUG: Removed tool overlay #{tool_id}")
+            return True
+        return False
+        
+    def edit_tool_overlay(self, tool_id):
+        """Set a tool overlay to edit mode"""
+        if tool_id in self.overlays:
+            # Disable edit mode for all overlays
+            for overlay in self.overlays.values():
+                overlay.set_edit_mode(False)
             
-        print("DEBUG: Cleared all detection areas")
+            # Enable edit mode for selected overlay
+            overlay = self.overlays[tool_id]
+            overlay.set_edit_mode(True)
+            self.current_overlay = overlay
+            self.overlay_edit_mode = True
+            print(f"DEBUG: Editing tool overlay #{tool_id}")
+            return overlay
+        return None
     
     def get_current_area_coords(self):
         """Get current area coordinates"""
-        if self.current_area:
-            return self.current_area.get_area_coords()
+        if self.current_overlay:
+            return self.current_overlay.get_area_coords()
         return None
     
     def get_all_area_coords(self):
         """Get all detection area coordinates"""
-        coords_list = []
-        for area in self.saved_areas:
-            coords_list.append(area.get_area_coords())
-        return coords_list
+        return [overlay.get_area_coords() for overlay in self.overlays.values()]
+        
+    def add_detection_area(self, x1, y1, x2, y2, label="Detection Area"):
+        """Add a detection area to be displayed on camera view"""
+        return self.add_tool_overlay(x1, y1, x2, y2)
+        
+    def get_tool_overlay_coords(self, tool_id):
+        """Get coordinates for specific tool overlay"""
+        if tool_id in self.overlays:
+            return self.overlays[tool_id].get_area_coords()
+        return None
+        
+    def set_overlay_edit_mode(self, enabled):
+        """Bật/tắt edit mode cho overlay"""
+        self.overlay_edit_mode = enabled
+        if self.current_overlay:
+            self.current_overlay.set_edit_mode(enabled)
+            print(f"DEBUG: Overlay edit mode set to: {enabled}")
+            
+    def show_detection_area(self, x1, y1, x2, y2, editable=False):
+        """Hiển thị detection area trên camera view"""
+        if self.current_overlay:
+            self.current_overlay.update_from_coords(x1, y1, x2, y2)
+        else:
+            rect = QRectF(x1, y1, x2-x1, y2-y1)
+            self.current_overlay = DetectionAreaOverlay(rect)
+            self.scene.addItem(self.current_overlay)
+            
+        self.set_overlay_edit_mode(editable)
+        return self.current_overlay

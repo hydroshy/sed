@@ -2,36 +2,108 @@ from PyQt5.QtCore import Qt, QRectF, pyqtSignal, QObject
 from PyQt5.QtGui import QPen, QBrush, QColor, QPainter
 from PyQt5.QtWidgets import QGraphicsRectItem, QGraphicsItem, QGraphicsEllipseItem
 
-class ResizableRectItem(QGraphicsRectItem):
+
+class DetectionAreaOverlay(QGraphicsRectItem):
     """
-    Hình chữ nhật có thể di chuyển và resize với các handle
+    Overlay để hiển thị và chỉnh sửa detection area
+    Chỉ có thể tương tác khi ở edit mode
     """
     
-    # Signal được emit khi area thay đổi (position hoặc size)
-    area_changed = pyqtSignal(int, int, int, int)  # x1, y1, x2, y2
+    # Class variable để track ID
+    _next_id = 1
     
-    def __init__(self, rect, parent=None):
+    def __init__(self, rect, tool_id=None, parent=None):
         super().__init__(rect, parent)
         
-        # Thiết lập thuộc tính
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
-        
-        # Thiết lập style - chỉ có viền, không có nền
-        pen = QPen(QColor(255, 0, 0), 2)  # Viền đỏ, độ dày 2px
-        brush = QBrush(Qt.BrushStyle.NoBrush)  # Không có nền
-        self.setPen(pen)
-        self.setBrush(brush)
-        
-        # Resize handles
+        # Tool ID
+        if tool_id is None:
+            self.tool_id = DetectionAreaOverlay._next_id
+            DetectionAreaOverlay._next_id += 1
+        else:
+            self.tool_id = tool_id
+            
+        # Trạng thái
+        self.edit_mode = False  # Chỉ có thể tương tác khi edit_mode = True
         self.handles = []
         self.handle_size = 8
         self.selected_handle = None
         self.is_resizing = False
         
-        # Tạo các handle
+        # Style mặc định
+        self._setup_style()
+        
+        # Tạo handles
         self._create_handles()
+        
+        # Mặc định không thể tương tác
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        
+    def _setup_style(self):
+        """Thiết lập style cho overlay"""
+        # Khung màu đỏ, fill trong suốt
+        pen = QPen(QColor(255, 0, 0), 2)
+        brush = QBrush(QColor(255, 0, 0, 30))  # Màu đỏ nhạt trong suốt
+        self.setPen(pen)
+        self.setBrush(brush)
+        
+        # Z-value cao để hiển thị trên top
+        self.setZValue(10)
+        
+    def paint(self, painter, option, widget):
+        """Override paint để vẽ ID lên overlay"""
+        # Vẽ rectangle bình thường
+        super().paint(painter, option, widget)
+        
+        # Vẽ ID text
+        rect = self.rect()
+        painter.setPen(QPen(QColor(255, 255, 255), 1))  # Chữ trắng
+        painter.setFont(painter.font())
+        font = painter.font()
+        font.setPointSize(12)
+        font.setBold(True)
+        painter.setFont(font)
+        
+        # Vẽ ID ở góc trên trái
+        id_text = f"#{self.tool_id}"
+        text_rect = rect.adjusted(5, 5, -5, -5)  # Padding 5px
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft, id_text)
+        
+    def set_edit_mode(self, enabled):
+        """Bật/tắt edit mode"""
+        self.edit_mode = enabled
+        
+        if enabled:
+            # Cho phép tương tác
+            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+            
+            # Hiển thị handles
+            self._show_handles(True)
+            
+            # Style khi edit (khung dày hơn)
+            pen = QPen(QColor(255, 0, 0), 3)
+            brush = QBrush(QColor(255, 0, 0, 50))
+            self.setPen(pen)
+            self.setBrush(brush)
+            
+        else:
+            # Tắt tương tác
+            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, False)
+            
+            # Ẩn handles
+            self._show_handles(False)
+            
+            # Style khi không edit (khung mỏng hơn)
+            pen = QPen(QColor(255, 0, 0), 2)
+            brush = QBrush(QColor(255, 0, 0, 20))
+            self.setPen(pen)
+            self.setBrush(brush)
+            
+        print(f"DEBUG: DetectionAreaOverlay edit mode: {enabled}")
         
     def _create_handles(self):
         """Tạo các handle để resize"""
@@ -49,7 +121,7 @@ class ResizableRectItem(QGraphicsRectItem):
             self.handles.append(handle)
             
         self._update_handle_positions()
-    
+        
     def _update_handle_positions(self):
         """Cập nhật vị trí các handle"""
         rect = self.rect()
@@ -68,72 +140,43 @@ class ResizableRectItem(QGraphicsRectItem):
         for handle in self.handles:
             pos = positions[handle.position]
             handle.setPos(pos[0] - self.handle_size/2, pos[1] - self.handle_size/2)
-    
+            
+    def _show_handles(self, visible):
+        """Hiển thị/ẩn handles"""
+        for handle in self.handles:
+            handle.setVisible(visible and self.edit_mode)
+            
     def setRect(self, rect):
         """Override setRect để cập nhật handles"""
         super().setRect(rect)
         self._update_handle_positions()
-        # Notify about size change
-        self._notify_change()
-    
+        
     def itemChange(self, change, value):
-        """Override để cập nhật handles khi item thay đổi"""
+        """Override để handle thay đổi"""
+        if not self.edit_mode:
+            # Không cho phép thay đổi nếu không ở edit mode
+            return super().itemChange(change, value)
+            
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             self._update_handle_positions()
-            # Notify parent about position change
             self._notify_change()
         elif change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
-            # Show/hide handles based on selection
-            self.set_selected(value)
+            self._show_handles(value and self.edit_mode)
+            
         return super().itemChange(change, value)
-    
+        
     def _notify_change(self):
-        """Notify about area changes"""
+        """Thông báo khi area thay đổi"""
         try:
             if hasattr(self.scene(), 'views') and self.scene().views():
                 view = self.scene().views()[0]
                 if hasattr(view.parent(), 'area_changed'):
                     coords = self.get_area_coords()
-                    print(f"DEBUG: ResizableRectItem notifying change: {coords}")
+                    print(f"DEBUG: DetectionAreaOverlay notifying change: {coords}")
                     view.parent().area_changed.emit(*coords)
-                else:
-                    print("DEBUG: view.parent() doesn't have area_changed signal")
-            else:
-                print("DEBUG: No scene views found")
         except Exception as e:
             print(f"DEBUG: Error in _notify_change: {e}")
-    
-    def set_selected(self, selected):
-        """Hiển thị/ẩn handles khi select/deselect"""
-        print(f"DEBUG: Setting selected={selected}, handles count={len(self.handles)}")
-        for handle in self.handles:
-            handle.setVisible(selected)
-            print(f"DEBUG: Handle {handle.position} visible: {handle.isVisible()}")
-        self.setSelected(selected)
-        
-    def set_style(self, border_color=None, fill_color=None, border_width=None, fill_opacity=None, transparent_fill=True):
-        """Tùy chỉnh style của rectangle"""
-        if border_color is None:
-            border_color = QColor(255, 0, 0)  # Đỏ
-        if border_width is None:
-            border_width = 2
             
-        pen = QPen(border_color, border_width)
-        
-        if transparent_fill:
-            # Không có nền - chỉ khung
-            brush = QBrush(Qt.BrushStyle.NoBrush)
-        else:
-            # Có nền mờ
-            if fill_color is None:
-                fill_color = QColor(255, 255, 255)  # Trắng
-            if fill_opacity is None:
-                fill_opacity = 30  # Mờ nhẹ
-            brush = QBrush(QColor(fill_color.red(), fill_color.green(), fill_color.blue(), fill_opacity))
-            
-        self.setPen(pen)
-        self.setBrush(brush)
-        
     def get_area_coords(self):
         """Lấy tọa độ area (x1, y1, x2, y2)"""
         rect = self.rect()
@@ -145,16 +188,27 @@ class ResizableRectItem(QGraphicsRectItem):
         y2 = pos.y() + rect.bottom()
         
         return (int(x1), int(y1), int(x2), int(y2))
+        
+    def update_from_coords(self, x1, y1, x2, y2):
+        """Cập nhật area từ tọa độ"""
+        # Đảm bảo x1 < x2 và y1 < y2
+        x1, x2 = min(x1, x2), max(x1, x2)
+        y1, y2 = min(y1, y2), max(y1, y2)
+        
+        rect = QRectF(x1, y1, x2-x1, y2-y1)
+        self.setPos(0, 0)  # Reset position
+        self.setRect(rect)
+        print(f"DEBUG: DetectionAreaOverlay updated to: ({x1}, {y1}) to ({x2}, {y2})")
 
 
 class ResizeHandle(QGraphicsEllipseItem):
-    """Handle để resize rectangle"""
+    """Handle để resize overlay"""
     
     def __init__(self, size, position, parent_item):
         super().__init__(0, 0, size, size)
         
         self.position = position
-        self.parent_rect = parent_item
+        self.parent_overlay = parent_item
         self.setParentItem(parent_item)
         
         # Style handle
@@ -163,12 +217,15 @@ class ResizeHandle(QGraphicsEllipseItem):
         self.setPen(pen)
         self.setBrush(brush)
         
-        # Thiết lập flags
+        # Thiết lập flags - chỉ movable khi parent ở edit mode
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         
         # Cursor cho resize
         self._set_cursor()
+        
+        # Mặc định ẩn
+        self.setVisible(False)
         
     def _set_cursor(self):
         """Thiết lập cursor tương ứng với vị trí handle"""
@@ -184,17 +241,18 @@ class ResizeHandle(QGraphicsEllipseItem):
         }
         
         self.setCursor(cursor_map.get(self.position, Qt.CursorShape.ArrowCursor))
-    
+        
     def itemChange(self, change, value):
         """Handle resize khi di chuyển handle"""
-        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged and self.parent_rect:
-            self._resize_parent_rect(value)
-            
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged and self.parent_overlay:
+            if self.parent_overlay.edit_mode:  # Chỉ resize khi edit mode
+                self._resize_parent_overlay(value)
+                
         return super().itemChange(change, value)
-    
-    def _resize_parent_rect(self, new_pos):
-        """Resize parent rectangle dựa trên vị trí handle mới"""
-        rect = self.parent_rect.rect()
+        
+    def _resize_parent_overlay(self, new_pos):
+        """Resize parent overlay dựa trên vị trí handle mới"""
+        rect = self.parent_overlay.rect()
         handle_size = self.rect().width()
         
         # Tính toán vị trí handle center
@@ -233,5 +291,5 @@ class ResizeHandle(QGraphicsEllipseItem):
             else:
                 rect.setBottom(rect.top() + min_size)
         
-        # Cập nhật parent rectangle
-        self.parent_rect.setRect(rect)
+        # Cập nhật parent overlay
+        self.parent_overlay.setRect(rect)
