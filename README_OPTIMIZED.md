@@ -67,11 +67,8 @@ python run.py
 
 ### Khởi chạy với tùy chọn
 ```bash
-# Sử dụng kiến trúc mới (mặc định)
-python run.py --arch new
-
-# Sử dụng kiến trúc cũ
-python run.py --arch old
+# Khởi chạy bình thường
+python run.py
 
 # Debug mode
 python run.py --debug
@@ -85,11 +82,8 @@ python run.py --install-deps
 
 ### Khởi chạy trực tiếp
 ```bash
-# Kiến trúc mới
-python main.py --architecture new
-
-# Kiến trúc cũ  
-python main.py --architecture old
+# Khởi chạy main
+python main.py
 
 # Debug mode
 python main.py --debug
@@ -99,7 +93,7 @@ python main.py --debug
 
 ```
 sed/
-├── main.py                 # Entry point tối ưu với argument parsing
+├── main.py                 # Entry point tối ưu 
 ├── run.py                  # Convenience script 
 ├── requirements.txt        # Dependencies chi tiết
 ├── camera/
@@ -108,8 +102,7 @@ sed/
 │   ├── edge_detection.py   # EdgeDetectionTool hoàn chỉnh
 │   └── ocr_tool.py        # OcrTool với multi-engine support
 ├── gui/
-│   ├── main_window_new.py  # Kiến trúc mới (recommended)
-│   ├── main_window.py      # Kiến trúc cũ (backward compatibility)
+│   ├── main_window.py      # Main window (kiến trúc mới)
 │   ├── tool_manager.py     # Tool management logic
 │   ├── settings_manager.py # Settings UI management
 │   └── camera_manager.py   # Camera control logic

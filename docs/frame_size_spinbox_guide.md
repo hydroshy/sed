@@ -50,7 +50,7 @@ suffix: " px"
 - ✅ `on_frame_size_changed()`: Xử lý khi giá trị thay đổi
 - ✅ `set_frame_size()` và `get_frame_size()`: Interface điều khiển
 
-### MainWindow (gui/main_window_new.py)
+### MainWindow (gui/main_window.py)
 - ✅ Tìm spinbox widgets tự động
 - ✅ Setup connection với CameraManager
 - ✅ Import QSpinBox đã được thêm

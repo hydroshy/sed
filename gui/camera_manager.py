@@ -1,4 +1,5 @@
 from PyQt5.QtCore import QObject, pyqtSlot
+from PyQt5.QtWidgets import QApplication
 from camera.camera_stream import CameraStream
 from gui.camera_view import CameraView
 import logging
@@ -28,6 +29,10 @@ class CameraManager(QObject):
         self.current_mode = None  # 'live' hoặc 'trigger' hoặc None
         self.live_camera_btn = None
         self.trigger_camera_btn = None
+        
+        # Job control state
+        self.job_enabled = False  # Mặc định DISABLE job execution để tránh camera bị đóng băng
+        self.job_toggle_btn = None
         
         # Exposure settings state
         self._is_auto_exposure = False  # Bắt đầu với manual mode để user có thể chỉnh exposure
@@ -87,7 +92,8 @@ class CameraManager(QObject):
         
     def setup_camera_buttons(self, live_camera_btn=None, trigger_camera_btn=None, 
                            auto_exposure_btn=None, manual_exposure_btn=None,
-                           apply_settings_btn=None, cancel_settings_btn=None):
+                           apply_settings_btn=None, cancel_settings_btn=None,
+                           job_toggle_btn=None):
         """
         Thiết lập các button điều khiển camera và exposure
         
@@ -98,6 +104,7 @@ class CameraManager(QObject):
             manual_exposure_btn: Button Manual Exposure
             apply_settings_btn: Button Apply Settings
             cancel_settings_btn: Button Cancel Settings
+            job_toggle_btn: Button Toggle Job Execution
         """
         self.live_camera_btn = live_camera_btn
         self.trigger_camera_btn = trigger_camera_btn
@@ -105,6 +112,7 @@ class CameraManager(QObject):
         self.manual_exposure_btn = manual_exposure_btn
         self.apply_settings_btn = apply_settings_btn
         self.cancel_settings_btn = cancel_settings_btn
+        self.job_toggle_btn = job_toggle_btn
         
         # Log missing widgets
         missing_widgets = []
@@ -120,6 +128,8 @@ class CameraManager(QObject):
             missing_widgets.append('applySetting')
         if not self.cancel_settings_btn:
             missing_widgets.append('cancelSetting')
+        if not self.job_toggle_btn:
+            missing_widgets.append('jobToggle')
             
         if missing_widgets:
             logging.warning(f"Missing UI widgets: {', '.join(missing_widgets)}")
@@ -137,10 +147,13 @@ class CameraManager(QObject):
             self.apply_settings_btn.clicked.connect(self.on_apply_settings_clicked)
         if self.cancel_settings_btn:
             self.cancel_settings_btn.clicked.connect(self.on_cancel_settings_clicked)
+        if self.job_toggle_btn:
+            self.job_toggle_btn.clicked.connect(self.on_job_toggle_clicked)
             
         # Khởi tạo UI state
         self.update_camera_mode_ui()
         self.update_exposure_mode_ui()
+        self.update_job_toggle_ui()
         
     def _apply_setting_if_manual(self, setting_type, value):
         """Helper method: Apply setting ngay lập tức nếu đang ở manual mode và instant_apply enabled"""
@@ -392,20 +405,77 @@ class CameraManager(QObject):
             if ev is not None:
                 self.set_ev(ev)
             
+    def _show_camera_error(self, message):
+        """Show camera error message to user"""
+        try:
+            from PyQt5.QtWidgets import QMessageBox
+            msg_box = QMessageBox()
+            msg_box.setIcon(QMessageBox.Warning)
+            msg_box.setWindowTitle("Camera Error")
+            msg_box.setText(f"Camera Error: {message}")
+            msg_box.setInformativeText("Please check camera connection and try again.")
+            msg_box.exec_()
+        except Exception as e:
+            print(f"DEBUG: [CameraManager] Error showing message box: {e}")
+    
     def toggle_live_camera(self, checked):
         """Bật/tắt chế độ camera trực tiếp"""
+        print(f"DEBUG: [CameraManager] toggle_live_camera called with checked={checked}")
+        
         if not self.camera_stream:
-            return
+            print("DEBUG: [CameraManager] No camera stream available")
+            return False
             
-        if checked:
-            self.camera_stream.start_live()
-            # Sync camera params sau một chút delay để camera start hoàn toàn
-            from PyQt5.QtCore import QTimer
-            # Thử sync multiple times để đảm bảo camera đã sẵn sàng
-            QTimer.singleShot(1000, self.update_camera_params_from_camera)  # 1s delay
-            QTimer.singleShot(2000, self.update_camera_params_from_camera)  # retry sau 2s
-        else:
-            self.camera_stream.stop_live()
+        try:
+            if checked:
+                print("DEBUG: [CameraManager] Starting live camera...")
+                
+                # Process pending events to keep UI responsive
+                QApplication.processEvents()
+                
+                success = self.camera_stream.start_live()
+                
+                # Process events again after camera start
+                QApplication.processEvents()
+                
+                if success:
+                    print("DEBUG: [CameraManager] Live camera started successfully")
+                    # Sync camera params sau một chút delay để camera start hoàn toàn
+                    from PyQt5.QtCore import QTimer
+                    # Thử sync multiple times để đảm bảo camera đã sẵn sàng
+                    QTimer.singleShot(1000, self.update_camera_params_from_camera)  # 1s delay
+                    QTimer.singleShot(2000, self.update_camera_params_from_camera)  # retry sau 2s
+                    return True
+                else:
+                    print("DEBUG: [CameraManager] Failed to start live camera")
+                    # Show error to user
+                    self._show_camera_error("Failed to start live preview")
+                    # Update UI to reflect failure
+                    self.current_mode = None
+                    self.update_camera_mode_ui()
+                    return False
+            else:
+                print("DEBUG: [CameraManager] Stopping live camera...")
+                
+                # Process events before stop
+                QApplication.processEvents()
+                
+                self.camera_stream.stop_live()
+                
+                # Process events after stop to ensure UI updates
+                QApplication.processEvents()
+                
+                print("DEBUG: [CameraManager] Live camera stopped")
+                return True
+                
+        except Exception as e:
+            print(f"DEBUG: [CameraManager] Error in toggle_live_camera: {e}")
+            # Show error to user
+            self._show_camera_error(f"Camera operation failed: {str(e)}")
+            # Reset state on error
+            self.current_mode = None
+            self.update_camera_mode_ui()
+            return False
             
     def set_auto_exposure_mode(self):
         """Đặt chế độ tự động phơi sáng"""
@@ -462,7 +532,61 @@ class CameraManager(QObject):
     def trigger_capture(self):
         """Kích hoạt chụp ảnh"""
         if self.camera_stream:
-            self.camera_stream.trigger_capture()
+            print("DEBUG: [CameraManager] Triggering capture...")
+            
+            # Visual feedback - temporarily change button text
+            if self.trigger_camera_btn and self.current_mode == 'trigger':
+                original_text = self.trigger_camera_btn.text()
+                self.trigger_camera_btn.setText("Capturing...")
+                self.trigger_camera_btn.setEnabled(False)
+                
+                # Ensure we're in trigger mode
+                if self.current_mode != 'trigger':
+                    print("DEBUG: [CameraManager] Switching to trigger mode")
+                    self.set_trigger_mode()
+                
+                # Apply job setting to camera stream
+                if hasattr(self.camera_stream, 'set_job_enabled'):
+                    self.camera_stream.set_job_enabled(self.job_enabled)
+                
+                # Sync current exposure setting before trigger
+                self.sync_exposure_to_camera()
+                
+                # Trigger actual capture
+                self.camera_stream.trigger_capture()
+                
+                # Restore button after short delay
+                from PyQt5.QtCore import QTimer
+                def restore_button():
+                    if self.trigger_camera_btn:
+                        self.trigger_camera_btn.setText(original_text)
+                        if self.current_mode == 'trigger':
+                            self.trigger_camera_btn.setEnabled(True)
+                
+                QTimer.singleShot(1000, restore_button)  # 1 second delay
+            else:
+                # Direct trigger without UI feedback
+                self.camera_stream.trigger_capture()
+        else:
+            print("DEBUG: [CameraManager] No camera stream available")
+
+    def sync_exposure_to_camera(self):
+        """Sync current exposure setting to camera before trigger capture"""
+        if self.camera_stream and self.exposure_edit:
+            try:
+                # Get current exposure value from UI
+                if hasattr(self.exposure_edit, 'value'):
+                    current_exposure = self.exposure_edit.value()
+                else:
+                    current_exposure = float(self.exposure_edit.text())
+                
+                print(f"DEBUG: [CameraManager] Syncing exposure {current_exposure}μs to camera for trigger")
+                
+                # Set exposure on camera stream
+                self.camera_stream.set_exposure(current_exposure)
+                
+            except Exception as e:
+                print(f"DEBUG: [CameraManager] Error syncing exposure: {e}")
             
     def rotate_left(self):
         """Xoay camera sang trái"""
@@ -493,21 +617,40 @@ class CameraManager(QObject):
     
     def on_live_camera_clicked(self):
         """Xử lý khi click Live Camera button"""
-        if self.current_mode == 'live':
-            # Đang ở live mode, tắt live
-            self.toggle_live_camera(False)
-            self.current_mode = None
-        else:
-            # Chuyển sang live mode
-            self.current_mode = 'live'
-            self.toggle_live_camera(True)
+        current_checked = self.live_camera_btn.isChecked() if self.live_camera_btn else False
+        print(f"DEBUG: [CameraManager] Live camera button clicked, checked: {current_checked}, current_mode: {self.current_mode}")
         
+        if current_checked:
+            # Button được click để bật live mode
+            print("DEBUG: [CameraManager] Starting live mode")
+            if self.current_mode == 'trigger':
+                # Reset trigger mode first
+                self.current_mode = None
+                
+            success = self.toggle_live_camera(True)
+            if success:
+                self.current_mode = 'live'
+            else:
+                print("DEBUG: [CameraManager] Failed to start live mode")
+                self.current_mode = None
+                # Uncheck button if failed
+                if self.live_camera_btn:
+                    self.live_camera_btn.setChecked(False)
+        else:
+            # Button được click để tắt live mode
+            print("DEBUG: [CameraManager] Stopping live mode")
+            success = self.toggle_live_camera(False)
+            if success:
+                self.current_mode = None
+            # Keep button unchecked regardless
+        
+        # Update UI to reflect current state
         self.update_camera_mode_ui()
     
     def on_trigger_camera_clicked(self):
         """Xử lý khi click Trigger Camera button"""
         if self.current_mode == 'trigger':
-            # Đang ở trigger mode, tắt
+            # Đang ở trigger mode, tắt mode
             self.current_mode = None
         else:
             # Chuyển sang trigger mode
@@ -515,7 +658,10 @@ class CameraManager(QObject):
                 # Tắt live trước
                 self.toggle_live_camera(False)
             self.current_mode = 'trigger'
-            # Trigger capture ngay
+            
+        # Trigger capture chỉ khi đang ở trigger mode
+        if self.current_mode == 'trigger':
+            print("DEBUG: Triggering capture...")
             self.trigger_capture()
         
         self.update_camera_mode_ui()
@@ -524,20 +670,37 @@ class CameraManager(QObject):
         """Cập nhật UI theo camera mode hiện tại"""
         if self.live_camera_btn and self.trigger_camera_btn:
             if self.current_mode == 'live':
+                # Block signals to prevent recursive calls
+                self.live_camera_btn.blockSignals(True)
+                self.live_camera_btn.setChecked(True)
                 self.live_camera_btn.setText("Stop Live")
                 self.live_camera_btn.setStyleSheet("background-color: #ff6b6b")  # Red
+                self.live_camera_btn.blockSignals(False)
+                
                 self.trigger_camera_btn.setEnabled(False)
-            elif self.current_mode == 'trigger':
-                self.trigger_camera_btn.setText("Trigger")
-                self.trigger_camera_btn.setStyleSheet("background-color: #4ecdc4")  # Teal
-                self.live_camera_btn.setEnabled(False)
-            else:
-                # No mode selected
-                self.live_camera_btn.setText("Live Camera")
-                self.live_camera_btn.setStyleSheet("")
                 self.trigger_camera_btn.setText("Trigger Camera")
                 self.trigger_camera_btn.setStyleSheet("")
+            elif self.current_mode == 'trigger':
+                self.trigger_camera_btn.setText("Trigger Ready")
+                self.trigger_camera_btn.setStyleSheet("background-color: #4ecdc4")  # Teal
+                
+                self.live_camera_btn.setEnabled(False)
+                self.live_camera_btn.blockSignals(True)
+                self.live_camera_btn.setChecked(False)
+                self.live_camera_btn.setText("Live Camera")
+                self.live_camera_btn.setStyleSheet("")
+                self.live_camera_btn.blockSignals(False)
+            else:
+                # No mode selected
+                self.live_camera_btn.blockSignals(True)
+                self.live_camera_btn.setChecked(False)
+                self.live_camera_btn.setText("Live Camera")
+                self.live_camera_btn.setStyleSheet("")
                 self.live_camera_btn.setEnabled(True)
+                self.live_camera_btn.blockSignals(False)
+                
+                self.trigger_camera_btn.setText("Trigger Camera")
+                self.trigger_camera_btn.setStyleSheet("")
                 self.trigger_camera_btn.setEnabled(True)
     
     # ============ EXPOSURE MODE HANDLERS ============
@@ -665,6 +828,45 @@ class CameraManager(QObject):
             
         except Exception as e:
             logging.error(f"Error cancelling camera settings: {str(e)}")
+
+    def on_job_toggle_clicked(self):
+        """Xử lý sự kiện click nút toggle job"""
+        print(f"DEBUG: [CameraManager] Job toggle clicked, current state: {self.job_enabled}")
+        
+        # Toggle job state
+        self.job_enabled = not self.job_enabled
+        
+        # Update UI
+        self.update_job_toggle_ui()
+        
+        # Always sync job setting to camera stream
+        if self.camera_stream and hasattr(self.camera_stream, 'set_job_enabled'):
+            self.camera_stream.set_job_enabled(self.job_enabled)
+        
+        # Nếu camera đang chạy live mode, cần restart để apply job setting
+        if self.current_mode == 'live' and self.camera_stream:
+            print(f"DEBUG: [CameraManager] Restarting live mode with job_enabled={self.job_enabled}")
+            # Stop and restart live mode
+            self.camera_stream.stop_live()
+            self.camera_stream.start_live()
+        
+        print(f"DEBUG: [CameraManager] Job execution {'ENABLED' if self.job_enabled else 'DISABLED'}")
+
+    def update_job_toggle_ui(self):
+        """Cập nhật UI trạng thái job toggle"""
+        if self.job_toggle_btn:
+            if self.job_enabled:
+                self.job_toggle_btn.setText("Disable Job")
+                self.job_toggle_btn.setStyleSheet("background-color: #ff4444; color: white;")
+                self.job_toggle_btn.setToolTip("Click to disable job execution (prevents camera hanging)")
+            else:
+                self.job_toggle_btn.setText("Enable Job")
+                self.job_toggle_btn.setStyleSheet("background-color: #44ff44; color: black;")
+                self.job_toggle_btn.setToolTip("Click to enable job execution")
+
+    def is_job_enabled(self):
+        """Kiểm tra job có được enable không"""
+        return self.job_enabled
             
     def cleanup(self):
         """Dọn dẹp tài nguyên camera khi thoát ứng dụng"""

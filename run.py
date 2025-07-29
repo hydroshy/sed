@@ -32,10 +32,6 @@ def check_dependencies():
 
 def main():
     parser = argparse.ArgumentParser(description='Run SED Application')
-    parser.add_argument('--arch', '-a', 
-                       choices=['old', 'new'], 
-                       default='new',
-                       help='Architecture to use (default: new)')
     parser.add_argument('--debug', '-d', 
                        action='store_true',
                        help='Enable debug mode')
@@ -58,9 +54,6 @@ def main():
     
     # Build command
     cmd = [sys.executable, 'main.py']
-    
-    if args.arch:
-        cmd.extend(['--architecture', args.arch])
     
     if args.debug:
         cmd.append('--debug')

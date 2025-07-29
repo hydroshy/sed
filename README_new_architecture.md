@@ -1,8 +1,8 @@
-# Hướng dẫn sử dụng kiến trúc mới
+# Hướng dẫn sử dụng SED Application
 
 ## Tổng quan
 
-Kiến trúc mới của ứng dụng tách biệt rõ ràng các thành phần để cải thiện khả năng bảo trì và mở rộng. Các thành phần chính bao gồm:
+Ứng dụng SED hiện đã được chuyển đổi hoàn toàn sang kiến trúc mới với các thành phần được tách biệt rõ ràng để cải thiện khả năng bảo trì và mở rộng. Các thành phần chính bao gồm:
 
 1. **ToolManager** - quản lý các công cụ và tương tác giữa công cụ và giao diện người dùng
 2. **SettingsManager** - quản lý việc hiển thị và điều khiển các trang cài đặt
@@ -10,33 +10,23 @@ Kiến trúc mới của ứng dụng tách biệt rõ ràng các thành phần 
 
 ## Cách sử dụng
 
-Bạn có thể chọn sử dụng kiến trúc cũ hoặc mới:
-
-### Sử dụng kiến trúc cũ:
+### Khởi chạy ứng dụng:
 ```python
 python main.py
-```
-
-### Sử dụng kiến trúc mới:
-1. Mở file `main_new.py`
-2. Uncomment dòng `from gui.main_window_new import MainWindow`
-3. Comment dòng `from gui.main_window import MainWindow`
-4. Chạy:
-```python
-python main_new.py
+# hoặc
+python run.py
 ```
 
 ## Cấu trúc thư mục
 
 ```
 sed/
-├── main.py               # Entry point sử dụng kiến trúc cũ
-├── main_new.py           # Entry point sử dụng kiến trúc mới
+├── main.py               # Entry point chính
+├── run.py                # Convenience script 
 ├── mainUI.ui             # File giao diện Qt
 ├── gui/
 │   ├── __init__.py           # Package initialization
-│   ├── main_window.py        # Main window (kiến trúc cũ)
-│   ├── main_window_new.py    # Main window (kiến trúc mới)
+│   ├── main_window.py        # Main window (kiến trúc mới)
 │   ├── camera_view.py        # Camera view
 │   ├── tool_manager.py       # Quản lý công cụ
 │   ├── settings_manager.py   # Quản lý cài đặt
@@ -53,7 +43,7 @@ sed/
     └── job_manager.py        # Quản lý job
 ```
 
-## Lợi ích của kiến trúc mới
+## Lợi ích của kiến trúc hiện tại
 
 1. **Mô-đun hóa**: Mỗi thành phần được tách biệt rõ ràng thành các module riêng biệt
 2. **Dễ bảo trì**: Việc sửa chữa và cập nhật từng phần được thực hiện độc lập

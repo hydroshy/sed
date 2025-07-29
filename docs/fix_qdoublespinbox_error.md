@@ -7,7 +7,7 @@
 
 ## Những gì đã sửa
 
-### 1. **gui/main_window_new.py**
+### 1. **gui/main_window.py**
 
 #### Thay thế validators bằng SpinBox configuration:
 ```python

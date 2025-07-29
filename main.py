@@ -32,10 +32,6 @@ def show_error_dialog(title, message):
 def main():
     """Entry point chính của ứng dụng"""
     parser = argparse.ArgumentParser(description='Smart Eye Detection (SED) Application')
-    parser.add_argument('--architecture', '-a', 
-                       choices=['old', 'new'], 
-                       default='new',
-                       help='Choose application architecture (default: new)')
     parser.add_argument('--debug', '-d', 
                        action='store_true',
                        help='Enable debug logging')
@@ -60,13 +56,9 @@ def main():
     app.setStyle('Fusion')
     
     try:
-        # Import and create main window based on architecture choice
-        if args.architecture == 'new':
-            logger.info("Loading new architecture...")
-            from gui.main_window_new import MainWindow
-        else:
-            logger.info("Loading old architecture...")
-            from gui.main_window import MainWindow
+        # Import main window (using new architecture only)
+        logger.info("Loading SED application...")
+        from gui.main_window import MainWindow
             
         # Create main window
         window = MainWindow()
@@ -79,7 +71,7 @@ def main():
         
         # Show window and run application
         window.show()
-        logger.info(f"SED Application started with {args.architecture} architecture")
+        logger.info("SED Application started successfully")
         
         # Run the application
         exit_code = app.exec_()

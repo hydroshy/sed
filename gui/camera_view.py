@@ -63,9 +63,15 @@ class CameraView(QObject):
         # Cấu hình thuộc tính khác
         self.graphics_view.setRenderHints(QPainter.SmoothPixmapTransform)
         self.graphics_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.graphics_view.setDragMode(QGraphicsView.NoDrag)
+        self.graphics_view.setDragMode(QGraphicsView.RubberBandDrag)
         
         # Setup mouse event handling for drawing
+        # Store original event handlers
+        self._original_mouse_press = self.graphics_view.mousePressEvent
+        self._original_mouse_move = self.graphics_view.mouseMoveEvent
+        self._original_mouse_release = self.graphics_view.mouseReleaseEvent
+        
+        # Set custom event handlers
         self.graphics_view.mousePressEvent = self._mouse_press_event
         self.graphics_view.mouseMoveEvent = self._mouse_move_event
         self.graphics_view.mouseReleaseEvent = self._mouse_release_event
@@ -192,12 +198,15 @@ class CameraView(QObject):
             self.graphics_view.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
 
             # Điều chỉnh con trỏ và chế độ kéo dựa trên mức zoom
-            if self.zoom_level > 1.0:
-                self.graphics_view.setDragMode(QGraphicsView.ScrollHandDrag)
-                self.graphics_view.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
-            else:
-                self.graphics_view.setDragMode(QGraphicsView.NoDrag)
-                self.graphics_view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+            # Chỉ thay đổi drag mode nếu không ở draw mode
+            if not self.draw_mode:
+                if self.zoom_level > 1.0:
+                    self.graphics_view.setDragMode(QGraphicsView.ScrollHandDrag)
+                    self.graphics_view.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
+                else:
+                    # Sử dụng RubberBandDrag để vẫn cho phép tương tác với items
+                    self.graphics_view.setDragMode(QGraphicsView.RubberBandDrag)
+                    self.graphics_view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
 
             # Fit view nếu cần
             if self.fit_on_next_frame:
@@ -378,8 +387,15 @@ class CameraView(QObject):
         self.draw_mode = enabled
         print(f"DEBUG: Drawing mode set to {enabled}")
         if enabled:
+            # Khi vào draw mode, tắt selection và set cursor
+            self.graphics_view.setDragMode(QGraphicsView.NoDrag)
             self.graphics_view.setCursor(QCursor(Qt.CursorShape.CrossCursor))
         else:
+            # Khi thoát draw mode, cho phép selection và interaction
+            if self.zoom_level > 1.0:
+                self.graphics_view.setDragMode(QGraphicsView.ScrollHandDrag)
+            else:
+                self.graphics_view.setDragMode(QGraphicsView.RubberBandDrag)
             self.graphics_view.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
             self.drawing = False
             self.start_point = None
@@ -393,6 +409,9 @@ class CameraView(QObject):
             self.start_point = (scene_pos.x(), scene_pos.y())
             self.drawing = True
             print(f"DEBUG: Started drawing at {self.start_point}")
+        else:
+            # Call original handler for normal interaction
+            self._original_mouse_press(event)
     
     def _mouse_move_event(self, event):
         """Handle mouse move events for drawing"""
@@ -400,6 +419,9 @@ class CameraView(QObject):
             scene_pos = self.graphics_view.mapToScene(event.pos())
             self.end_point = (scene_pos.x(), scene_pos.y())
             self._update_current_area()
+        else:
+            # Call original handler for normal interaction
+            self._original_mouse_move(event)
     
     def _mouse_release_event(self, event):
         """Handle mouse release events for drawing"""
@@ -432,6 +454,9 @@ class CameraView(QObject):
                 
                 # Emit the area_drawn signal
                 self.area_drawn.emit(int(x1), int(y1), int(x2), int(y2))
+        else:
+            # Call original handler for normal interaction
+            self._original_mouse_release(event)
     
     def _update_current_area(self):
         """Update the current drawing area visualization"""

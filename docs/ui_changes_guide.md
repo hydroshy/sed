@@ -80,7 +80,7 @@ manualExposure: QPushButton (đã có)
 - ✅ **Apply/Cancel Logic**: Áp dụng hoặc hủy thay đổi
 - ✅ **Visual Feedback**: Màu sắc button theo trạng thái
 
-### MainWindow (gui/main_window_new.py)
+### MainWindow (gui/main_window.py)
 - ✅ **Widget Finding**: Tìm tất cả widget cần thiết
 - ✅ **Setup Integration**: Kết nối với CameraManager
 - ✅ **Auto Enable**: Tự động enable UI sau setup
