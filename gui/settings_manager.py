@@ -9,6 +9,7 @@ class SettingsManager(QObject):
     """
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.main_window = parent  # Store reference to main window
         self.setting_stacked_widget = None
         self.camera_setting_page = None
         self.detect_setting_page = None
@@ -103,6 +104,12 @@ class SettingsManager(QObject):
             if index != -1:
                 logging.info(f"SettingsManager: Switching to {tool_name} setting page with index {index}.")
                 self.setting_stacked_widget.setCurrentIndex(index)
+                
+                # Refresh DetectToolManager if switching to detect page
+                if page_type == "detect" or tool_name == "Detect Tool":
+                    if hasattr(self.main_window, 'refresh_detect_tool_manager'):
+                        self.main_window.refresh_detect_tool_manager()
+                
                 # Verify the switch
                 new_index = self.setting_stacked_widget.currentIndex()
                 logging.info(f"SettingsManager: After switch, current index is: {new_index}")

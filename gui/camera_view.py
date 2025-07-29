@@ -449,7 +449,7 @@ class CameraView(QObject):
                 
                 # Create new overlay for drawing
                 rect = QRectF(x1, y1, x2-x1, y2-y1)
-                overlay = DetectionAreaOverlay(rect)
+                overlay = DetectionAreaOverlay(rect, camera_view=self)
                 self.scene.addItem(overlay)
                 
                 # Set as current for editing
@@ -482,7 +482,7 @@ class CameraView(QObject):
         else:
             # Create new overlay
             rect = QRectF(x1, y1, x2-x1, y2-y1)
-            self.current_overlay = DetectionAreaOverlay(rect)
+            self.current_overlay = DetectionAreaOverlay(rect, camera_view=self)
             self.scene.addItem(self.current_overlay)
             
         print(f"DEBUG: Added detection area overlay: ({x1}, {y1}) to ({x2}, {y2})")
@@ -506,7 +506,7 @@ class CameraView(QObject):
     def add_tool_overlay(self, x1, y1, x2, y2, tool_id=None):
         """Add overlay for a specific tool"""
         rect = QRectF(x1, y1, x2-x1, y2-y1)
-        overlay = DetectionAreaOverlay(rect, tool_id)
+        overlay = DetectionAreaOverlay(rect, tool_id, camera_view=self)
         self.scene.addItem(overlay)
         self.overlays[overlay.tool_id] = overlay
         print(f"DEBUG: Added tool overlay #{overlay.tool_id}: ({x1}, {y1}) to ({x2}, {y2})")
@@ -574,7 +574,7 @@ class CameraView(QObject):
             self.current_overlay.update_from_coords(x1, y1, x2, y2)
         else:
             rect = QRectF(x1, y1, x2-x1, y2-y1)
-            self.current_overlay = DetectionAreaOverlay(rect)
+            self.current_overlay = DetectionAreaOverlay(rect, camera_view=self)
             self.scene.addItem(self.current_overlay)
             
         self.set_overlay_edit_mode(editable)

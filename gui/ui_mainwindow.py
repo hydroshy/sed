@@ -400,7 +400,7 @@ class Ui_MainWindow(object):
         self.algorithmLabel.setGeometry(QtCore.QRect(10, 170, 61, 21))
         self.algorithmLabel.setObjectName("algorithmLabel")
         self.algorithmComboBox = QtWidgets.QComboBox(self.detectSettingFrame)
-        self.algorithmComboBox.setGeometry(QtCore.QRect(80, 170, 82, 20))
+        self.algorithmComboBox.setGeometry(QtCore.QRect(80, 170, 111, 20))
         self.algorithmComboBox.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.algorithmComboBox.setObjectName("algorithmComboBox")
         self.xPositionLabel = QtWidgets.QLabel(self.detectSettingFrame)

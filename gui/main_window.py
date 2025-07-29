@@ -8,6 +8,7 @@ from job.job_manager import JobManager
 from gui.tool_manager import ToolManager
 from gui.settings_manager import SettingsManager
 from gui.camera_manager import CameraManager
+from gui.detect_tool_manager import DetectToolManager
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -21,6 +22,7 @@ class MainWindow(QMainWindow):
         self.settings_manager = SettingsManager(self)
         self.camera_manager = CameraManager(self)
         self.job_manager = JobManager()
+        self.detect_tool_manager = DetectToolManager(self)
         
         # Load UI từ file .ui
         ui_path = os.path.join(os.path.dirname(__file__), '..', 'mainUI.ui')
@@ -132,11 +134,31 @@ class MainWindow(QMainWindow):
             self.evSlider.setMinimum(-1)
             self.evSlider.setMaximum(1)
             
-        # Tìm các widget Detect Tool settings
-        if self.detectSettingFrame:
-            self.thresholdSlider = self.findChild(QSlider, 'thresholdSlider')
-            self.thresholdSpinBox = self.findChild(QSlider, 'thresholdSpinBox')  # Note: This might need to be changed to QSpinBox
-            self.minConfidenceEdit = self.findChild(QLineEdit, 'minConfidenceEdit')  # Note: This might need to be changed to QDoubleSpinBox
+        # Tìm các widget Detect Tool settings (không phụ thuộc vào detectSettingFrame)
+        self.thresholdSlider = self.findChild(QSlider, 'thresholdSlider')
+        self.thresholdSpinBox = self.findChild(QSlider, 'thresholdSpinBox')  # Note: This might need to be changed to QSpinBox
+        self.minConfidenceEdit = self.findChild(QLineEdit, 'minConfidenceEdit')  # Note: This might need to be changed to QDoubleSpinBox
+        
+        # Model and classification widgets
+        self.algorithmComboBox = self.findChild(QComboBox, 'algorithmComboBox')
+        self.classificationComboBox = self.findChild(QComboBox, 'classificationComboBox')
+        self.addClassificationButton = self.findChild(QPushButton, 'addClassificationButton')
+        self.removeClassificationButton = self.findChild(QPushButton, 'removeClassificationButton')
+        self.classificationScrollArea = self.findChild(QWidget, 'classificationScrollArea')  # QScrollArea or QListWidget
+        
+        # Debug logging for widget finding
+        logging.info(f"detectSettingFrame found: {self.detectSettingFrame is not None}")
+        logging.info(f"Found algorithmComboBox: {self.algorithmComboBox is not None}")
+        logging.info(f"Found classificationComboBox: {self.classificationComboBox is not None}")
+        logging.info(f"Found addClassificationButton: {self.addClassificationButton is not None}")
+        logging.info(f"Found removeClassificationButton: {self.removeClassificationButton is not None}")
+        logging.info(f"Found classificationScrollArea: {self.classificationScrollArea is not None}")
+        
+        # Log actual widget addresses if found
+        if self.algorithmComboBox:
+            logging.info(f"algorithmComboBox address: {hex(id(self.algorithmComboBox))}")
+        if self.classificationComboBox:
+            logging.info(f"classificationComboBox address: {hex(id(self.classificationComboBox))}")
         
     def _setup_managers(self):
         """Thiết lập và kết nối các manager"""
@@ -195,8 +217,42 @@ class MainWindow(QMainWindow):
             if hasattr(self.camera_manager.camera_view, 'area_changed'):
                 self.camera_manager.camera_view.area_changed.connect(self._on_area_changed)
         
+        # Setup DetectToolManager
+        if hasattr(self, 'detect_tool_manager'):
+            logging.info("Setting up DetectToolManager...")
+            logging.info(f"algorithmComboBox before setup: {self.algorithmComboBox}")
+            logging.info(f"classificationComboBox before setup: {self.classificationComboBox}")
+            
+            self.detect_tool_manager.setup_ui_components(
+                algorithm_combo=self.algorithmComboBox,
+                classification_combo=self.classificationComboBox,
+                add_btn=self.addClassificationButton,
+                remove_btn=self.removeClassificationButton,
+                scroll_area=self.classificationScrollArea
+            )
+        else:
+            logging.error("DetectToolManager not initialized!")
+        
         # Enable UI after setup is complete
         self.camera_manager.set_ui_enabled(True)
+        
+    def refresh_detect_tool_manager(self):
+        """Refresh DetectToolManager connections when switching to detect page"""
+        if hasattr(self, 'detect_tool_manager'):
+            logging.info("Refreshing DetectToolManager connections...")
+            self.detect_tool_manager._force_refresh_connections()
+            
+            # Test signal by logging current state
+            if self.algorithmComboBox:
+                logging.info(f"Current algorithm combo selection: {self.algorithmComboBox.currentText()}")
+                logging.info(f"Algorithm combo item count: {self.algorithmComboBox.count()}")
+            
+            if self.classificationComboBox:
+                logging.info(f"Current classification combo count: {self.classificationComboBox.count()}")
+                for i in range(self.classificationComboBox.count()):
+                    logging.info(f"  Class {i}: {self.classificationComboBox.itemText(i)}")
+        else:
+            logging.warning("DetectToolManager not available for refresh")
         
     def _connect_signals(self):
         """Kết nối các signal với các slot tương ứng"""

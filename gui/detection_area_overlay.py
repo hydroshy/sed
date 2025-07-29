@@ -12,7 +12,7 @@ class DetectionAreaOverlay(QGraphicsRectItem):
     # Class variable để track ID
     _next_id = 1
     
-    def __init__(self, rect, tool_id=None, parent=None):
+    def __init__(self, rect, tool_id=None, camera_view=None, parent=None):
         super().__init__(rect, parent)
         
         # Tool ID
@@ -21,6 +21,9 @@ class DetectionAreaOverlay(QGraphicsRectItem):
             DetectionAreaOverlay._next_id += 1
         else:
             self.tool_id = tool_id
+            
+        # Camera view reference for signals
+        self.camera_view = camera_view
             
         # Trạng thái
         self.edit_mode = False  # Chỉ có thể tương tác khi edit_mode = True
@@ -168,12 +171,10 @@ class DetectionAreaOverlay(QGraphicsRectItem):
     def _notify_change(self):
         """Thông báo khi area thay đổi"""
         try:
-            if hasattr(self.scene(), 'views') and self.scene().views():
-                view = self.scene().views()[0]
-                if hasattr(view.parent(), 'area_changed'):
-                    coords = self.get_area_coords()
-                    print(f"DEBUG: DetectionAreaOverlay notifying change: {coords}")
-                    view.parent().area_changed.emit(*coords)
+            if self.camera_view and hasattr(self.camera_view, 'area_changed'):
+                coords = self.get_area_coords()
+                print(f"DEBUG: DetectionAreaOverlay notifying change: {coords}")
+                self.camera_view.area_changed.emit(*coords)
         except Exception as e:
             print(f"DEBUG: Error in _notify_change: {e}")
             
@@ -293,3 +294,5 @@ class ResizeHandle(QGraphicsEllipseItem):
         
         # Cập nhật parent overlay
         self.parent_overlay.setRect(rect)
+        # Trigger change notification
+        self.parent_overlay._notify_change()
