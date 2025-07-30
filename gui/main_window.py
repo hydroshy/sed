@@ -1,6 +1,6 @@
 from PyQt5.QtGui import QCloseEvent
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QGraphicsView, QWidget, QStackedWidget, QComboBox, QPushButton, QSlider, QLineEdit, QProgressBar, QLCDNumber, QTabWidget, QListView, QTreeView, QMainWindow, QSpinBox, QDoubleSpinBox
+from PyQt5.QtWidgets import QGraphicsView, QWidget, QStackedWidget, QComboBox, QPushButton, QSlider, QLineEdit, QProgressBar, QLCDNumber, QTabWidget, QListView, QTreeView, QMainWindow, QSpinBox, QDoubleSpinBox, QTableView
 from PyQt5 import uic
 import os
 import logging
@@ -30,6 +30,9 @@ class MainWindow(QMainWindow):
         
         # Tìm và kết nối các widget chính
         self._find_widgets()
+        # Debug: Log all QComboBox objectNames after UI load
+        for w in self.findChildren(QComboBox):
+            logging.info(f"QComboBox found: {w.objectName()}")
         
         # Thiết lập các manager và kết nối signals/slots
         self._setup_managers()
@@ -145,7 +148,7 @@ class MainWindow(QMainWindow):
         self.addClassificationButton = self.findChild(QPushButton, 'addClassificationButton')
         self.removeClassificationButton = self.findChild(QPushButton, 'removeClassificationButton')
         self.classificationScrollArea = self.findChild(QWidget, 'classificationScrollArea')  # QScrollArea or QListWidget
-        self.classificationListView = self.findChild(QListView, 'listView')  # For displaying selected classes
+        self.classificationTableView = self.findChild(QTableView, 'classificationTableView')
         
         # Debug logging for widget finding
         logging.info(f"detectSettingFrame found: {self.detectSettingFrame is not None}")
@@ -154,7 +157,6 @@ class MainWindow(QMainWindow):
         logging.info(f"Found addClassificationButton: {self.addClassificationButton is not None}")
         logging.info(f"Found removeClassificationButton: {self.removeClassificationButton is not None}")
         logging.info(f"Found classificationScrollArea: {self.classificationScrollArea is not None}")
-        logging.info(f"Found classificationListView: {self.classificationListView is not None}")
         
         # Log actual widget addresses if found
         if self.algorithmComboBox:
@@ -231,7 +233,7 @@ class MainWindow(QMainWindow):
                 add_btn=self.addClassificationButton,
                 remove_btn=self.removeClassificationButton,
                 scroll_area=self.classificationScrollArea,
-                list_view=self.classificationListView
+                table_view=self.classificationTableView
             )
         else:
             logging.error("DetectToolManager not initialized!")
@@ -398,16 +400,18 @@ class MainWindow(QMainWindow):
             logging.debug(f"Detection page - tool_manager has _pending_tool: {hasattr(self.tool_manager, '_pending_tool')}")
             if hasattr(self.tool_manager, '_pending_tool'):
                 logging.debug(f"_pending_tool value: {getattr(self.tool_manager, '_pending_tool', 'None')}")
-                
-            # Check if we're working with Detect Tool
+            # Nếu là Detect Tool thì chỉ gọi detect_tool_manager, không gọi tool_manager.on_apply_setting
             if hasattr(self.tool_manager, '_pending_tool') and self.tool_manager._pending_tool == "Detect Tool":
                 logging.info("Applying Detect Tool configuration...")
-                # Apply Detect Tool configuration
                 success = self.detect_tool_manager.apply_detect_tool_to_job()
                 if success:
                     logging.info("Detect Tool applied to job successfully")
+                    # Cập nhật jobView sau khi add Detect Tool
+                    if hasattr(self.tool_manager, '_update_job_view'):
+                        self.tool_manager._update_job_view()
                 else:
                     logging.error("Failed to apply Detect Tool to job")
+                return
             else:
                 logging.debug("Detect Tool not selected or _pending_tool not set correctly")
                     

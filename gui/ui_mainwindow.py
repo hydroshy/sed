@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file '.\mainUI.ui'
+# Form implementation generated from reading ui file 'mainUI.ui'
 #
 # Created by: PyQt5 UI code generator 5.15.11
 #
@@ -415,9 +415,15 @@ class Ui_MainWindow(object):
         self.removeClassificationButton = QtWidgets.QPushButton(self.detectSettingFrame)
         self.removeClassificationButton.setGeometry(QtCore.QRect(330, 220, 111, 23))
         self.removeClassificationButton.setObjectName("removeClassificationButton")
-        self.listView = QtWidgets.QListView(self.detectSettingFrame)
-        self.listView.setGeometry(QtCore.QRect(10, 260, 431, 101))
-        self.listView.setObjectName("listView")
+        self.classificationTableView = QtWidgets.QTableView(self.detectSettingFrame)
+        self.classificationTableView.setGeometry(QtCore.QRect(10, 260, 431, 121))
+        self.classificationTableView.setObjectName("classificationTableView")
+        self.applyDetectSetting = QtWidgets.QPushButton(self.detectSettingFrame)
+        self.applyDetectSetting.setGeometry(QtCore.QRect(10, 660, 431, 23))
+        self.applyDetectSetting.setObjectName("applyDetectSetting")
+        self.cancleDetectSetting = QtWidgets.QPushButton(self.detectSettingFrame)
+        self.cancleDetectSetting.setGeometry(QtCore.QRect(10, 700, 431, 23))
+        self.cancleDetectSetting.setObjectName("cancleDetectSetting")
         self.settingStackedWidget.addWidget(self.detectSettingPage)
         self.settingLayout.addWidget(self.settingStackedWidget)
         self.selectionSettingFrame = QtWidgets.QFrame(self.horizontalLayoutWidget)
@@ -442,7 +448,7 @@ class Ui_MainWindow(object):
         self.statusbar.setObjectName("statusbar")
         MainWindow.setStatusBar(self.statusbar)
         self.menuBar = QtWidgets.QMenuBar(MainWindow)
-        self.menuBar.setGeometry(QtCore.QRect(0, 0, 1961, 21))
+        self.menuBar.setGeometry(QtCore.QRect(0, 0, 1961, 26))
         self.menuBar.setObjectName("menuBar")
         self.menuFile = QtWidgets.QMenu(self.menuBar)
         self.menuFile.setObjectName("menuFile")
@@ -499,6 +505,8 @@ class Ui_MainWindow(object):
         self.xPositionLabel.setText(_translate("MainWindow", "X position "))
         self.addClassificationButton.setText(_translate("MainWindow", "Add"))
         self.removeClassificationButton.setText(_translate("MainWindow", "Remove"))
+        self.applyDetectSetting.setText(_translate("MainWindow", "Apply "))
+        self.cancleDetectSetting.setText(_translate("MainWindow", "Cancle"))
         self.applySetting.setText(_translate("MainWindow", "Apply"))
         self.cancleSetting.setText(_translate("MainWindow", "Cancle"))
         self.menuFile.setTitle(_translate("MainWindow", "File"))

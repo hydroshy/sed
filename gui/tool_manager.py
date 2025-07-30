@@ -54,18 +54,30 @@ class ToolManager(QObject):
         """
         if self._pending_tool:
             logging.info(f"ToolManager: Applying settings for tool: {self._pending_tool}")
-            
-            # Tạo đối tượng Tool
-            tool = Tool(self._pending_tool, config=self._pending_tool_config)
-            
-            # Thêm tool vào job hiện tại
+            # Nếu là Detect Tool thì kiểm tra bắt buộc chọn algorithmComboBox (tên mô hình)
+            if self._pending_tool == "Detect Tool":
+                config = self._pending_tool_config if self._pending_tool_config is not None else {}
+                algorithm = config.get('algorithmComboBox', '')
+                if not algorithm:
+                    from PyQt5.QtWidgets import QMessageBox
+                    QMessageBox.warning(None, "Thiếu thông tin mô hình", "Bạn phải chọn mô hình (algorithm) trước khi thêm Detect Tool.")
+                    logging.warning("ToolManager: User tried to add Detect Tool without algorithm.")
+                    return None
+                try:
+                    from detection.detect_tool import create_detect_tool_from_manager_config
+                    tool = create_detect_tool_from_manager_config(config)
+                    logging.info("ToolManager: Created DetectTool instance via factory.")
+                except Exception as e:
+                    logging.error(f"ToolManager: Failed to create DetectTool: {e}")
+                    tool = Tool(self._pending_tool, config=self._pending_tool_config)
+            else:
+                tool = Tool(self._pending_tool, config=self._pending_tool_config)
+            # Thêm tool vào job hiện tại (chỉ khi đã hợp lệ)
             self.add_tool_to_job_with_tool(tool)
             logging.info(f"ToolManager: Tool '{self._pending_tool}' with configuration added to job")
-            
             # Reset biến tạm
             self._pending_tool = None
             self._pending_tool_config = None
-            
             return tool  # Return Tool object instead of name
         
         return None
