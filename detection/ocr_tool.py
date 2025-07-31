@@ -2,12 +2,12 @@
 import cv2
 import numpy as np
 from typing import Dict, Any, Tuple, Optional, List
-from job.job_manager import Tool, ToolConfig
+from tools.base_tool import BaseTool, ToolConfig
 import logging
 
 logger = logging.getLogger(__name__)
 
-class OcrTool(Tool):
+class OcrTool(BaseTool):
     """Công cụ OCR để nhận dạng văn bản từ ảnh"""
     
     def __init__(self, name: str = "OCR", config: Optional[Dict[str, Any]] = None):

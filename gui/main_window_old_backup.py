@@ -7,7 +7,8 @@ import cv2
 from PyQt5.QtWidgets import QMainWindow, QPushButton
 from PyQt5 import uic
 import os
-from job.job_manager import JobManager, Tool, Job
+from job.job_manager import JobManager, Job
+from tools.base_tool import BaseTool
 from PyQt5.QtCore import QStringListModel
 from detection.ocr_tool import OcrTool
 from PyQt5.QtGui import QPen, QColor, QPainter, QFont
@@ -442,7 +443,8 @@ class MainWindow(QMainWindow):
             self.job_manager.add_job(current_job)
 
         # Add the selected tool to the current job
-        current_job.add_tool(Tool(tool_name))
+        from tools.base_tool import GenericTool
+        current_job.add_tool(GenericTool(tool_name))
         self._update_job_view()
         logging.info(f"Tool '{tool_name}' added to the current job.")
 
@@ -524,7 +526,7 @@ class MainWindow(QMainWindow):
     
     def _create_tool_with_config(self, tool_name, config):
         """Tạo đối tượng Tool với cấu hình đã thu thập"""
-        from job.job_manager import Tool, ToolConfig
+        from tools.base_tool import BaseTool, ToolConfig
         
         # Tạo đối tượng ToolConfig
         tool_config = ToolConfig(config)
@@ -535,7 +537,8 @@ class MainWindow(QMainWindow):
             tool = OcrTool(config=tool_config)
         else:
             # Mặc định sử dụng Tool cơ bản
-            tool = Tool(tool_name, config=tool_config)
+            from tools.base_tool import GenericTool
+            tool = GenericTool(tool_name, config=tool_config)
         
         return tool
     

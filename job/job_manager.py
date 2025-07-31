@@ -11,134 +11,13 @@ import numpy as np
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("JobManager")
 
-class ToolConfig:
-    """Lớp cấu hình cho công cụ, với khả năng xác thực và mặc định các tham số"""
-    
-    def __init__(self, config_dict: Optional[Dict[str, Any]] = None):
-        self._config = config_dict or {}  # Sử dụng dict trống nếu None
-        self._defaults: Dict[str, Any] = {}
-        self._validators: Dict[str, Any] = {}
-        
-    def set_default(self, key: str, value: Any) -> None:
-        """Đặt giá trị mặc định cho một tham số"""
-        self._defaults[key] = value
-        if key not in self._config:
-            self._config[key] = value
-            
-    def set_validator(self, key: str, validator_func) -> None:
-        """Đặt hàm xác thực cho một tham số"""
-        self._validators[key] = validator_func
-        
-    def set(self, key: str, value: Any) -> bool:
-        """Đặt giá trị cho một tham số, trả về True nếu hợp lệ"""
-        if key in self._validators:
-            if not self._validators[key](value):
-                logger.warning(f"Giá trị không hợp lệ cho {key}: {value}")
-                return False
-        self._config[key] = value
-        return True
-        
-    def get(self, key: str, default: Any = None) -> Any:
-        """Lấy giá trị của một tham số"""
-        return self._config.get(key, default if default is not None else self._defaults.get(key))
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Chuyển đổi cấu hình thành từ điển"""
-        return self._config.copy()
-    
-    @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]) -> 'ToolConfig':
-        """Tạo cấu hình từ từ điển"""
-        return cls(config_dict)
-
-
-class Tool:
-    """Lớp cơ sở cho tất cả các công cụ xử lý"""
-    
-    def __init__(self, name: str, config: Optional[Union[Dict[str, Any], ToolConfig]] = None, tool_id: Optional[int] = None):
-        self.name = name
-        self.tool_id = tool_id  # Unique ID for tool in job
-        self.display_name = self._generate_display_name()
-        
-        if config is None:
-            self.config = ToolConfig({})
-        elif isinstance(config, ToolConfig):
-            self.config = config
-        else:
-            self.config = ToolConfig(config)
-        self.setup_config()
-    
-    def _generate_display_name(self) -> str:
-        """Generate display name with ID"""
-        if self.tool_id is not None:
-            return f"{self.name} #{self.tool_id}"
-        return self.name
-    
-    def set_tool_id(self, tool_id: int) -> None:
-        """Set tool ID and update display name"""
-        self.tool_id = tool_id
-        self.display_name = self._generate_display_name()
-        
-    def setup_config(self) -> None:
-        """Thiết lập các giá trị mặc định và xác thực cho cấu hình"""
-        pass
-        
-    def process(self, image: np.ndarray, context: Optional[Dict[str, Any]] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """
-        Xử lý hình ảnh đầu vào
-        
-        Args:
-            image: Hình ảnh đầu vào (numpy array)
-            context: Ngữ cảnh bổ sung từ các công cụ trước đó
-            
-        Returns:
-            Tuple chứa hình ảnh đã xử lý và kết quả bổ sung
-        """
-        # Lớp cơ sở mặc định trả về hình ảnh không thay đổi
-        return image, {"warning": "Không có xử lý được áp dụng"}
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Chuyển đổi công cụ thành từ điển để lưu trữ"""
-        return {
-            'name': self.name,
-            'type': self.__class__.__name__,
-            'config': self.config.to_dict(),
-            'tool_id': self.tool_id,
-            'display_name': self.display_name
-        }
-    
-    @staticmethod
-    def from_dict(d: Dict[str, Any], tool_registry: Dict[str, type]) -> 'Tool':
-        """
-        Tạo công cụ từ từ điển
-        
-        Args:
-            d: Từ điển mô tả công cụ
-            tool_registry: Đăng ký các loại công cụ có sẵn
-            
-        Returns:
-            Công cụ đã được khởi tạo
-        """
-        tool_type = d.get('type')
-        if tool_type in tool_registry:
-            return tool_registry[tool_type](d['name'], ToolConfig.from_dict(d.get('config', {})))
-        # Fallback cho khả năng tương thích ngược
-        return GenericTool(d['name'], ToolConfig.from_dict(d.get('config', {})))
-
-
-class GenericTool(Tool):
-    """Công cụ chung khi không tìm thấy loại công cụ cụ thể"""
-    
-    def process(self, image: np.ndarray, context: Optional[Dict[str, Any]] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
-        ctx = context or {}
-        logger.warning(f"Sử dụng công cụ chung cho {self.name}, không có xử lý được áp dụng")
-        return image, {"warning": f"Không có xử lý cho công cụ {self.name}"}
+from tools.base_tool import ToolConfig, BaseTool, GenericTool
 
 
 class Job:
     """Đại diện cho một chuỗi công cụ xử lý hình ảnh"""
     
-    def __init__(self, name: str, tools: Optional[List[Tool]] = None, description: str = ""):
+    def __init__(self, name: str, tools: Optional[List[BaseTool]] = None, description: str = ""):
         self.name = name
         self.description = description
         self.tools = tools or []  # Sử dụng list trống nếu None
@@ -158,7 +37,7 @@ class Job:
                 tool.set_tool_id(self._next_tool_id)
                 self._next_tool_id += 1
         
-    def add_tool(self, tool: Tool) -> None:
+    def add_tool(self, tool: BaseTool) -> None:
         """Thêm một công cụ vào chuỗi xử lý"""
         if tool.tool_id is None:
             tool.set_tool_id(self._next_tool_id)
@@ -168,7 +47,7 @@ class Job:
         self.status = "ready"
         logger.info(f"Added tool: {tool.display_name} to job {self.name}")
         
-    def get_tool_by_id(self, tool_id: int) -> Optional[Tool]:
+    def get_tool_by_id(self, tool_id: int) -> Optional[BaseTool]:
         """Get tool by ID"""
         for tool in self.tools:
             if tool.tool_id == tool_id:
@@ -191,7 +70,7 @@ class Job:
             return True
         return False
         
-    def edit_tool(self, index: int, new_tool: Tool) -> bool:
+    def edit_tool(self, index: int, new_tool: BaseTool) -> bool:
         """Chỉnh sửa một công cụ theo chỉ số"""
         if 0 <= index < len(self.tools):
             self.tools[index] = new_tool
@@ -268,7 +147,7 @@ class Job:
     @staticmethod
     def from_dict(d: Dict[str, Any], tool_registry: Dict[str, type]) -> 'Job':
         """Tạo job từ từ điển"""
-        tools = [Tool.from_dict(td, tool_registry) for td in d.get('tools', [])]
+        tools = [BaseTool.from_dict(td, tool_registry) for td in d.get('tools', [])]
         job = Job(d['name'], tools, d.get('description', ''))
         job.status = d.get('status', 'ready')
         job.last_run_time = d.get('last_run_time', 0)
@@ -307,7 +186,7 @@ class JobManager:
         except ImportError:
             logger.warning("Không thể đăng ký EdgeDetectionTool")
         
-    def create_tool(self, tool_type: str, name: str, config: Optional[Dict[str, Any]] = None) -> Optional[Tool]:
+    def create_tool(self, tool_type: str, name: str, config: Optional[Dict[str, Any]] = None) -> Optional[BaseTool]:
         """
         Tạo một công cụ mới từ loại đã đăng ký
         
@@ -456,9 +335,9 @@ class JobManager:
         return job
         
     # Hàm tương thích ngược với giao diện cũ
-    def get_tool_list(self) -> List[Tool]:
+    def get_tool_list(self) -> List[BaseTool]:
         """Lấy danh sách các công cụ có sẵn (tương thích với giao diện cũ)"""
-        tools: List[Tool] = []
+        tools: List[BaseTool] = []
         for tool_type in self.get_available_tool_types():
             if tool_type != "GenericTool":
                 tool = self.create_tool(tool_type, tool_type)

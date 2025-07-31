@@ -8,24 +8,33 @@ import numpy as np
 from typing import Dict, List, Any, Optional, Tuple, Union
 import time
 
-try:
-    from job.job_manager import Tool, ToolConfig
-    from detection.detect_tool_job import create_detect_tool_job
-    from detection.visualization import create_detection_display
-    JOB_SYSTEM_AVAILABLE = True
-except ImportError:
-    JOB_SYSTEM_AVAILABLE = False
+
+from tools.base_tool import BaseTool, ToolConfig
+from detection.yolo_inference import create_yolo_inference
+from detection.model_manager import ModelManager
+from detection.visualization import create_detection_display
+JOB_SYSTEM_AVAILABLE = True
 
 logger = logging.getLogger(__name__)
 
-class DetectTool(Tool):
+class DetectTool(BaseTool):
     """Detect Tool implementation for job system"""
     
     def __init__(self, name: str = "Detect Tool", config: Optional[Union[Dict[str, Any], ToolConfig]] = None, tool_id: Optional[int] = None):
-        super().__init__(name, config, tool_id)
-        self.detect_job = None
+        # Đảm bảo truyền đúng thứ tự (name, config) cho BaseTool
+        super().__init__(config, name)
+        self.tool_id = tool_id
+        self.yolo_inference = None
+        self.model_manager = ModelManager()
+        self.is_initialized = False
         self.last_detections = []
         self.execution_enabled = True
+        self.model_name = None
+        self.model_path = None
+        self.selected_classes = []
+        self.confidence_threshold = 0.5
+        self.nms_threshold = 0.4
+        self.detect_job = None
         
     def setup_config(self) -> None:
         """Setup default configuration for Detect Tool"""
@@ -70,17 +79,25 @@ class DetectTool(Tool):
             if not tool_config['selected_classes']:
                 logger.warning(f"DetectTool {self.display_name}: No classes selected, will detect all classes")
             
-            # Create detection job
-            self.detect_job = create_detect_tool_job(tool_config)
-            
-            # Initialize the job
-            success = self.detect_job.initialize()
-            if success:
-                logger.info(f"DetectTool {self.display_name} initialized successfully")
-            else:
-                logger.error(f"DetectTool {self.display_name} initialization failed")
-            
-            return success
+            # Khởi tạo trực tiếp YOLO inference và model_manager
+            self.model_name = tool_config['model_name']
+            self.model_path = tool_config['model_path']
+            self.selected_classes = tool_config.get('selected_classes', [])
+            self.confidence_threshold = tool_config.get('confidence_threshold', 0.5)
+            self.nms_threshold = tool_config.get('nms_threshold', 0.4)
+            model_info = self.model_manager.get_model_info(self.model_name)
+            if not model_info:
+                logger.error(f"Could not load model info for: {self.model_name}")
+                return False
+            self.yolo_inference = create_yolo_inference()
+            success = self.yolo_inference.load_model(self.model_path, model_info['classes'])
+            if not success:
+                logger.error(f"Failed to load YOLO model: {self.model_path}")
+                return False
+            self.yolo_inference.set_thresholds(self.confidence_threshold, self.nms_threshold)
+            self.is_initialized = True
+            logger.info(f"DetectTool {self.display_name} initialized successfully - {self.model_name}")
+            return True
             
         except Exception as e:
             logger.error(f"Error initializing DetectTool {self.display_name}: {e}")
@@ -132,21 +149,41 @@ class DetectTool(Tool):
             if context and 'detection_region' in context:
                 detection_region = context['detection_region']
             
-            # Run detection
-            detection_result = self.detect_job.execute(image, detection_region)
-            
-            if not detection_result['success']:
-                logger.error(f"DetectTool {self.display_name} execution failed: {detection_result.get('error', 'Unknown error')}")
+            # Run detection trực tiếp bằng YOLO inference
+            detection_frame = image
+            region_offset = (0, 0)
+            if detection_region:
+                x1, y1, x2, y2 = detection_region
+                height, width = image.shape[:2]
+                x1 = max(0, min(x1, width))
+                y1 = max(0, min(y1, height))
+                x2 = max(x1, min(x2, width))
+                y2 = max(y1, min(y2, height))
+                detection_frame = image[y1:y2, x1:x2]
+                region_offset = (x1, y1)
+            try:
+                logger.info(f"Running YOLO inference on frame shape: {detection_frame.shape}")
+                detections = self.yolo_inference.infer(detection_frame, self.selected_classes)
+                logger.info(f"YOLO inference completed: {len(detections)} detections found")
+                # Adjust detection coordinates if region
+                if detection_region and detections:
+                    for detection in detections:
+                        bbox = detection['bbox']
+                        detection['bbox'] = [
+                            bbox[0] + region_offset[0],
+                            bbox[1] + region_offset[1],
+                            bbox[2] + region_offset[0],
+                            bbox[3] + region_offset[1]
+                        ]
+            except Exception as e:
+                logger.error(f"Error in YOLO inference: {e}")
                 return image, {
                     'tool_name': self.display_name,
                     'execution_time': time.time() - start_time,
                     'detections': [],
-                    'status': 'execution_failed',
-                    'error': detection_result.get('error', 'Unknown error')
+                    'status': 'error',
+                    'error': str(e)
                 }
-            
-            # Extract detections
-            detections = detection_result['detections']
             self.last_detections = detections
             
             # Create visualization if enabled
@@ -169,11 +206,11 @@ class DetectTool(Tool):
             result = {
                 'tool_name': self.display_name,
                 'execution_time': total_time,
-                'inference_time': detection_result['execution_time'],
+                'inference_time': total_time,
                 'detections': detections,
                 'detection_count': len(detections),
-                'model_name': detection_result['model_name'],
-                'selected_classes': detection_result['selected_classes'],
+                'model_name': self.model_name,
+                'selected_classes': self.selected_classes,
                 'detection_region': detection_region,
                 'status': 'success'
             }

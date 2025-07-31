@@ -21,7 +21,8 @@ def test_position_field_loading():
     print("Testing position field loading...")
     
     try:
-        from job.job_manager import JobManager, Job, Tool, ToolConfig
+        from job.job_manager import JobManager, Job
+        from tools.base_tool import BaseTool, ToolConfig
         
         # Create a job with a tool that has position configuration
         job_manager = JobManager()
@@ -35,7 +36,8 @@ def test_position_field_loading():
             'threshold': 0.7
         })
         
-        tool = Tool("Test Tool", tool_config)
+        from tools.base_tool import GenericTool
+        tool = GenericTool("Test Tool", tool_config)
         job.add_tool(tool)
         job_manager.add_job(job)
         

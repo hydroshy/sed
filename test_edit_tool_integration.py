@@ -118,7 +118,8 @@ def test_multiple_tools_edit():
     print("Testing multiple tools edit scenario...")
     
     try:
-        from job.job_manager import JobManager, Job, Tool
+        from job.job_manager import JobManager, Job
+        from tools.base_tool import BaseTool
         from detection.detect_tool import create_detect_tool_from_manager_config
         
         # Create job with multiple tools
@@ -126,7 +127,8 @@ def test_multiple_tools_edit():
         job = Job("Multi-Tool Job")
         
         # Add a regular tool
-        regular_tool = Tool("Regular Tool")
+        from tools.base_tool import GenericTool
+        regular_tool = GenericTool("Regular Tool")
         job.add_tool(regular_tool)
         
         # Add a DetectTool
@@ -139,7 +141,8 @@ def test_multiple_tools_edit():
         job.add_tool(detect_tool)
         
         # Add another regular tool
-        another_tool = Tool("Another Tool")
+        from tools.base_tool import GenericTool
+        another_tool = GenericTool("Another Tool")
         job.add_tool(another_tool)
         
         job_manager.add_job(job)

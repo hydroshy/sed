@@ -1,6 +1,7 @@
 from PyQt5.QtCore import QObject, QStringListModel
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
-from job.job_manager import Tool, Job, JobManager
+from job.job_manager import Job, JobManager
+from tools.base_tool import BaseTool
 import logging
 
 class ToolManager(QObject):
@@ -69,17 +70,20 @@ class ToolManager(QObject):
                     logging.info("ToolManager: Created DetectTool instance via factory.")
                 except Exception as e:
                     logging.error(f"ToolManager: Failed to create DetectTool: {e}")
-                    tool = Tool(self._pending_tool, config=self._pending_tool_config)
+                    from tools.base_tool import GenericTool
+                    tool = GenericTool(self._pending_tool, config=self._pending_tool_config)
             else:
-                tool = Tool(self._pending_tool, config=self._pending_tool_config)
+                from tools.base_tool import GenericTool
+                config = self._pending_tool_config if self._pending_tool_config is not None else {}
+                tool = GenericTool(self._pending_tool, config=config)
             # Thêm tool vào job hiện tại (chỉ khi đã hợp lệ)
             self.add_tool_to_job_with_tool(tool)
             logging.info(f"ToolManager: Tool '{self._pending_tool}' with configuration added to job")
             # Reset biến tạm
             self._pending_tool = None
             self._pending_tool_config = None
+            self._pending_detection_area = None
             return tool  # Return Tool object instead of name
-        
         return None
     
     def on_cancel_setting(self):
@@ -115,7 +119,8 @@ class ToolManager(QObject):
             self.job_manager.add_job(current_job)
 
         # Add the selected tool to the current job
-        tool = Tool(tool_name)
+        from tools.base_tool import GenericTool
+        tool = GenericTool(tool_name)
         current_job.add_tool(tool)
         self._update_job_view()
         logging.info(f"ToolManager: Tool '{tool_name}' added to the current job.")
@@ -135,7 +140,7 @@ class ToolManager(QObject):
         # If no current job, create a new one
         current_job = self.job_manager.get_current_job()
         print(f"DEBUG: Current job before adding: {current_job}")
-        
+
         if not current_job:
             print("DEBUG: No current job found. Creating a new job.")
             logging.info("ToolManager: No current job found. Creating a new job.")
@@ -148,7 +153,7 @@ class ToolManager(QObject):
         current_job.add_tool(tool)
         print(f"DEBUG: After adding tool. Tools count: {len(current_job.tools)}")
         print(f"DEBUG: Tool added: {tool.display_name}")
-        
+
         self._update_job_view()
         logging.info(f"ToolManager: Tool '{tool.name}' added to the current job.")
         return True
@@ -177,12 +182,14 @@ class ToolManager(QObject):
             
             # Add tools as children
             for tool in job.tools:
-                tool_item = QStandardItem(f"🔧 {tool.display_name}")
+                # Hiển thị id dạng têntool#id
+                tool_id_str = f"{tool.display_name}#{tool.tool_id}" if hasattr(tool, 'tool_id') and tool.tool_id is not None else tool.display_name
+                tool_item = QStandardItem(f"🔧 {tool_id_str}")
                 tool_item.setEditable(False)
                 # Store tool reference for later use
                 tool_item.setData(tool, role=256)  # Custom role
                 job_item.appendRow(tool_item)
-                print(f"DEBUG: Added tool item: {tool.display_name}")
+                print(f"DEBUG: Added tool item: {tool_id_str}")
             
             model.appendRow(job_item)
             print(f"DEBUG: Added job item with {len(job.tools)} tools")

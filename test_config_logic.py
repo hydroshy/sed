@@ -119,7 +119,8 @@ def test_job_manager_tool_handling():
     print("Testing JobManager tool handling...")
     
     try:
-        from job.job_manager import JobManager, Job, Tool, ToolConfig
+        from job.job_manager import JobManager, Job
+        from tools.base_tool import BaseTool, ToolConfig
         
         # Create job manager
         job_manager = JobManager()
@@ -134,7 +135,8 @@ def test_job_manager_tool_handling():
             'confidence_threshold': 0.5
         })
         
-        tool = Tool("Detect Tool", config)
+        from tools.base_tool import GenericTool
+        tool = GenericTool("Detect Tool", config)
         
         # Add tool to job
         job.add_tool(tool)

@@ -260,6 +260,10 @@ class MainWindow(QMainWindow):
             logging.warning("DetectToolManager not available for refresh")
         
     def _connect_signals(self):
+        # Job run button
+        if self.runJob:
+            self.runJob.clicked.connect(self.run_current_job)
+            logging.info("runJob button connected to run_current_job.")
         """Kết nối các signal với các slot tương ứng"""
         # Tool management connections
         if self.addTool:
@@ -341,8 +345,10 @@ class MainWindow(QMainWindow):
         """Xử lý khi người dùng nhấn nút Add Tool"""
         # Lấy công cụ được chọn
         tool_name = self.tool_manager.on_add_tool()
+        # Khi add tool mới, không truyền detection_area từ tool trước đó
+        # pending_detection_area chỉ dùng cho preview/crop khi cần
+        self.tool_manager._pending_detection_area = None
         if tool_name:
-            # Chuyển đến trang cài đặt tương ứng
             self.settings_manager.switch_to_tool_setting_page(tool_name)
     
     def _on_edit_tool(self):
@@ -350,6 +356,11 @@ class MainWindow(QMainWindow):
         # Get selected tool from tool view
         selected_tool = self.tool_manager.get_selected_tool()
         if selected_tool:
+            # Lưu detection_area hiện tại của tool đang edit để dùng khi apply nếu user không thay đổi
+            detection_area = None
+            if hasattr(selected_tool, 'config') and hasattr(selected_tool.config, 'get'):
+                detection_area = selected_tool.config.get('detection_area')
+            self.tool_manager._pending_detection_area = detection_area
             # Edit tool overlay in camera view
             if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                 overlay = self.camera_manager.camera_view.edit_tool_overlay(selected_tool.tool_id)
@@ -357,7 +368,6 @@ class MainWindow(QMainWindow):
                     print(f"DEBUG: Editing tool #{selected_tool.tool_id}")
                 else:
                     print(f"DEBUG: Tool #{selected_tool.tool_id} overlay not found")
-            
             # Switch to detect settings page for editing
             self.settings_manager.switch_to_tool_setting_page(selected_tool.name)
             self._load_tool_config_to_ui(selected_tool)
@@ -394,6 +404,8 @@ class MainWindow(QMainWindow):
         if current_page == "camera":
             # Apply camera settings through camera manager
             self.camera_manager.on_apply_settings_clicked()
+            # Quay về trang camera sau khi apply
+            self.settings_manager.return_to_camera_setting_page()
         
         # Handle detection settings page
         elif current_page == "detection":
@@ -404,11 +416,12 @@ class MainWindow(QMainWindow):
             if hasattr(self.tool_manager, '_pending_tool') and self.tool_manager._pending_tool == "Detect Tool":
                 logging.info("Applying Detect Tool configuration...")
                 success = self.detect_tool_manager.apply_detect_tool_to_job()
+                if hasattr(self.tool_manager, '_update_job_view'):
+                    self.tool_manager._update_job_view()
+                # Quay về trang camera sau khi apply
+                self.settings_manager.return_to_camera_setting_page()
                 if success:
                     logging.info("Detect Tool applied to job successfully")
-                    # Cập nhật jobView sau khi add Detect Tool
-                    if hasattr(self.tool_manager, '_update_job_view'):
-                        self.tool_manager._update_job_view()
                 else:
                     logging.error("Failed to apply Detect Tool to job")
                 return
@@ -462,6 +475,8 @@ class MainWindow(QMainWindow):
                     for key, value in detect_config.items():
                         if value is not None:  # Only update non-None values
                             editing_tool.config.set(key, value)
+                # Quay về trang camera sau khi apply
+                self.settings_manager.return_to_camera_setting_page()
                 
                 # Update tool config with general settings
                 if detection_area:
@@ -628,27 +643,24 @@ class MainWindow(QMainWindow):
         """Xử lý khi người dùng nhấn nút Draw Area"""
         print("DEBUG: Draw Area button clicked")
         
-        # Check if there's already an area drawn
+        # Chỉ xóa overlay tạm thời (pending), giữ lại overlay của các tool đã add vào job
         if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
-            current_coords = self.camera_manager.camera_view.get_current_area_coords()
-            
-            if current_coords:
-                # If area exists, clear it and allow drawing new one
-                print("DEBUG: Existing area found, clearing for new drawing")
-                self.camera_manager.camera_view.clear_all_areas()
-            
+            # Nếu đang có overlay tạm thời (current_overlay) thì xóa, không xóa overlays của tool đã add
+            if self.camera_manager.camera_view.current_overlay:
+                overlay = self.camera_manager.camera_view.current_overlay
+                if overlay.tool_id is None or overlay.tool_id not in self.camera_manager.camera_view.overlays:
+                    # Chỉ xóa overlay tạm thời chưa gán tool_id
+                    self.camera_manager.camera_view.scene.removeItem(overlay)
+                    self.camera_manager.camera_view.current_overlay = None
             # Enable drawing mode in camera view
             self.camera_manager.camera_view.set_draw_mode(True)
-            
             # Connect area drawing signals
             if hasattr(self.camera_manager.camera_view, 'area_drawn'):
                 self.camera_manager.camera_view.area_drawn.connect(self._on_area_drawn)
-            
             # Update button state
             if self.drawAreaButton:
                 self.drawAreaButton.setText("Drawing...")
                 self.drawAreaButton.setEnabled(False)
-                
             print("DEBUG: Enabled drawing mode in camera view")
         else:
             print("DEBUG: Camera view not available")

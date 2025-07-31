@@ -1,9 +1,10 @@
 import cv2
 import numpy as np
 from typing import Dict, Any, Tuple, Optional
-from job.job_manager import Tool, ToolConfig
+from tools.base_tool import BaseTool, ToolConfig
 
-class EdgeDetectionTool(Tool):
+from tools.base_tool import GenericTool
+class EdgeDetectionTool(GenericTool):
     """Công cụ phát hiện biên sử dụng Canny edge detection"""
     
     def __init__(self, name: str = "EdgeDetection", config: Optional[Dict[str, Any]] = None):
