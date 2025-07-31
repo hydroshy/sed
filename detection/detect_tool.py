@@ -277,12 +277,12 @@ def create_detect_tool_from_manager_config(manager_config: Dict[str, Any], tool_
         'model_name': manager_config.get('model_name', ''),
         'model_path': manager_config.get('model_path', ''),
         'selected_classes': manager_config.get('selected_classes', []),
-        'confidence_threshold': 0.5,  # Default values
-        'nms_threshold': 0.4,
-        'detection_region': None,
-        'visualize_results': True,
-        'show_confidence': True,
-        'show_class_names': True
+        'confidence_threshold': manager_config.get('confidence_threshold', 0.5),  # Use value from config or default
+        'nms_threshold': manager_config.get('nms_threshold', 0.4),  # Use value from config or default
+        'detection_region': manager_config.get('detection_region', None),
+        'visualize_results': manager_config.get('visualize_results', True),
+        'show_confidence': manager_config.get('show_confidence', True),
+        'show_class_names': manager_config.get('show_class_names', True)
     }
     
     tool = DetectTool("Detect Tool", tool_config, tool_id)

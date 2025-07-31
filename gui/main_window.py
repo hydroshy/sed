@@ -548,6 +548,12 @@ class MainWindow(QMainWindow):
             config = tool.config.to_dict()
             print(f"DEBUG: Loading tool config: {config}")
             
+            # Handle tool-specific configuration loading
+            if tool.name == "Detect Tool" and hasattr(self, 'detect_tool_manager'):
+                print(f"DEBUG: Loading DetectTool configuration via DetectToolManager")
+                # Delegate to DetectToolManager for tool-specific configuration
+                self.detect_tool_manager.load_tool_config(config)
+            
             # Load detection area if exists
             if 'detection_area' in config:
                 x1, y1, x2, y2 = config['detection_area']
