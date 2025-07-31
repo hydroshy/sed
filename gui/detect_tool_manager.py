@@ -411,6 +411,66 @@ class DetectToolManager:
         """Get current model info"""
         return self.current_model
     
+    def load_selected_classes_with_thresholds(self, classes: List[str], class_thresholds: Dict[str, float]):
+        """Load selected classes with their thresholds into the classification table"""
+        try:
+            # Clear current selection
+            self.selected_classes.clear()
+            
+            # Clear the table model
+            if self.classification_model is not None:
+                self.classification_model.clear()
+                self.classification_model.setHorizontalHeaderLabels(["Class Name", "Threshold"])
+            else:
+                logging.warning("Classification model is None, cannot load class thresholds")
+                return
+            
+            # Add classes with their specific thresholds
+            from PyQt5.QtGui import QStandardItem
+            for class_name in classes:
+                if class_name not in self.selected_classes:
+                    self.selected_classes.append(class_name)
+                    
+                    # Get threshold for this class, default to 0.5 if not specified
+                    threshold = class_thresholds.get(class_name, 0.5)
+                    
+                    # Add to table model
+                    class_item = QStandardItem(class_name)
+                    class_item.setEditable(False)
+                    threshold_item = QStandardItem(str(threshold))
+                    self.classification_model.appendRow([class_item, threshold_item])
+            
+            # Update button states
+            self._update_button_states()
+            
+            logging.info(f"Loaded {len(classes)} classes with thresholds: {class_thresholds}")
+            
+        except Exception as e:
+            logging.error(f"Error loading classes with thresholds: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def get_class_thresholds(self) -> Dict[str, float]:
+        """Get current class thresholds from the table"""
+        thresholds = {}
+        try:
+            if self.classification_model is not None:
+                for row in range(self.classification_model.rowCount()):
+                    class_item = self.classification_model.item(row, 0)
+                    threshold_item = self.classification_model.item(row, 1)
+                    
+                    if class_item and threshold_item:
+                        class_name = class_item.text()
+                        try:
+                            threshold = float(threshold_item.text())
+                        except ValueError:
+                            threshold = 0.5  # Default threshold
+                        thresholds[class_name] = threshold
+        except Exception as e:
+            logging.error(f"Error getting class thresholds: {e}")
+        
+        return thresholds
+
     def set_selected_classes(self, classes: List[str]):
         """Set selected classes (for loading tool configuration)"""
         try:
@@ -466,6 +526,7 @@ class DetectToolManager:
             'model_name': self.current_model['name'] if self.current_model else None,
             'model_path': self.current_model['path'] if self.current_model else None,
             'selected_classes': self.selected_classes.copy(),
+            'class_thresholds': self.get_class_thresholds(),
             'num_classes': len(self.selected_classes)
         }
         return config
@@ -477,11 +538,22 @@ class DetectToolManager:
             if 'model_name' in config and config['model_name']:
                 self.set_current_model(config['model_name'])
             
-            # Set selected classes if specified
-            if 'selected_classes' in config:
-                self.set_selected_classes(config['selected_classes'])
+            # Handle selected classes with thresholds if they exist
+            if 'selected_classes' in config and config['selected_classes']:
+                # Check if we have per-class thresholds
+                class_thresholds = config.get('class_thresholds', {})
+                
+                # Load classes with their thresholds
+                self.load_selected_classes_with_thresholds(config['selected_classes'], class_thresholds)
+            
+            # Load other DetectTool-specific settings
+            if 'confidence_threshold' in config:
+                # This could be used to set a global threshold if UI supports it
+                logging.info(f"Global confidence threshold: {config['confidence_threshold']}")
             
             logging.info("Tool configuration loaded successfully")
             
         except Exception as e:
             logging.error(f"Error loading tool configuration: {e}")
+            import traceback
+            traceback.print_exc()

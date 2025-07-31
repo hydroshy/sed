@@ -452,7 +452,18 @@ class MainWindow(QMainWindow):
                 # Update existing tool configuration
                 print(f"DEBUG: Updating existing tool: {editing_tool.display_name}")
                 
-                # Update tool config directly
+                # Handle DetectTool configuration updates specifically
+                if editing_tool.name == "Detect Tool" and hasattr(self, 'detect_tool_manager'):
+                    # Get updated configuration from DetectToolManager
+                    detect_config = self.detect_tool_manager.get_tool_config()
+                    print(f"DEBUG: DetectTool config from manager: {detect_config}")
+                    
+                    # Update tool config with DetectTool-specific settings
+                    for key, value in detect_config.items():
+                        if value is not None:  # Only update non-None values
+                            editing_tool.config.set(key, value)
+                
+                # Update tool config with general settings
                 if detection_area:
                     editing_tool.config.set('detection_area', detection_area)
                 
@@ -558,7 +569,7 @@ class MainWindow(QMainWindow):
             if 'detection_area' in config:
                 x1, y1, x2, y2 = config['detection_area']
                 
-                # Update position line edits
+                # Update position line edits with coordinates from detection_area
                 center_x = int((x1 + x2) / 2)
                 center_y = int((y1 + y2) / 2)
                 
@@ -567,14 +578,39 @@ class MainWindow(QMainWindow):
                 if self.yPositionLineEdit:
                     self.yPositionLineEdit.setText(str(center_y))
                 
-                # Add detection area to camera view for editing
+                # Add or update detection area overlay for editing (preserve other overlays)
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
-                    # Clear existing areas first
-                    self.camera_manager.camera_view.clear_detection_areas()
-                    # Add the area for editing with edit mode enabled
-                    overlay = self.camera_manager.camera_view.show_detection_area(x1, y1, x2, y2, editable=True)
+                    camera_view = self.camera_manager.camera_view
+                    
+                    # Don't clear all detection areas - preserve other tool overlays
+                    # Instead, either add new overlay or edit existing one for this tool
+                    if tool.tool_id in camera_view.overlays:
+                        # Update existing overlay for this tool
+                        overlay = camera_view.overlays[tool.tool_id]
+                        overlay.update_from_coords(x1, y1, x2, y2)
+                        overlay.set_edit_mode(True)
+                        camera_view.current_overlay = overlay
+                        print(f"DEBUG: Updated existing overlay for tool #{tool.tool_id}")
+                    else:
+                        # Add new overlay for this tool
+                        overlay = camera_view.add_tool_overlay(x1, y1, x2, y2, tool.tool_id)
+                        overlay.set_edit_mode(True)
+                        camera_view.current_overlay = overlay
+                        print(f"DEBUG: Added new overlay for tool #{tool.tool_id}")
+                        
                     print(f"DEBUG: Loaded detection area for editing: ({x1}, {y1}) to ({x2}, {y2})")
                     print("DEBUG: Enabled overlay edit mode for tool editing")
+            else:
+                # Load position from xPosition and yPosition if detection_area doesn't exist
+                x_pos = config.get('xPosition', config.get('x_position'))
+                y_pos = config.get('yPosition', config.get('y_position'))
+                
+                if x_pos is not None and y_pos is not None:
+                    if self.xPositionLineEdit:
+                        self.xPositionLineEdit.setText(str(x_pos))
+                    if self.yPositionLineEdit:
+                        self.yPositionLineEdit.setText(str(y_pos))
+                    print(f"DEBUG: Loaded position from config: X={x_pos}, Y={y_pos}")
             
             # Load other settings (threshold, confidence, etc.)
             if 'threshold' in config and hasattr(self, 'thresholdSlider'):
@@ -585,6 +621,8 @@ class MainWindow(QMainWindow):
                 
         except Exception as e:
             print(f"DEBUG: Error loading tool config: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _on_draw_area_clicked(self):
         """Xử lý khi người dùng nhấn nút Draw Area"""

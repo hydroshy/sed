@@ -33,9 +33,11 @@ class DetectTool(Tool):
         self.config.set_default('model_name', '')
         self.config.set_default('model_path', '')
         self.config.set_default('selected_classes', [])
+        self.config.set_default('class_thresholds', {})  # Per-class confidence thresholds
         self.config.set_default('confidence_threshold', 0.5)
         self.config.set_default('nms_threshold', 0.4)
         self.config.set_default('detection_region', None)  # (x1, y1, x2, y2) or None for full image
+        self.config.set_default('detection_area', None)  # Alias for detection_region for UI compatibility
         self.config.set_default('visualize_results', True)
         self.config.set_default('show_confidence', True)
         self.config.set_default('show_class_names', True)
@@ -44,6 +46,7 @@ class DetectTool(Tool):
         self.config.set_validator('confidence_threshold', lambda x: 0.0 <= x <= 1.0)
         self.config.set_validator('nms_threshold', lambda x: 0.0 <= x <= 1.0)
         self.config.set_validator('selected_classes', lambda x: isinstance(x, list))
+        self.config.set_validator('class_thresholds', lambda x: isinstance(x, dict))
         
         logger.info(f"DetectTool {self.display_name} configuration setup completed")
     
@@ -277,9 +280,11 @@ def create_detect_tool_from_manager_config(manager_config: Dict[str, Any], tool_
         'model_name': manager_config.get('model_name', ''),
         'model_path': manager_config.get('model_path', ''),
         'selected_classes': manager_config.get('selected_classes', []),
+        'class_thresholds': manager_config.get('class_thresholds', {}),
         'confidence_threshold': manager_config.get('confidence_threshold', 0.5),  # Use value from config or default
         'nms_threshold': manager_config.get('nms_threshold', 0.4),  # Use value from config or default
         'detection_region': manager_config.get('detection_region', None),
+        'detection_area': manager_config.get('detection_area', None),  # For UI compatibility
         'visualize_results': manager_config.get('visualize_results', True),
         'show_confidence': manager_config.get('show_confidence', True),
         'show_class_names': manager_config.get('show_class_names', True)
