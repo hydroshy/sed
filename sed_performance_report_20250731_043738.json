@@ -1,0 +1,116 @@
+{
+  "timestamp": "2025-07-31T04:37:38.778057",
+  "system_info": {
+    "cpu_count": 4,
+    "memory_total_gb": 15.620681762695312,
+    "memory_available_gb": 14.110992431640625,
+    "cpu_freq_current": 2601.90375,
+    "platform": "linux",
+    "python_version": "3.12.3 (main, Jun 18 2025, 17:59:45) [GCC 13.3.0]"
+  },
+  "camera_analysis": {
+    "error": "No camera metrics available"
+  },
+  "tool_analysis": {
+    "YOLO": {
+      "average_processing_time_ms": 250.0,
+      "average_memory_usage_mb": 120.0,
+      "total_executions": 3,
+      "warnings": [
+        "Slow processing: 250.0ms > 100.0ms"
+      ]
+    }
+  },
+  "overall_analysis": {
+    "total_runtime_seconds": 0.8216085433959961,
+    "total_operations": 4,
+    "average_cpu_percent": 0.0,
+    "average_memory_mb": 73.84375,
+    "operations_per_second": 4.868498547333257,
+    "warnings": []
+  },
+  "optimization_recommendations": [
+    "\ud83c\udfaf OBJECT DETECTION OPTIMIZATION:",
+    "  \u2022 Use smaller YOLO model (YOLOv8n instead of YOLOv8s/m/l)",
+    "  \u2022 Reduce inference resolution",
+    "  \u2022 Use ONNX Runtime optimization",
+    "  \u2022 Consider model quantization (INT8)",
+    "\ud83d\udd04 THREADING OPTIMIZATION:",
+    "  \u2022 Separate UI thread from processing threads",
+    "  \u2022 Use producer-consumer pattern for frame processing",
+    "  \u2022 Implement job queue with priority levels",
+    "  \u2022 Consider asyncio for I/O bound operations"
+  ],
+  "raw_metrics": {
+    "general_metrics": [
+      {
+        "operation": "yolo_initialization",
+        "execution_time": 5.484300004354736e-05,
+        "memory_usage_mb": 73.84375,
+        "cpu_percent": 0.0,
+        "timestamp": 1753936658.0268676,
+        "additional_data": null
+      },
+      {
+        "operation": "yolo_inference_0",
+        "execution_time": 0.2501775150000185,
+        "memory_usage_mb": 73.84375,
+        "cpu_percent": 0.0,
+        "timestamp": 1753936658.2772543,
+        "additional_data": null
+      },
+      {
+        "operation": "yolo_inference_1",
+        "execution_time": 0.2501683379999804,
+        "memory_usage_mb": 73.84375,
+        "cpu_percent": 0.0,
+        "timestamp": 1753936658.527633,
+        "additional_data": null
+      },
+      {
+        "operation": "yolo_inference_2",
+        "execution_time": 0.2501495930000601,
+        "memory_usage_mb": 73.84375,
+        "cpu_percent": 0.0,
+        "timestamp": 1753936658.7779875,
+        "additional_data": null
+      }
+    ],
+    "camera_metrics": [],
+    "tool_metrics": [
+      {
+        "tool_name": "YOLO",
+        "processing_time_ms": 250.0,
+        "input_size": [
+          640,
+          640
+        ],
+        "memory_usage_mb": 120.0,
+        "accuracy_score": 0.78,
+        "additional_metrics": null
+      },
+      {
+        "tool_name": "YOLO",
+        "processing_time_ms": 250.0,
+        "input_size": [
+          640,
+          640
+        ],
+        "memory_usage_mb": 120.0,
+        "accuracy_score": 0.78,
+        "additional_metrics": null
+      },
+      {
+        "tool_name": "YOLO",
+        "processing_time_ms": 250.0,
+        "input_size": [
+          640,
+          640
+        ],
+        "memory_usage_mb": 120.0,
+        "accuracy_score": 0.78,
+        "additional_metrics": null
+      }
+    ]
+  }
+}

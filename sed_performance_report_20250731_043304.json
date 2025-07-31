@@ -1,0 +1,341 @@
+{
+  "timestamp": "2025-07-31T04:33:04.516749",
+  "system_info": {
+    "cpu_count": 4,
+    "memory_total_gb": 15.620681762695312,
+    "memory_available_gb": 14.12106704711914,
+    "cpu_freq_current": 2666.199,
+    "platform": "linux",
+    "python_version": "3.12.3 (main, Jun 18 2025, 17:59:45) [GCC 13.3.0]"
+  },
+  "camera_analysis": {
+    "error": "No camera metrics available"
+  },
+  "tool_analysis": {
+    "OCR": {
+      "average_processing_time_ms": 150.0,
+      "average_memory_usage_mb": 85.0,
+      "total_executions": 5,
+      "warnings": [
+        "Slow processing: 150.0ms > 100.0ms"
+      ]
+    },
+    "EdgeDetection": {
+      "average_processing_time_ms": 50.0,
+      "average_memory_usage_mb": 25.0,
+      "total_executions": 5,
+      "warnings": []
+    },
+    "YOLO": {
+      "average_processing_time_ms": 250.0,
+      "average_memory_usage_mb": 120.0,
+      "total_executions": 3,
+      "warnings": [
+        "Slow processing: 250.0ms > 100.0ms"
+      ]
+    }
+  },
+  "overall_analysis": {
+    "total_runtime_seconds": 1.8182504177093506,
+    "total_operations": 16,
+    "average_cpu_percent": 9.7625,
+    "average_memory_mb": 58.6572265625,
+    "operations_per_second": 8.799667990813363,
+    "warnings": []
+  },
+  "optimization_recommendations": [
+    "\ud83d\udd24 OCR OPTIMIZATION:",
+    "  \u2022 Reduce image preprocessing (scale down before OCR)",
+    "  \u2022 Use ROI (Region of Interest) instead of full image",
+    "  \u2022 Consider lightweight OCR models",
+    "  \u2022 Cache OCR results for similar regions",
+    "\ud83c\udfaf OBJECT DETECTION OPTIMIZATION:",
+    "  \u2022 Use smaller YOLO model (YOLOv8n instead of YOLOv8s/m/l)",
+    "  \u2022 Reduce inference resolution",
+    "  \u2022 Use ONNX Runtime optimization",
+    "  \u2022 Consider model quantization (INT8)",
+    "\ud83d\udd04 THREADING OPTIMIZATION:",
+    "  \u2022 Separate UI thread from processing threads",
+    "  \u2022 Use producer-consumer pattern for frame processing",
+    "  \u2022 Implement job queue with priority levels",
+    "  \u2022 Consider asyncio for I/O bound operations"
+  ],
+  "raw_metrics": {
+    "general_metrics": [
+      {
+        "operation": "ocr_tool_initialization",
+        "execution_time": 0.0006582739999885234,
+        "memory_usage_mb": 55.9140625,
+        "cpu_percent": 0.0,
+        "timestamp": 1753936382.7402246,
+        "additional_data": null
+      },
+      {
+        "operation": "ocr_processing_0",
+        "execution_time": 0.1501319550000062,
+        "memory_usage_mb": 55.9140625,
+        "cpu_percent": 6.7,
+        "timestamp": 1753936382.890574,
+        "additional_data": null
+      },
+      {
+        "operation": "ocr_processing_1",
+        "execution_time": 0.15016956300007678,
+        "memory_usage_mb": 55.9140625,
+        "cpu_percent": 0.0,
+        "timestamp": 1753936383.0409563,
+        "additional_data": null
+      },
+      {
+        "operation": "ocr_processing_2",
+        "execution_time": 0.15014983399998982,
+        "memory_usage_mb": 55.9140625,
+        "cpu_percent": 0.0,
+        "timestamp": 1753936383.1913252,
+        "additional_data": null
+      },
+      {
+        "operation": "ocr_processing_3",
+        "execution_time": 0.15017684999997982,
+        "memory_usage_mb": 55.9140625,
+        "cpu_percent": 0.0,
+        "timestamp": 1753936383.3417237,
+        "additional_data": null
+      },
+      {
+        "operation": "ocr_processing_4",
+        "execution_time": 0.15018804299995736,
+        "memory_usage_mb": 55.9140625,
+        "cpu_percent": 0.0,
+        "timestamp": 1753936383.492166,
+        "additional_data": null
+      },
+      {
+        "operation": "edge_detection_initialization",
+        "execution_time": 4.446299999472103e-05,
+        "memory_usage_mb": 55.9140625,
+        "cpu_percent": 0.0,
+        "timestamp": 1753936383.4934635,
+        "additional_data": null
+      },
+      {
+        "operation": "edge_detection_0",
+        "execution_time": 0.05017350399998577,
+        "memory_usage_mb": 55.9140625,
+        "cpu_percent": 0.0,
+        "timestamp": 1753936383.5438488,
+        "additional_data": null
+      },
+      {
+        "operation": "edge_detection_1",
+        "execution_time": 0.050163616999952865,
+        "memory_usage_mb": 55.9140625,
+        "cpu_percent": 0.0,
+        "timestamp": 1753936383.59421,
+        "additional_data": null
+      },
+      {
+        "operation": "edge_detection_2",
+        "execution_time": 0.0501468830000249,
+        "memory_usage_mb": 55.9140625,
+        "cpu_percent": 0.0,
+        "timestamp": 1753936383.6445715,
+        "additional_data": null
+      },
+      {
+        "operation": "edge_detection_3",
+        "execution_time": 0.050178591999952005,
+        "memory_usage_mb": 55.9140625,
+        "cpu_percent": 0.0,
+        "timestamp": 1753936383.6949635,
+        "additional_data": null
+      },
+      {
+        "operation": "edge_detection_4",
+        "execution_time": 0.05018132699990474,
+        "memory_usage_mb": 55.9140625,
+        "cpu_percent": 0.0,
+        "timestamp": 1753936383.7453601,
+        "additional_data": null
+      },
+      {
+        "operation": "yolo_initialization",
+        "execution_time": 4.7308000034718134e-05,
+        "memory_usage_mb": 66.88671875,
+        "cpu_percent": 149.5,
+        "timestamp": 1753936383.7654176,
+        "additional_data": null
+      },
+      {
+        "operation": "yolo_inference_0",
+        "execution_time": 0.25015428200003953,
+        "memory_usage_mb": 66.88671875,
+        "cpu_percent": 0.0,
+        "timestamp": 1753936384.0157797,
+        "additional_data": null
+      },
+      {
+        "operation": "yolo_inference_1",
+        "execution_time": 0.2501807239999607,
+        "memory_usage_mb": 66.88671875,
+        "cpu_percent": 0.0,
+        "timestamp": 1753936384.2662055,
+        "additional_data": null
+      },
+      {
+        "operation": "yolo_inference_2",
+        "execution_time": 0.25017497199996797,
+        "memory_usage_mb": 66.88671875,
+        "cpu_percent": 0.0,
+        "timestamp": 1753936384.5166068,
+        "additional_data": null
+      }
+    ],
+    "camera_metrics": [],
+    "tool_metrics": [
+      {
+        "tool_name": "OCR",
+        "processing_time_ms": 150.0,
+        "input_size": [
+          640,
+          480
+        ],
+        "memory_usage_mb": 85.0,
+        "accuracy_score": 0.85,
+        "additional_metrics": null
+      },
+      {
+        "tool_name": "OCR",
+        "processing_time_ms": 150.0,
+        "input_size": [
+          640,
+          480
+        ],
+        "memory_usage_mb": 85.0,
+        "accuracy_score": 0.85,
+        "additional_metrics": null
+      },
+      {
+        "tool_name": "OCR",
+        "processing_time_ms": 150.0,
+        "input_size": [
+          640,
+          480
+        ],
+        "memory_usage_mb": 85.0,
+        "accuracy_score": 0.85,
+        "additional_metrics": null
+      },
+      {
+        "tool_name": "OCR",
+        "processing_time_ms": 150.0,
+        "input_size": [
+          640,
+          480
+        ],
+        "memory_usage_mb": 85.0,
+        "accuracy_score": 0.85,
+        "additional_metrics": null
+      },
+      {
+        "tool_name": "OCR",
+        "processing_time_ms": 150.0,
+        "input_size": [
+          640,
+          480
+        ],
+        "memory_usage_mb": 85.0,
+        "accuracy_score": 0.85,
+        "additional_metrics": null
+      },
+      {
+        "tool_name": "EdgeDetection",
+        "processing_time_ms": 50.0,
+        "input_size": [
+          640,
+          480
+        ],
+        "memory_usage_mb": 25.0,
+        "accuracy_score": null,
+        "additional_metrics": null
+      },
+      {
+        "tool_name": "EdgeDetection",
+        "processing_time_ms": 50.0,
+        "input_size": [
+          640,
+          480
+        ],
+        "memory_usage_mb": 25.0,
+        "accuracy_score": null,
+        "additional_metrics": null
+      },
+      {
+        "tool_name": "EdgeDetection",
+        "processing_time_ms": 50.0,
+        "input_size": [
+          640,
+          480
+        ],
+        "memory_usage_mb": 25.0,
+        "accuracy_score": null,
+        "additional_metrics": null
+      },
+      {
+        "tool_name": "EdgeDetection",
+        "processing_time_ms": 50.0,
+        "input_size": [
+          640,
+          480
+        ],
+        "memory_usage_mb": 25.0,
+        "accuracy_score": null,
+        "additional_metrics": null
+      },
+      {
+        "tool_name": "EdgeDetection",
+        "processing_time_ms": 50.0,
+        "input_size": [
+          640,
+          480
+        ],
+        "memory_usage_mb": 25.0,
+        "accuracy_score": null,
+        "additional_metrics": null
+      },
+      {
+        "tool_name": "YOLO",
+        "processing_time_ms": 250.0,
+        "input_size": [
+          640,
+          640
+        ],
+        "memory_usage_mb": 120.0,
+        "accuracy_score": 0.78,
+        "additional_metrics": null
+      },
+      {
+        "tool_name": "YOLO",
+        "processing_time_ms": 250.0,
+        "input_size": [
+          640,
+          640
+        ],
+        "memory_usage_mb": 120.0,
+        "accuracy_score": 0.78,
+        "additional_metrics": null
+      },
+      {
+        "tool_name": "YOLO",
+        "processing_time_ms": 250.0,
+        "input_size": [
+          640,
+          640
+        ],
+        "memory_usage_mb": 120.0,
+        "accuracy_score": 0.78,
+        "additional_metrics": null
+      }
+    ]
+  }
+}
