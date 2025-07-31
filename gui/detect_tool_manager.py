@@ -417,10 +417,23 @@ class DetectToolManager:
             # Clear current selection
             self.selected_classes.clear()
             
+            # Clear the table model
+            if self.classification_model is not None:
+                self.classification_model.clear()
+                self.classification_model.setHorizontalHeaderLabels(["Class Name", "Threshold"])
+            
             # Add new classes
+            from PyQt5.QtGui import QStandardItem
             for class_name in classes:
                 if class_name not in self.selected_classes:
                     self.selected_classes.append(class_name)
+                    
+                    # Add to table model if it exists
+                    if self.classification_model is not None:
+                        class_item = QStandardItem(class_name)
+                        class_item.setEditable(False)
+                        threshold_item = QStandardItem("0.5")  # Default threshold
+                        self.classification_model.appendRow([class_item, threshold_item])
             
             # Update button states
             self._update_button_states()
@@ -438,6 +451,8 @@ class DetectToolManager:
                 index = self.algorithm_combo.findText(model_name)
                 if index >= 0:
                     self.algorithm_combo.setCurrentIndex(index)
+                    # Manually trigger the model change to ensure classes are loaded
+                    self._on_model_changed(model_name)
                     logging.info(f"Set current model: {model_name}")
                 else:
                     logging.warning(f"Model not found in combo box: {model_name}")
