@@ -5,6 +5,13 @@ from typing import Dict, Any, Tuple, Optional, List
 from job.job_manager import Tool, ToolConfig
 import logging
 
+# Import performance monitoring
+try:
+    from utils.performance_monitor import profile_operation
+    PERFORMANCE_MONITORING = True
+except ImportError:
+    PERFORMANCE_MONITORING = False
+
 logger = logging.getLogger(__name__)
 
 class OcrTool(Tool):
@@ -170,31 +177,48 @@ class OcrTool(Tool):
             Tuple chứa ảnh đã xử lý và kết quả
         """
         try:
-            # Thực hiện OCR
-            detections = self.detect(image)
-            
-            # Tạo ảnh output với bounding boxes
-            output_image = image.copy()
-            output_format = self.config.get("output_format")
-            
-            if output_format in ["boxes", "both"] and detections:
-                for detection in detections:
-                    bbox = detection["bbox"]
-                    text = detection["text"]
-                    confidence = detection["confidence"]
-                    
-                    # Vẽ bounding box
-                    cv2.rectangle(output_image, 
-                                (bbox["x1"], bbox["y1"]), 
-                                (bbox["x2"], bbox["y2"]), 
-                                (0, 255, 0), 2)
-                    
-                    # Vẽ text và confidence
-                    label = f"{text} ({confidence:.2f})"
-                    cv2.putText(output_image, label, 
-                              (bbox["x1"], bbox["y1"] - 10), 
-                              cv2.FONT_HERSHEY_SIMPLEX, 0.5, 
-                              (0, 255, 0), 1)
+            # Performance monitoring wrapper
+            if PERFORMANCE_MONITORING:
+                with profile_operation("ocr_processing"):
+                    return self._process_internal_tool(image, context)
+            else:
+                return self._process_internal_tool(image, context)
+                
+        except Exception as e:
+            logger.error(f"OCR processing failed: {str(e)}")
+            return image, {
+                "status": "error",
+                "message": f"OCR processing failed: {str(e)}",
+                "detections": []
+            }
+    
+    def _process_internal_tool(self, image: np.ndarray, context: Optional[Dict[str, Any]] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """Internal OCR processing for tool interface"""
+        # Thực hiện OCR
+        detections = self.detect(image)
+        
+        # Tạo ảnh output với bounding boxes
+        output_image = image.copy()
+        output_format = self.config.get("output_format")
+        
+        if output_format in ["boxes", "both"] and detections:
+            for detection in detections:
+                bbox = detection["bbox"]
+                text = detection["text"]
+                confidence = detection["confidence"]
+                
+                # Vẽ bounding box
+                cv2.rectangle(output_image, 
+                            (bbox["x1"], bbox["y1"]), 
+                            (bbox["x2"], bbox["y2"]), 
+                            (0, 255, 0), 2)
+                
+                # Vẽ text và confidence
+                label = f"{text} ({confidence:.2f})"
+                cv2.putText(output_image, label, 
+                          (bbox["x1"], bbox["y1"] - 10), 
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.5, 
+                          (0, 255, 0), 1)
             
             # Tổng hợp kết quả
             all_text = " ".join([d["text"] for d in detections])
@@ -211,4 +235,5 @@ class OcrTool(Tool):
             
         except Exception as e:
             error_msg = f"Lỗi trong OcrTool: {str(e)}"
+            logger.error(error_msg)
             return image, {"error": error_msg}

@@ -2,6 +2,16 @@ import cv2
 import numpy as np
 from typing import Dict, Any, Tuple, Optional
 from job.job_manager import Tool, ToolConfig
+import logging
+
+# Import performance monitoring
+try:
+    from utils.performance_monitor import profile_operation
+    PERFORMANCE_MONITORING = True
+except ImportError:
+    PERFORMANCE_MONITORING = False
+
+logger = logging.getLogger(__name__)
 
 class EdgeDetectionTool(Tool):
     """Công cụ phát hiện biên sử dụng Canny edge detection"""
@@ -36,18 +46,35 @@ class EdgeDetectionTool(Tool):
             Tuple chứa ảnh đã xử lý và kết quả
         """
         try:
-            # Chuyển sang grayscale nếu là ảnh màu
-            if len(image.shape) == 3:
-                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            # Performance monitoring wrapper
+            if PERFORMANCE_MONITORING:
+                with profile_operation("edge_detection_processing"):
+                    return self._process_internal(image, context)
             else:
-                gray = image.copy()
+                return self._process_internal(image, context)
                 
-            # Áp dụng Gaussian blur nếu được bật
-            if self.config.get("enable_blur"):
-                kernel_size = self.config.get("blur_kernel_size")
-                gray = cv2.GaussianBlur(gray, (kernel_size, kernel_size), 0)
+        except Exception as e:
+            logger.error(f"Edge detection processing failed: {str(e)}")
+            return image, {
+                "status": "error",
+                "message": f"Edge detection failed: {str(e)}",
+                "edge_count": 0
+            }
+    
+    def _process_internal(self, image: np.ndarray, context: Optional[Dict[str, Any]] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """Internal edge detection processing"""
+        # Chuyển sang grayscale nếu là ảnh màu
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image.copy()
             
-            # Phát hiện biên bằng Canny
+        # Áp dụng Gaussian blur nếu được bật
+        if self.config.get("enable_blur"):
+            kernel_size = self.config.get("blur_kernel_size")
+            gray = cv2.GaussianBlur(gray, (kernel_size, kernel_size), 0)
+        
+        # Phát hiện biên bằng Canny
             low_threshold = self.config.get("low_threshold")
             high_threshold = self.config.get("high_threshold")
             aperture_size = self.config.get("aperture_size")
@@ -83,4 +110,5 @@ class EdgeDetectionTool(Tool):
             
         except Exception as e:
             error_msg = f"Lỗi trong EdgeDetectionTool: {str(e)}"
+            logger.error(error_msg)
             return image, {"error": error_msg}

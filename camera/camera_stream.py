@@ -2,6 +2,16 @@ import numpy as np
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer, QThread, QMutex, QMutexLocker
 from picamera2 import Picamera2
 import threading
+import time
+import logging
+
+# Import performance monitoring
+try:
+    from utils.performance_monitor import profile_operation, record_frame, record_frame_drop
+    PERFORMANCE_MONITORING = True
+except ImportError:
+    PERFORMANCE_MONITORING = False
+    logging.warning("Performance monitoring not available")
 
 class CameraStream(QObject):
     frame_ready = pyqtSignal(np.ndarray)
@@ -239,21 +249,47 @@ class CameraStream(QObject):
             if not self.job_enabled:
                 # Simple frame capture without job processing
                 try:
-                    frame = self.picam2.capture_array()
+                    frame_start_time = time.perf_counter() if PERFORMANCE_MONITORING else None
+                    
+                    if PERFORMANCE_MONITORING:
+                        with profile_operation("camera_simple_capture"):
+                            frame = self.picam2.capture_array()
+                        
+                        # Record frame timing
+                        processing_time = (time.perf_counter() - frame_start_time) * 1000  # ms
+                        record_frame(processing_time)
+                    else:
+                        frame = self.picam2.capture_array()
+                    
                     if frame is not None:
                         self.frame_ready.emit(frame)
                 except Exception as e:
                     print(f"DEBUG: [CameraStream] Simple capture error: {e}")
+                    if PERFORMANCE_MONITORING:
+                        record_frame_drop()
                 return
                 
             # Full frame capture with job processing (if enabled)
             try:
-                frame = self.picam2.capture_array()
+                frame_start_time = time.perf_counter() if PERFORMANCE_MONITORING else None
+                
+                if PERFORMANCE_MONITORING:
+                    with profile_operation("camera_frame_capture_with_jobs"):
+                        frame = self.picam2.capture_array()
+                    
+                    # Record frame timing
+                    processing_time = (time.perf_counter() - frame_start_time) * 1000  # ms
+                    record_frame(processing_time)
+                else:
+                    frame = self.picam2.capture_array()
+                
                 if frame is not None:
                     # Emit frame directly for better UI responsiveness
                     self.frame_ready.emit(frame)
             except Exception as e:
                 print(f"DEBUG: [CameraStream] Full capture error: {e}")
+                if PERFORMANCE_MONITORING:
+                    record_frame_drop()
                 # Don't stop live mode on single frame error
         finally:
             self._mutex.unlock()
