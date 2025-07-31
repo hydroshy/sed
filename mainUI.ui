@@ -943,37 +943,37 @@
               <string>Draw area</string>
              </property>
             </widget>
-            <widget class="QLineEdit" name="yPositionLineEdit">
+            <widget class="QLineEdit" name="y1PositionLineEdit">
              <property name="geometry">
               <rect>
-               <x>80</x>
+               <x>100</x>
                <y>80</y>
                <width>113</width>
                <height>20</height>
               </rect>
              </property>
             </widget>
-            <widget class="QLineEdit" name="xPositionLineEdit">
+            <widget class="QLineEdit" name="x1PositionLineEdit">
              <property name="geometry">
               <rect>
-               <x>80</x>
+               <x>100</x>
                <y>50</y>
                <width>113</width>
                <height>20</height>
               </rect>
              </property>
             </widget>
-            <widget class="QLabel" name="yPositionLabel">
+            <widget class="QLabel" name="y1PositionLabel">
              <property name="geometry">
               <rect>
                <x>20</x>
                <y>80</y>
-               <width>51</width>
+               <width>71</width>
                <height>21</height>
               </rect>
              </property>
              <property name="text">
-              <string>Y position </string>
+              <string>Y1 position </string>
              </property>
             </widget>
             <widget class="QLabel" name="algorithmLabel">
@@ -1002,17 +1002,17 @@
               <enum>QComboBox::AdjustToMinimumContentsLengthWithIcon</enum>
              </property>
             </widget>
-            <widget class="QLabel" name="xPositionLabel">
+            <widget class="QLabel" name="x1PositionLabel">
              <property name="geometry">
               <rect>
                <x>20</x>
                <y>50</y>
-               <width>51</width>
+               <width>71</width>
                <height>21</height>
               </rect>
              </property>
              <property name="text">
-              <string>X position </string>
+              <string>X1 position </string>
              </property>
             </widget>
             <widget class="QComboBox" name="classificationComboBox">
@@ -1061,30 +1061,50 @@
               </rect>
              </property>
             </widget>
-            <widget class="QPushButton" name="applyDetectSetting">
+            <widget class="QLineEdit" name="x2PositionLineEdit">
              <property name="geometry">
               <rect>
-               <x>10</x>
-               <y>660</y>
-               <width>431</width>
-               <height>23</height>
+               <x>320</x>
+               <y>50</y>
+               <width>113</width>
+               <height>20</height>
               </rect>
-             </property>
-             <property name="text">
-              <string>Apply </string>
              </property>
             </widget>
-            <widget class="QPushButton" name="cancleDetectSetting">
+            <widget class="QLabel" name="y2PositionLabel">
              <property name="geometry">
               <rect>
-               <x>10</x>
-               <y>700</y>
-               <width>431</width>
-               <height>23</height>
+               <x>230</x>
+               <y>80</y>
+               <width>71</width>
+               <height>21</height>
               </rect>
              </property>
              <property name="text">
-              <string>Cancle</string>
+              <string>Y2 position </string>
+             </property>
+            </widget>
+            <widget class="QLabel" name="x2PositionLabel">
+             <property name="geometry">
+              <rect>
+               <x>230</x>
+               <y>50</y>
+               <width>71</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>X2 position </string>
+             </property>
+            </widget>
+            <widget class="QLineEdit" name="y2PositionLineEdit">
+             <property name="geometry">
+              <rect>
+               <x>320</x>
+               <y>80</y>
+               <width>113</width>
+               <height>20</height>
+              </rect>
              </property>
             </widget>
            </widget>
@@ -1140,7 +1160,7 @@
      <x>0</x>
      <y>0</y>
      <width>1961</width>
-     <height>26</height>
+     <height>21</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">

@@ -14,6 +14,29 @@ from gui.detect_tool_manager import DetectToolManager
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class MainWindow(QMainWindow):
+    def _clear_tool_config_ui(self):
+        """Reset UI cấu hình tool về mặc định khi tạo mới"""
+        # Xóa detection area (4 trường)
+        if self.x1PositionLineEdit:
+            self.x1PositionLineEdit.setText("")
+        if self.y1PositionLineEdit:
+            self.y1PositionLineEdit.setText("")
+        if self.x2PositionLineEdit:
+            self.x2PositionLineEdit.setText("")
+        if self.y2PositionLineEdit:
+            self.y2PositionLineEdit.setText("")
+        # Xóa bảng class đã chọn
+        if self.classificationTableView and hasattr(self.classificationTableView, 'model'):
+            model = self.classificationTableView.model()
+            if model:
+                model.removeRows(0, model.rowCount())
+        # Đặt combobox model về mặc định
+        if self.algorithmComboBox:
+            if self.algorithmComboBox.count() > 0:
+                self.algorithmComboBox.setCurrentIndex(0)
+        # Nếu có detect_tool_manager, xóa class đã chọn (nếu có hàm)
+        if hasattr(self, 'detect_tool_manager') and hasattr(self.detect_tool_manager, 'selected_classes'):
+            self.detect_tool_manager.selected_classes = []
     def _disable_all_overlay_edit_mode(self):
         """Tắt edit mode cho tất cả overlays và current_overlay nếu có camera_view"""
         if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
@@ -69,14 +92,23 @@ class MainWindow(QMainWindow):
         self.zoomOut = self.findChild(QPushButton, 'zoomOut')
         self.rotateLeft = self.findChild(QPushButton, 'rotateLeft')
         self.rotateRight = self.findChild(QPushButton, 'rotateRight')
+        self.x1PositionLineEdit = self.findChild(QLineEdit, 'x1PositionLineEdit')
+        self.y1PositionLineEdit = self.findChild(QLineEdit, 'y1PositionLineEdit')
+        self.x2PositionLineEdit = self.findChild(QLineEdit, 'x2PositionLineEdit')
+        self.y2PositionLineEdit = self.findChild(QLineEdit, 'y2PositionLineEdit')
+        # Reset detection area fields
+        if self.x1PositionLineEdit:
+            self.x1PositionLineEdit.setText("")
+        if self.y1PositionLineEdit:
+            self.y1PositionLineEdit.setText("")
+        if self.x2PositionLineEdit:
+            self.x2PositionLineEdit.setText("")
+        if self.y2PositionLineEdit:
+            self.y2PositionLineEdit.setText("")
         self.triggerCameraMode = self.findChild(QPushButton, 'triggerCameraMode')
         self.liveCameraMode = self.findChild(QPushButton, 'liveCameraMode')
         
         # Camera settings widgets
-        self.exposureEdit = self.findChild(QDoubleSpinBox, 'exposureEdit')  # Changed to QDoubleSpinBox
-        self.exposureSlider = self.findChild(QSlider, 'exposureSlider')
-        self.gainEdit = self.findChild(QDoubleSpinBox, 'gainEdit')  # Also change to QDoubleSpinBox
-        self.gainSlider = self.findChild(QSlider, 'gainSlider')
         self.evEdit = self.findChild(QDoubleSpinBox, 'evEdit')  # Also change to QDoubleSpinBox
         self.evSlider = self.findChild(QSlider, 'evSlider')
         self.manualExposure = self.findChild(QPushButton, 'manualExposure')
@@ -98,10 +130,6 @@ class MainWindow(QMainWindow):
         self.editJob = self.findChild(QPushButton, 'editJob')
         self.addJob = self.findChild(QPushButton, 'addJob')
         self.loadJob = self.findChild(QPushButton, 'loadJob')
-        self.saveJob = self.findChild(QPushButton, 'saveJob')
-        self.runJob = self.findChild(QPushButton, 'runJob')
-        
-        # Tool management widgets
         self.toolView = self.findChild(QListView, 'toolView')
         self.addTool = self.findChild(QPushButton, 'addTool')
         self.editTool = self.findChild(QPushButton, 'editTool')
@@ -129,11 +157,6 @@ class MainWindow(QMainWindow):
             self.exposureEdit.setDecimals(1)  # 1 decimal place
             self.exposureEdit.setSuffix(" μs")  # Microseconds unit suffix
             
-        if self.gainEdit:
-            self.gainEdit.setMinimum(1.0)  # 1.0 minimum gain
-            self.gainEdit.setMaximum(16.0)  # 16.0 maximum gain
-            self.gainEdit.setValue(1.0)  # 1.0 default gain
-            self.gainEdit.setDecimals(2)  # 2 decimal places
             
         if self.evEdit:
             self.evEdit.setMinimum(-2.0)  # -2.0 minimum EV
@@ -362,6 +385,7 @@ class MainWindow(QMainWindow):
         self.tool_manager._pending_detection_area = None
         if tool_name:
             self.settings_manager.switch_to_tool_setting_page(tool_name)
+            self._clear_tool_config_ui()
     
     def _on_edit_tool(self):
         """Xử lý khi người dùng nhấn nút Edit Tool"""
@@ -416,29 +440,18 @@ class MainWindow(QMainWindow):
             # Nếu đang ở chế độ chỉnh sửa tool (edit), chỉ cập nhật config tool đó
             if self._editing_tool is not None:
                 print(f"DEBUG: Updating config for editing tool: {self._editing_tool.display_name}")
-                ui_widgets = {
-                    'threshold_slider': getattr(self, 'thresholdSlider', None),
-                    'min_confidence_edit': getattr(self, 'minConfidenceEdit', None),
-                    'x_position_edit': self.xPositionLineEdit,
-                    'y_position_edit': self.yPositionLineEdit
-                }
                 detection_area = self._collect_detection_area()
-                if detection_area:
-                    ui_widgets['detection_area'] = detection_area
                 if self._editing_tool.name == "Detect Tool" and hasattr(self, 'detect_tool_manager'):
                     new_config = self.detect_tool_manager.get_tool_config()
-                    # Nếu đang edit overlay, lấy vị trí cuối cùng
-                    if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
-                        camera_view = self.camera_manager.camera_view
-                        if hasattr(camera_view, 'current_overlay') and camera_view.current_overlay:
-                            # Lấy vị trí cuối cùng
-                            last_area = camera_view.current_overlay.get_area_coords()
-                            new_config['detection_area'] = last_area
+                    # Luôn lưu detection_area từ UI nếu có
+                    if detection_area:
+                        new_config['detection_area'] = detection_area
                     self._editing_tool.config = new_config
                     print(f"DEBUG: Updated DetectTool config: {self._editing_tool.config}")
                 else:
-                    if hasattr(self._editing_tool, 'config'):
-                        self._editing_tool.config.update(ui_widgets)
+                    # For other tools, update config with detection_area if present
+                    if hasattr(self._editing_tool, 'config') and detection_area:
+                        self._editing_tool.config['detection_area'] = detection_area
                 self._editing_tool = None
                 if hasattr(self.tool_manager, '_update_job_view'):
                     self.tool_manager._update_job_view()
@@ -466,6 +479,12 @@ class MainWindow(QMainWindow):
                 logging.debug(f"_pending_tool value: {getattr(self.tool_manager, '_pending_tool', 'None')}")
             if hasattr(self.tool_manager, '_pending_tool') and self.tool_manager._pending_tool == "Detect Tool":
                 logging.info("Applying Detect Tool configuration...")
+                # --- Always save detection_area from UI to config before applying ---
+                detection_area = self._collect_detection_area()
+                config = self.detect_tool_manager.get_tool_config() if hasattr(self, 'detect_tool_manager') else {}
+                if detection_area:
+                    config['detection_area'] = detection_area
+                self.tool_manager.set_tool_config(config)
                 success = self.detect_tool_manager.apply_detect_tool_to_job()
                 if hasattr(self.tool_manager, '_update_job_view'):
                     self.tool_manager._update_job_view()
@@ -488,53 +507,21 @@ class MainWindow(QMainWindow):
             else:
                 logging.debug("Detect Tool not selected or _pending_tool not set correctly")
             
-            if editing_tool:
-                # Update existing tool configuration
-                print(f"DEBUG: Updating existing tool: {editing_tool.display_name}")
-                
-                # Handle DetectTool configuration updates specifically
-                if editing_tool.name == "Detect Tool" and hasattr(self, 'detect_tool_manager'):
-                    # Get updated configuration from DetectToolManager
-                    detect_config = self.detect_tool_manager.get_tool_config()
-                    print(f"DEBUG: DetectTool config from manager: {detect_config}")
-                    
-                    # Update tool config with DetectTool-specific settings
-                    for key, value in detect_config.items():
-                        if value is not None:  # Only update non-None values
-                            editing_tool.config.set(key, value)
-                # Quay về trang camera sau khi apply
-                self.settings_manager.return_to_camera_setting_page()
-                
-                # Update tool config with general settings
-                if detection_area:
-                    editing_tool.config.set('detection_area', detection_area)
-                
-                if ui_widgets.get('threshold_slider'):
-                    editing_tool.config.set('threshold', ui_widgets['threshold_slider'].value())
-                
-                if ui_widgets.get('min_confidence_edit'):
-                    editing_tool.config.set('min_confidence', ui_widgets['min_confidence_edit'].value())
-                
-                print(f"DEBUG: Updated tool config: {editing_tool.config.to_dict()}")
-                
-                # Clear editing mode
-                self.tool_manager.clear_current_editing_tool()
-                
-            else:
-                # Adding new tool
-                print("DEBUG: Adding new tool")
-                
-                # Lưu cấu hình vào tool_manager
-                if hasattr(self.tool_manager, '_pending_tool') and self.tool_manager._pending_tool:
-                    config = self.settings_manager.collect_tool_config(
-                        self.tool_manager._pending_tool,
-                        ui_widgets
-                    )
-                    self.tool_manager.set_tool_config(config)
-                
+            # Đoạn này đã xử lý cập nhật tool ở trên với self._editing_tool, không cần lặp lại với editing_tool
+            # Nếu không phải chế độ edit, xử lý như cũ (thêm mới tool)
+            # Adding new tool
+            print("DEBUG: Adding new tool")
+            # Lưu cấu hình vào tool_manager
+            if hasattr(self.tool_manager, '_pending_tool') and self.tool_manager._pending_tool:
+                config = self.settings_manager.collect_tool_config(
+                    self.tool_manager._pending_tool,
+                    ui_widgets
+                )
+                self.tool_manager.set_tool_config(config)
+
                 # Áp dụng cài đặt detection và get added tool
                 added_tool = self.tool_manager.on_apply_setting()
-                
+
                 # Update overlay with tool_id if tool was added
                 if added_tool and hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                     if self.camera_manager.camera_view.current_overlay:
@@ -543,17 +530,17 @@ class MainWindow(QMainWindow):
                         old_id = overlay.tool_id
                         overlay.tool_id = added_tool.tool_id
                         overlay.update()  # Trigger repaint to show new ID
-                        
+
                         # Move to overlays dict with new tool_id
                         if old_id in self.camera_manager.camera_view.overlays:
                             del self.camera_manager.camera_view.overlays[old_id]
                         self.camera_manager.camera_view.overlays[added_tool.tool_id] = overlay
-                        
+
                         # Disable edit mode
                         overlay.set_edit_mode(False)
                         self.camera_manager.camera_view.current_overlay = None
                         print(f"DEBUG: Updated overlay with tool ID #{added_tool.tool_id}")
-            
+
             # Quay lại trang cài đặt camera
             self.settings_manager.return_to_camera_setting_page()
         
@@ -618,69 +605,81 @@ class MainWindow(QMainWindow):
     def _load_tool_config_to_ui(self, tool):
         """Load tool configuration into UI for editing"""
         try:
-            config = tool.config.to_dict()
+            # Always reset UI before loading tool config
+            self._clear_tool_config_ui()
+            # Get config as dict
+            if hasattr(tool.config, 'to_dict'):
+                config = tool.config.to_dict()
+            else:
+                config = tool.config
             print(f"DEBUG: Loading tool config: {config}")
-            
+
             # Handle tool-specific configuration loading
             if tool.name == "Detect Tool" and hasattr(self, 'detect_tool_manager'):
                 print(f"DEBUG: Loading DetectTool configuration via DetectToolManager")
-                # Delegate to DetectToolManager for tool-specific configuration
                 self.detect_tool_manager.load_tool_config(config)
-            
-            # Load detection area if exists
-            if 'detection_area' in config:
-                x1, y1, x2, y2 = config['detection_area']
-                
-                # Update position line edits with coordinates from detection_area
-                center_x = int((x1 + x2) / 2)
-                center_y = int((y1 + y2) / 2)
-                
-                if self.xPositionLineEdit:
-                    self.xPositionLineEdit.setText(str(center_x))
-                if self.yPositionLineEdit:
-                    self.yPositionLineEdit.setText(str(center_y))
-                
+
+            # --- Load detection area (x1, y1, x2, y2) robustly ---
+            area = None
+            if 'detection_area' in config and config['detection_area'] is not None:
+                area = config['detection_area']
+            elif 'detection_region' in config and config['detection_region'] is not None:
+                area = config['detection_region']
+
+            # If area is still None, try to get from overlay (if exists)
+            if (not area or not (isinstance(area, (list, tuple)) and len(area) == 4)) and hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                camera_view = self.camera_manager.camera_view
+                overlay = camera_view.overlays.get(tool.tool_id) if hasattr(camera_view, 'overlays') else None
+                if overlay and hasattr(overlay, 'get_area_coords'):
+                    area = overlay.get_area_coords()
+                    # Update config so next time it is available
+                    tool.config['detection_area'] = area
+                    print(f"DEBUG: Loaded detection_area from overlay: {area}")
+
+            if area and isinstance(area, (list, tuple)) and len(area) == 4:
+                x1, y1, x2, y2 = area
+                if self.x1PositionLineEdit:
+                    self.x1PositionLineEdit.setText(str(x1))
+                if self.y1PositionLineEdit:
+                    self.y1PositionLineEdit.setText(str(y1))
+                if self.x2PositionLineEdit:
+                    self.x2PositionLineEdit.setText(str(x2))
+                if self.y2PositionLineEdit:
+                    self.y2PositionLineEdit.setText(str(y2))
                 # Add or update detection area overlay for editing (preserve other overlays)
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                     camera_view = self.camera_manager.camera_view
-                    
-                    # Don't clear all detection areas - preserve other tool overlays
-                    # Instead, either add new overlay or edit existing one for this tool
                     if tool.tool_id in camera_view.overlays:
-                        # Update existing overlay for this tool
                         overlay = camera_view.overlays[tool.tool_id]
                         overlay.update_from_coords(x1, y1, x2, y2)
                         overlay.set_edit_mode(True)
                         camera_view.current_overlay = overlay
                         print(f"DEBUG: Updated existing overlay for tool #{tool.tool_id}")
                     else:
-                        # Add new overlay for this tool
                         overlay = camera_view.add_tool_overlay(x1, y1, x2, y2, tool.tool_id)
                         overlay.set_edit_mode(True)
                         camera_view.current_overlay = overlay
                         print(f"DEBUG: Added new overlay for tool #{tool.tool_id}")
-                        
                     print(f"DEBUG: Loaded detection area for editing: ({x1}, {y1}) to ({x2}, {y2})")
                     print("DEBUG: Enabled overlay edit mode for tool editing")
             else:
-                # Load position from xPosition and yPosition if detection_area doesn't exist
-                x_pos = config.get('xPosition', config.get('x_position'))
-                y_pos = config.get('yPosition', config.get('y_position'))
-                
-                if x_pos is not None and y_pos is not None:
-                    if self.xPositionLineEdit:
-                        self.xPositionLineEdit.setText(str(x_pos))
-                    if self.yPositionLineEdit:
-                        self.yPositionLineEdit.setText(str(y_pos))
-                    print(f"DEBUG: Loaded position from config: X={x_pos}, Y={y_pos}")
-            
+                # If no area, clear all fields
+                if self.x1PositionLineEdit:
+                    self.x1PositionLineEdit.setText("")
+                if self.y1PositionLineEdit:
+                    self.y1PositionLineEdit.setText("")
+                if self.x2PositionLineEdit:
+                    self.x2PositionLineEdit.setText("")
+                if self.y2PositionLineEdit:
+                    self.y2PositionLineEdit.setText("")
+
             # Load other settings (threshold, confidence, etc.)
             if 'threshold' in config and hasattr(self, 'thresholdSlider'):
                 self.thresholdSlider.setValue(config['threshold'])
-            
+
             if 'min_confidence' in config and hasattr(self, 'minConfidenceEdit'):
                 self.minConfidenceEdit.setValue(config['min_confidence'])
-                
+
         except Exception as e:
             print(f"DEBUG: Error loading tool config: {e}")
             import traceback
@@ -715,45 +714,45 @@ class MainWindow(QMainWindow):
     def _on_area_drawn(self, x1, y1, x2, y2):
         """Xử lý khi user đã vẽ xong area"""
         print(f"DEBUG: Area drawn: ({x1}, {y1}) to ({x2}, {y2})")
-        
-        # Calculate center coordinates
-        center_x = int((x1 + x2) / 2)
-        center_y = int((y1 + y2) / 2)
-        
-        # Update position line edits with center coordinates
-        if self.xPositionLineEdit:
-            self.xPositionLineEdit.setText(str(center_x))
-        if self.yPositionLineEdit:
-            self.yPositionLineEdit.setText(str(center_y))
-            
+
+        # Update x1, y1, x2, y2 LineEdits with drawn area coordinates
+        if self.x1PositionLineEdit:
+            self.x1PositionLineEdit.setText(str(int(x1)))
+        if self.y1PositionLineEdit:
+            self.y1PositionLineEdit.setText(str(int(y1)))
+        if self.x2PositionLineEdit:
+            self.x2PositionLineEdit.setText(str(int(x2)))
+        if self.y2PositionLineEdit:
+            self.y2PositionLineEdit.setText(str(int(y2)))
+
         # Reset button state
         if self.drawAreaButton:
             self.drawAreaButton.setText("Draw area")
             self.drawAreaButton.setEnabled(True)
-            
+
         # Disable drawing mode but keep overlay editable in pending state
         if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
             self.camera_manager.camera_view.set_draw_mode(False)
             # Keep overlay editable until applied/canceled
             self.camera_manager.camera_view.set_overlay_edit_mode(True)
-            
-            print(f"DEBUG: Updated position fields: X={center_x}, Y={center_y}")
+
+        print(f"DEBUG: Updated detection area fields: x1={int(x1)}, y1={int(y1)}, x2={int(x2)}, y2={int(y2)}")
     
     def _on_area_changed(self, x1, y1, x2, y2):
         """Xử lý khi area thay đổi (move/resize)"""
         print(f"DEBUG: Area changed: ({x1}, {y1}) to ({x2}, {y2})")
-        
-        # Calculate center coordinates
-        center_x = int((x1 + x2) / 2)
-        center_y = int((y1 + y2) / 2)
-        
-        # Update position line edits with center coordinates
-        if self.xPositionLineEdit:
-            self.xPositionLineEdit.setText(str(center_x))
-        if self.yPositionLineEdit:
-            self.yPositionLineEdit.setText(str(center_y))
-            
-        print(f"DEBUG: Updated position fields from area change: X={center_x}, Y={center_y}")
+
+        # Update x1, y1, x2, y2 LineEdits with changed area coordinates
+        if self.x1PositionLineEdit:
+            self.x1PositionLineEdit.setText(str(int(x1)))
+        if self.y1PositionLineEdit:
+            self.y1PositionLineEdit.setText(str(int(y1)))
+        if self.x2PositionLineEdit:
+            self.x2PositionLineEdit.setText(str(int(x2)))
+        if self.y2PositionLineEdit:
+            self.y2PositionLineEdit.setText(str(int(y2)))
+
+        print(f"DEBUG: Updated detection area fields from area change: x1={int(x1)}, y1={int(y1)}, x2={int(x2)}, y2={int(y2)}")
     
     def _collect_detection_area(self):
         """Collect detection area coordinates from UI or current drawn area"""
@@ -766,26 +765,19 @@ class MainWindow(QMainWindow):
         
         # Fallback to text input
         try:
-            if self.xPositionLineEdit and self.yPositionLineEdit:
-                x_text = self.xPositionLineEdit.text().strip()
-                y_text = self.yPositionLineEdit.text().strip()
-                
-                if x_text and y_text:
-                    center_x = int(x_text)
-                    center_y = int(y_text)
-                    
-                    # For now, create a 100x100 area around the center point
-                    # Later this can be made configurable
-                    area_size = 100
-                    x1 = center_x - area_size // 2
-                    y1 = center_y - area_size // 2
-                    x2 = center_x + area_size // 2
-                    y2 = center_y + area_size // 2
-                    
+            if self.x1PositionLineEdit and self.y1PositionLineEdit and self.x2PositionLineEdit and self.y2PositionLineEdit:
+                x1_text = self.x1PositionLineEdit.text().strip()
+                y1_text = self.y1PositionLineEdit.text().strip()
+                x2_text = self.x2PositionLineEdit.text().strip()
+                y2_text = self.y2PositionLineEdit.text().strip()
+                if x1_text and y1_text and x2_text and y2_text:
+                    x1 = int(x1_text)
+                    y1 = int(y1_text)
+                    x2 = int(x2_text)
+                    y2 = int(y2_text)
                     return (x1, y1, x2, y2)
         except ValueError as e:
             print(f"DEBUG: Error parsing coordinates: {e}")
-        
         return None
     
     def save_current_job(self):
