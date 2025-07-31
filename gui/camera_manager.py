@@ -788,15 +788,8 @@ class CameraManager(QObject):
             self._pending_exposure_settings.clear()
             
             # Hiển thị dialog thông báo thành công
-            from PyQt5.QtWidgets import QMessageBox
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Information)
-            msg.setWindowTitle("Thành công")
-            msg.setText("Đã áp dụng cài đặt camera thành công!")
-            msg.setStandardButtons(QMessageBox.Ok)
-            msg.exec_()
-            
-            logging.info("Camera settings applied successfully")
+            # KHÔNG hiển thị dialog thành công, chỉ ghi log
+            logging.info("Camera settings applied successfully (no dialog)")
             
         except Exception as e:
             logging.error(f"Error applying camera settings: {str(e)}")

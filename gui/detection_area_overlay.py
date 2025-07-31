@@ -4,6 +4,23 @@ from PyQt5.QtWidgets import QGraphicsRectItem, QGraphicsItem, QGraphicsEllipseIt
 
 
 class DetectionAreaOverlay(QGraphicsRectItem):
+    def mousePressEvent(self, event):
+        if not self.edit_mode:
+            event.ignore()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if not self.edit_mode:
+            event.ignore()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if not self.edit_mode:
+            event.ignore()
+            return
+        super().mouseReleaseEvent(event)
     """
     Overlay để hiển thị và chỉnh sửa detection area
     Chỉ có thể tương tác khi ở edit mode

@@ -14,8 +14,20 @@ from gui.detect_tool_manager import DetectToolManager
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class MainWindow(QMainWindow):
+    def _disable_all_overlay_edit_mode(self):
+        """Tắt edit mode cho tất cả overlays và current_overlay nếu có camera_view"""
+        if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+            camera_view = self.camera_manager.camera_view
+            if hasattr(camera_view, 'overlays'):
+                for overlay in camera_view.overlays.values():
+                    overlay.set_edit_mode(False)
+            if hasattr(camera_view, 'current_overlay') and camera_view.current_overlay:
+                camera_view.current_overlay.set_edit_mode(False)
+                camera_view.current_overlay = None
+            camera_view.set_overlay_edit_mode(False)
     def __init__(self):
         super().__init__()
+        self._editing_tool = None  # Tool đang được chỉnh sửa
         
         # Khởi tạo các biến thành viên
         self.tool_manager = ToolManager(self)
@@ -356,19 +368,18 @@ class MainWindow(QMainWindow):
         # Get selected tool from tool view
         selected_tool = self.tool_manager.get_selected_tool()
         if selected_tool:
-            # Lưu detection_area hiện tại của tool đang edit để dùng khi apply nếu user không thay đổi
+            self._editing_tool = selected_tool
+            self.tool_manager._pending_tool = None
             detection_area = None
             if hasattr(selected_tool, 'config') and hasattr(selected_tool.config, 'get'):
                 detection_area = selected_tool.config.get('detection_area')
             self.tool_manager._pending_detection_area = detection_area
-            # Edit tool overlay in camera view
             if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                 overlay = self.camera_manager.camera_view.edit_tool_overlay(selected_tool.tool_id)
                 if overlay:
                     print(f"DEBUG: Editing tool #{selected_tool.tool_id}")
                 else:
                     print(f"DEBUG: Tool #{selected_tool.tool_id} overlay not found")
-            # Switch to detect settings page for editing
             self.settings_manager.switch_to_tool_setting_page(selected_tool.name)
             self._load_tool_config_to_ui(selected_tool)
         else:
@@ -400,26 +411,75 @@ class MainWindow(QMainWindow):
         current_page = self.settings_manager.get_current_page_type()
         print(f"DEBUG: Applying settings for page type: {current_page}")
         
-        # Handle camera settings page
-        if current_page == "camera":
-            # Apply camera settings through camera manager
-            self.camera_manager.on_apply_settings_clicked()
-            # Quay về trang camera sau khi apply
-            self.settings_manager.return_to_camera_setting_page()
-        
         # Handle detection settings page
-        elif current_page == "detection":
+        if current_page == "detection":
+            # Nếu đang ở chế độ chỉnh sửa tool (edit), chỉ cập nhật config tool đó
+            if self._editing_tool is not None:
+                print(f"DEBUG: Updating config for editing tool: {self._editing_tool.display_name}")
+                ui_widgets = {
+                    'threshold_slider': getattr(self, 'thresholdSlider', None),
+                    'min_confidence_edit': getattr(self, 'minConfidenceEdit', None),
+                    'x_position_edit': self.xPositionLineEdit,
+                    'y_position_edit': self.yPositionLineEdit
+                }
+                detection_area = self._collect_detection_area()
+                if detection_area:
+                    ui_widgets['detection_area'] = detection_area
+                if self._editing_tool.name == "Detect Tool" and hasattr(self, 'detect_tool_manager'):
+                    new_config = self.detect_tool_manager.get_tool_config()
+                    # Nếu đang edit overlay, lấy vị trí cuối cùng
+                    if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                        camera_view = self.camera_manager.camera_view
+                        if hasattr(camera_view, 'current_overlay') and camera_view.current_overlay:
+                            # Lấy vị trí cuối cùng
+                            last_area = camera_view.current_overlay.get_area_coords()
+                            new_config['detection_area'] = last_area
+                    self._editing_tool.config = new_config
+                    print(f"DEBUG: Updated DetectTool config: {self._editing_tool.config}")
+                else:
+                    if hasattr(self._editing_tool, 'config'):
+                        self._editing_tool.config.update(ui_widgets)
+                self._editing_tool = None
+                if hasattr(self.tool_manager, '_update_job_view'):
+                    self.tool_manager._update_job_view()
+                self.settings_manager.return_to_camera_setting_page()
+                # --- Always robustly disable edit mode for all overlays and current_overlay ---
+                if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                    camera_view = self.camera_manager.camera_view
+                    # Tắt edit mode cho tất cả overlays
+                    if hasattr(camera_view, 'overlays'):
+                        for overlay in camera_view.overlays.values():
+                            overlay.set_edit_mode(False)
+                            print(f"DEBUG: Overlay #{overlay.tool_id} edit_mode after apply: {overlay.edit_mode}")
+                    # Tắt edit mode cho current_overlay nếu còn tồn tại
+                    if hasattr(camera_view, 'current_overlay'):
+                        if camera_view.current_overlay:
+                            camera_view.current_overlay.set_edit_mode(False)
+                            print(f"DEBUG: Current overlay edit_mode after apply: {camera_view.current_overlay.edit_mode}")
+                        camera_view.current_overlay = None
+                    camera_view.set_overlay_edit_mode(False)
+                print("DEBUG: All overlays and current_overlay are now not editable after apply.")
+                return
+            # Nếu không phải chế độ edit, xử lý như cũ (thêm mới tool)
             logging.debug(f"Detection page - tool_manager has _pending_tool: {hasattr(self.tool_manager, '_pending_tool')}")
             if hasattr(self.tool_manager, '_pending_tool'):
                 logging.debug(f"_pending_tool value: {getattr(self.tool_manager, '_pending_tool', 'None')}")
-            # Nếu là Detect Tool thì chỉ gọi detect_tool_manager, không gọi tool_manager.on_apply_setting
             if hasattr(self.tool_manager, '_pending_tool') and self.tool_manager._pending_tool == "Detect Tool":
                 logging.info("Applying Detect Tool configuration...")
                 success = self.detect_tool_manager.apply_detect_tool_to_job()
                 if hasattr(self.tool_manager, '_update_job_view'):
                     self.tool_manager._update_job_view()
-                # Quay về trang camera sau khi apply
                 self.settings_manager.return_to_camera_setting_page()
+                # --- Tắt edit mode cho overlays như cancelSetting ---
+                if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                    camera_view = self.camera_manager.camera_view
+                    if hasattr(camera_view, 'overlays'):
+                        for overlay in camera_view.overlays.values():
+                            overlay.set_edit_mode(False)
+                    if hasattr(camera_view, 'current_overlay'):
+                        camera_view.current_overlay = None
+                    camera_view.set_overlay_edit_mode(False)
+                    print("DEBUG: Disabled overlay edit mode on apply (after add tool)")
                 if success:
                     logging.info("Detect Tool applied to job successfully")
                 else:
@@ -427,39 +487,6 @@ class MainWindow(QMainWindow):
                 return
             else:
                 logging.debug("Detect Tool not selected or _pending_tool not set correctly")
-                    
-            # Continue with existing detection settings logic
-            # Thu thập cấu hình từ UI
-            ui_widgets = {
-                'threshold_slider': getattr(self, 'thresholdSlider', None),
-                'min_confidence_edit': getattr(self, 'minConfidenceEdit', None),
-                'x_position_edit': self.xPositionLineEdit,
-                'y_position_edit': self.yPositionLineEdit
-            }
-            
-            # Collect detection area coordinates
-            detection_area = self._collect_detection_area()
-            if detection_area:
-                ui_widgets['detection_area'] = detection_area
-                
-                # Add detection area to camera view for visualization with tool ID
-                if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
-                    x1, y1, x2, y2 = detection_area
-                    # Use current overlay and update its tool_id, or create new one
-                    if self.camera_manager.camera_view.current_overlay:
-                        # Update existing overlay from drawing
-                        overlay = self.camera_manager.camera_view.current_overlay
-                    else:
-                        # Create new overlay
-                        overlay = self.camera_manager.camera_view.add_tool_overlay(x1, y1, x2, y2)
-                    
-                    # Disable edit mode after applying
-                    overlay.set_edit_mode(False)
-                    print(f"DEBUG: Added detection area to camera view: {detection_area}")
-                    print("DEBUG: Disabled overlay edit mode after apply")
-            
-            # Check if we're editing an existing tool or adding a new one
-            editing_tool = self.tool_manager.get_current_editing_tool()
             
             if editing_tool:
                 # Update existing tool configuration
@@ -532,13 +559,33 @@ class MainWindow(QMainWindow):
         
         # Clear pending changes after successful apply
         self.settings_manager.clear_pending_changes()
+        # --- Tắt edit mode cho overlays như cancelSetting ---
+        if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+            camera_view = self.camera_manager.camera_view
+            # Tắt edit mode cho tất cả overlays
+            if hasattr(camera_view, 'overlays'):
+                for overlay in camera_view.overlays.values():
+                    overlay.set_edit_mode(False)
+            # Đặt current_overlay = None
+            if hasattr(camera_view, 'current_overlay'):
+                camera_view.current_overlay = None
+            camera_view.set_overlay_edit_mode(False)
+            print("DEBUG: Disabled overlay edit mode on apply")
         print("DEBUG: Settings applied and synchronized successfully")
     
     def _on_cancel_setting(self):
         """Xử lý khi người dùng nhấn nút Cancel trong trang cài đặt"""
         # Disable overlay edit mode when canceling
         if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
-            self.camera_manager.camera_view.set_overlay_edit_mode(False)
+            camera_view = self.camera_manager.camera_view
+            # Tắt edit mode cho tất cả overlays
+            if hasattr(camera_view, 'overlays'):
+                for overlay in camera_view.overlays.values():
+                    overlay.set_edit_mode(False)
+            # Đặt current_overlay = None
+            if hasattr(camera_view, 'current_overlay'):
+                camera_view.current_overlay = None
+            camera_view.set_overlay_edit_mode(False)
             print("DEBUG: Disabled overlay edit mode on cancel")
         
         # Hủy bỏ thao tác thêm tool
@@ -742,6 +789,7 @@ class MainWindow(QMainWindow):
         return None
     
     def save_current_job(self):
+        self._disable_all_overlay_edit_mode()
         """Lưu job hiện tại vào file"""
         try:
             from PyQt5.QtWidgets import QFileDialog
@@ -763,6 +811,7 @@ class MainWindow(QMainWindow):
             logging.error(f"Error saving job: {str(e)}")
             
     def load_job_file(self):
+        self._disable_all_overlay_edit_mode()
         """Tải job từ file"""
         try:
             from PyQt5.QtWidgets import QFileDialog
@@ -787,6 +836,7 @@ class MainWindow(QMainWindow):
             logging.error(f"Error loading job: {str(e)}")
             
     def add_new_job(self):
+        self._disable_all_overlay_edit_mode()
         """Tạo job mới"""
         try:
             from PyQt5.QtWidgets import QInputDialog
@@ -807,6 +857,7 @@ class MainWindow(QMainWindow):
             logging.error(f"Error creating new job: {str(e)}")
             
     def remove_current_job(self):
+        self._disable_all_overlay_edit_mode()
         """Xóa job hiện tại"""
         try:
             from PyQt5.QtWidgets import QMessageBox
