@@ -65,7 +65,7 @@ class ToolManager(QObject):
                     logging.warning("ToolManager: User tried to add Detect Tool without algorithm.")
                     return None
                 try:
-                    from detection.detect_tool import create_detect_tool_from_manager_config
+                    from tools.detection.detect_tool import create_detect_tool_from_manager_config
                     tool = create_detect_tool_from_manager_config(config)
                     logging.info("ToolManager: Created DetectTool instance via factory.")
                 except Exception as e:

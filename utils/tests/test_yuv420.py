@@ -6,8 +6,9 @@ Test YUV420 format handling
 import sys
 import os
 
-# Add the project directory to the path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Import test utilities
+from utils.tests.test_utils import setup_test_path
+setup_test_path()
 
 try:
     from PyQt5.QtWidgets import QApplication

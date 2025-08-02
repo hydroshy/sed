@@ -9,11 +9,11 @@ import json
 import logging
 from pathlib import Path
 
-# Add project root to path
-project_root = Path(__file__).parent
-sys.path.insert(0, str(project_root))
+# Import test utilities
+from utils.tests.test_utils import setup_test_path
+setup_test_path()
 
-from detection.model_manager import ModelManager
+from tools.detection.model_manager import ModelManager
 
 def test_model_manager():
     """Test ModelManager functionality"""

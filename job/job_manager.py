@@ -175,13 +175,13 @@ class JobManager:
         
         # Import các công cụ cụ thể ở đây để tránh import vòng tròn
         try:
-            from detection.ocr_tool import OcrTool
+            from tools.detection.ocr_tool import OcrTool
             self.register_tool(OcrTool)
         except ImportError:
             logger.warning("Không thể đăng ký OcrTool")
             
         try:
-            from detection.edge_detection import EdgeDetectionTool
+            from tools.detection.edge_detection import EdgeDetectionTool
             self.register_tool(EdgeDetectionTool)
         except ImportError:
             logger.warning("Không thể đăng ký EdgeDetectionTool")

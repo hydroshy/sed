@@ -49,4 +49,4 @@ from gui.camera_manager import CameraManager
 from gui.detect_tool_manager import DetectToolManager
 from gui.camera_view import CameraView
 from camera.camera_stream import CameraStream
-from detection.ocr_tool import OcrTool
+from tools.detection.ocr_tool import OcrTool
