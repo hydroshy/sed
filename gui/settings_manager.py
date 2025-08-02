@@ -13,8 +13,13 @@ class SettingsManager(QObject):
         self.setting_stacked_widget = None
         self.camera_setting_page = None
         self.detect_setting_page = None
+        self.palette_page = None  # Trang palette mới (mặc định)
         self.apply_setting_button = None
         self.cancel_setting_button = None
+        
+        # Lưu trang trước khi chỉnh sửa tool để trở về
+        self.previous_page_index = 0
+        self.current_editing_tool = None
         
         # Settings synchronization storage
         self.shared_settings = {
@@ -34,7 +39,8 @@ class SettingsManager(QObject):
             "EdgeDetectionTool": "detect",
             "OcrTool": "detect", 
             "Detect Tool": "detect",
-            "OCR": "detect"
+            "OCR": "detect",
+            "Camera Source": "camera"  # Add Camera Source tool mapping to camera settings page
         }
         
     def setup(self, stacked_widget, camera_page, detect_page, apply_button, cancel_button):
@@ -45,10 +51,36 @@ class SettingsManager(QObject):
         self.apply_setting_button = apply_button
         self.cancel_setting_button = cancel_button
         
+        # Vô hiệu hóa nút ngay từ đầu
+        if self.apply_setting_button:
+            self.apply_setting_button.setEnabled(False)
+            logging.info("SettingsManager: Disabled Apply button during setup")
+        if self.cancel_setting_button:
+            self.cancel_setting_button.setEnabled(False)
+            logging.info("SettingsManager: Disabled Cancel button during setup")
+        
+        # Tìm palette page (mặc định là index 0)
+        if self.setting_stacked_widget and self.setting_stacked_widget.count() > 0:
+            self.palette_page = self.setting_stacked_widget.widget(0)
+            if self.palette_page:
+                logging.info(f"SettingsManager: palettePage found: {self.palette_page.objectName()}")
+        
+        # Đặt trang mặc định là palettePage
+        if self.setting_stacked_widget and self.palette_page:
+            self.setting_stacked_widget.setCurrentWidget(self.palette_page)
+            
+        # Kết nối signal cho stacked widget để theo dõi thay đổi trang
+        if self.setting_stacked_widget:
+            self.setting_stacked_widget.currentChanged.connect(self._on_stacked_widget_page_changed)
+        
+        # Vô hiệu hóa các nút Apply/Cancel khi ở trang palette (mặc định)
+        self._update_buttons_state(is_palette_page=True)
+        
         # Log thông tin về các widget đã tìm thấy
         logging.info(f"SettingsManager: settingStackedWidget found: {self.setting_stacked_widget is not None}")
         logging.info(f"SettingsManager: cameraSettingPage found: {self.camera_setting_page is not None}")
         logging.info(f"SettingsManager: detectSettingPage found: {self.detect_setting_page is not None}")
+        logging.info(f"SettingsManager: palettePage found: {self.palette_page is not None}")
         logging.info(f"SettingsManager: applySetting button found: {self.apply_setting_button is not None}")
         logging.info(f"SettingsManager: cancleSetting button found: {self.cancel_setting_button is not None}")
         
@@ -76,6 +108,13 @@ class SettingsManager(QObject):
             logging.error("SettingsManager: settingStackedWidget not found")
             return False
             
+        # Lưu trang hiện tại trước khi chuyển
+        self.previous_page_index = self.setting_stacked_widget.currentIndex()
+        logging.info(f"SettingsManager: Saving previous page index: {self.previous_page_index}")
+        
+        # Lưu tool đang được chỉnh sửa
+        self.current_editing_tool = tool_name
+            
         # Log current state of the stacked widget
         current_index = self.setting_stacked_widget.currentIndex()
         count = self.setting_stacked_widget.count()
@@ -88,6 +127,9 @@ class SettingsManager(QObject):
         if page_type == "detect" and self.detect_setting_page:
             target_page = self.detect_setting_page
             logging.info("SettingsManager: Target page is detectSettingPage")
+        elif page_type == "camera" and self.camera_setting_page:
+            target_page = self.camera_setting_page
+            logging.info("SettingsManager: Target page is cameraSettingPage")
         else:
             # Fallback to detect page for unknown tools
             if self.detect_setting_page:
@@ -105,10 +147,25 @@ class SettingsManager(QObject):
                 logging.info(f"SettingsManager: Switching to {tool_name} setting page with index {index}.")
                 self.setting_stacked_widget.setCurrentIndex(index)
                 
+                # Kích hoạt các nút Apply/Cancel khi chuyển đến trang tool
+                self._update_buttons_state(is_palette_page=False)
+                
                 # Refresh DetectToolManager if switching to detect page
                 if page_type == "detect" or tool_name == "Detect Tool":
                     if hasattr(self.main_window, 'refresh_detect_tool_manager'):
                         self.main_window.refresh_detect_tool_manager()
+                
+                # Auto start camera preview when switching to camera settings page
+                # so user can see what they're configuring
+                if page_type == "camera":
+                    logging.info("SettingsManager: Auto-starting camera for camera settings page")
+                    if hasattr(self.main_window, 'camera_manager') and self.main_window.camera_manager:
+                        # Auto start live camera mode for settings preview
+                        try:
+                            self.main_window.camera_manager.start_live_camera()
+                            logging.info("SettingsManager: Camera started for settings preview")
+                        except Exception as e:
+                            logging.warning(f"SettingsManager: Failed to auto-start camera: {e}")
                 
                 # Verify the switch
                 new_index = self.setting_stacked_widget.currentIndex()
@@ -120,19 +177,44 @@ class SettingsManager(QObject):
         return False
         
     def return_to_camera_setting_page(self):
-        """Quay lại trang cài đặt camera"""
-        if not self.setting_stacked_widget or not self.camera_setting_page:
-            logging.error("SettingsManager: settingStackedWidget or cameraSettingPage not available.")
+        """Quay lại trang cài đặt camera (DEPRECATED - sử dụng return_to_palette_page)"""
+        logging.warning("SettingsManager: return_to_camera_setting_page is deprecated, use return_to_palette_page instead")
+        return self.return_to_palette_page()
+        
+    def return_to_palette_page(self):
+        """Quay lại trang palette (trang mặc định)"""
+        if not self.setting_stacked_widget or not self.palette_page:
+            logging.error("SettingsManager: settingStackedWidget or palettePage not available.")
             return False
             
-        index = self.setting_stacked_widget.indexOf(self.camera_setting_page)
+        index = self.setting_stacked_widget.indexOf(self.palette_page)
         if index != -1:
-            logging.info(f"SettingsManager: Returning to camera setting page with index {index}.")
+            logging.info(f"SettingsManager: Returning to palette page with index {index}.")
             self.setting_stacked_widget.setCurrentIndex(index)
+            
+            # Vô hiệu hóa các nút khi trở về trang palette
+            self._update_buttons_state(is_palette_page=True)
+            
+            # Reset current editing tool
+            self.current_editing_tool = None
             return True
         else:
-            logging.error("SettingsManager: Camera setting page not found in settingStackedWidget.")
+            logging.error("SettingsManager: Palette page not found in settingStackedWidget.")
             return False
+            
+    def return_to_previous_page(self):
+        """Quay lại trang trước đó"""
+        if not self.setting_stacked_widget:
+            logging.error("SettingsManager: settingStackedWidget not available.")
+            return False
+            
+        if self.previous_page_index < 0 or self.previous_page_index >= self.setting_stacked_widget.count():
+            logging.warning(f"SettingsManager: Invalid previous page index: {self.previous_page_index}. Returning to palette page.")
+            return self.return_to_palette_page()
+            
+        logging.info(f"SettingsManager: Returning to previous page with index {self.previous_page_index}.")
+        self.setting_stacked_widget.setCurrentIndex(self.previous_page_index)
+        return True
             
     def collect_tool_config(self, tool_name: str, ui_widgets: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
@@ -473,13 +555,54 @@ class SettingsManager(QObject):
             return "unknown"
         
         current_widget = self.setting_stacked_widget.currentWidget()
-        if current_widget == self.camera_setting_page:
+        if current_widget == self.palette_page:
+            return "palette"
+        elif current_widget == self.camera_setting_page:
             return "camera"
         elif current_widget == self.detect_setting_page:
-            return "detection"
+            return "detect"  # Changed from "detection" to "detect" to match the logic in main_window.py
         else:
             return "unknown"
     
+    def post_init(self):
+        """Được gọi sau khi tất cả các thành phần đã được thiết lập để đảm bảo trạng thái UI chính xác"""
+        logging.info("SettingsManager: Running post-initialization tasks")
+        
+        # Đảm bảo các nút Apply/Cancel bị vô hiệu hóa khi ở trang palette
+        if self.setting_stacked_widget and self.palette_page:
+            # Kiểm tra xem trang hiện tại có phải là palette không
+            current_widget = self.setting_stacked_widget.currentWidget()
+            is_palette = (current_widget == self.palette_page)
+            
+            # Vô hiệu hóa các nút nếu đang ở trang palette
+            self._update_buttons_state(is_palette_page=is_palette)
+            
+            # Đảm bảo rằng các nút luôn bị vô hiệu hóa khi khởi động
+            if self.apply_setting_button:
+                self.apply_setting_button.setEnabled(False)
+                logging.info("SettingsManager: Explicitly disabled Apply button in post_init")
+            if self.cancel_setting_button:
+                self.cancel_setting_button.setEnabled(False)
+                logging.info("SettingsManager: Explicitly disabled Cancel button in post_init")
+    
+    def _on_stacked_widget_page_changed(self, index):
+        """Xử lý khi người dùng thay đổi trang trong StackedWidget"""
+        # Kiểm tra xem trang hiện tại có phải là palettePage không
+        current_widget = self.setting_stacked_widget.widget(index)
+        is_palette = (current_widget == self.palette_page)
+        
+        # Cập nhật trạng thái nút Apply/Cancel
+        self._update_buttons_state(is_palette_page=is_palette)
+        
+    def _update_buttons_state(self, is_palette_page=False):
+        """Cập nhật trạng thái kích hoạt/vô hiệu hóa của các nút Apply/Cancel"""
+        if self.apply_setting_button:
+            self.apply_setting_button.setEnabled(not is_palette_page)
+            logging.info(f"SettingsManager: Apply button {'disabled' if is_palette_page else 'enabled'}")
+            
+        if self.cancel_setting_button:
+            self.cancel_setting_button.setEnabled(not is_palette_page)
+            logging.info(f"SettingsManager: Cancel button {'disabled' if is_palette_page else 'enabled'}")
     def has_pending_changes(self) -> bool:
         """Kiểm tra có pending changes không"""
         return any(self.pending_changes.values())

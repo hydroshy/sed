@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from PyQt5.QtWidgets import QScrollArea, QLabel, QPushButton, QHBoxLayout
 from PyQt5.QtCore import Qt, pyqtSignal
-from detection.model_manager import ModelManager
+from tools.detection.model_manager import ModelManager
 
 class DetectToolManager:
     def _setup_classification_table(self):
@@ -47,36 +47,48 @@ class DetectToolManager:
     
     def create_detect_tool_job(self):
         """Create DetectTool job from current configuration"""
+        print("DEBUG: create_detect_tool_job called")
         try:
-            from detection.detect_tool import create_detect_tool_from_manager_config
+            from tools.detection.detect_tool import create_detect_tool_from_manager_config
             # Get current tool configuration
             config = self.get_tool_config()
+            print(f"DEBUG: DetectTool config: {config}")
+            
             # Validate configuration: must have model_name, model_path, and not be a placeholder
             if (not config['model_name'] or not config['model_path'] or
                 config['model_name'] in ["Select Model...", "No models found", "Error loading models"]):
+                print(f"DEBUG: Invalid model config - model_name: {config['model_name']}, model_path: {config['model_path']}")
                 logging.error("Cannot create DetectTool: No model selected")
                 return None
             if not config['selected_classes']:
+                print("DEBUG: No classes selected for detection")
                 logging.warning("No classes selected for detection")
             # Create detect tool
             detect_tool = create_detect_tool_from_manager_config(config)
+            print(f"DEBUG: DetectTool created successfully: {detect_tool}")
             logging.info(f"Created DetectTool job - Model: {config['model_name']}, Classes: {len(config['selected_classes'])}")
             return detect_tool
-        except ImportError:
+        except ImportError as e:
+            print(f"DEBUG: ImportError creating DetectTool: {e}")
             logging.error("Cannot create DetectTool: Job system not available")
             return None
         except Exception as e:
+            print(f"DEBUG: Exception creating DetectTool: {e}")
             logging.error(f"Error creating DetectTool job: {e}")
             return None
     
     def apply_detect_tool_to_job(self):
         """Apply current detect tool configuration to job manager"""
+        print("DEBUG: apply_detect_tool_to_job called")
         try:
             # Create detect tool
             detect_tool = self.create_detect_tool_job()
             if not detect_tool:
+                print("DEBUG: Failed to create DetectTool job")
                 logging.error("Failed to create DetectTool job")
                 return False
+            
+            print(f"DEBUG: DetectTool created successfully: {detect_tool.name}")
             
             # Add to job manager via main window
             if hasattr(self.main_window, 'job_manager'):
@@ -84,18 +96,23 @@ class DetectToolManager:
                 job_manager = self.main_window.job_manager
                 current_job = job_manager.get_current_job()
                 
+                print(f"DEBUG: Current job: {current_job}")
+                
                 if current_job is None:
                     # Create new job with detect tool
                     from job.job_manager import Job
                     job_manager.add_job(Job("Detection Job"))
                     current_job = job_manager.get_current_job()
+                    print(f"DEBUG: Created new job: {current_job}")
                 
                 if current_job:
                     # Add detect tool to current job
                     current_job.add_tool(detect_tool)
+                    print(f"DEBUG: Added DetectTool to job: {current_job.name}, tool count: {len(current_job.tools)}")
                     logging.info(f"Added DetectTool to job: {current_job.name}")
                     return True
                 else:
+                    print("DEBUG: No current job available")
                     logging.error("No current job available")
                     return False
             else:

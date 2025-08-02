@@ -47,6 +47,20 @@ class CameraView(QObject):
         self.rotation_angle = 0
         self.fit_on_next_frame = False
         
+        # Method to get rotation angle
+        def get_rotation_angle(self):
+            return self.rotation_angle
+            
+        # Add the method to the instance
+        self.get_rotation_angle = get_rotation_angle.__get__(self, CameraView)
+        
+        # Method to get current frame
+        def get_current_frame(self):
+            return self.current_frame.copy() if self.current_frame is not None else None
+            
+        # Add the method to the instance
+        self.get_current_frame = get_current_frame.__get__(self, CameraView)
+        
         # Biến tính toán FPS
         self.prev_frame_time = 0
         self.fps = 0
