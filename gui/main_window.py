@@ -114,6 +114,25 @@ class MainWindow(QMainWindow):
         self.manualExposure = self.findChild(QPushButton, 'manualExposure')
         self.autoExposure = self.findChild(QPushButton, 'autoExposure')
         
+        # Try to find formatCameraComboBox using different methods
+        self.formatCameraComboBox = self.findChild(QComboBox, 'formatCameraComboBox')
+        if not self.formatCameraComboBox:
+            # Alternative method: search through all combo boxes
+            all_combos = self.findChildren(QComboBox)
+            for combo in all_combos:
+                if combo.objectName() == 'formatCameraComboBox':
+                    self.formatCameraComboBox = combo
+                    break
+        
+        print(f"DEBUG: formatCameraComboBox found: {self.formatCameraComboBox is not None}")
+        if self.formatCameraComboBox:
+            print(f"DEBUG: formatCameraComboBox type: {type(self.formatCameraComboBox)}")
+        else:
+            print("DEBUG: formatCameraComboBox is None - searching for all ComboBoxes")
+            all_combos = self.findChildren(QComboBox)
+            for combo in all_combos:
+                print(f"DEBUG: Found combo: {combo.objectName()}")
+        
         # Settings control buttons
         self.applySetting = self.findChild(QPushButton, 'applySetting')
         self.cancelSetting = self.findChild(QPushButton, 'cancelSetting')
@@ -276,6 +295,9 @@ class MainWindow(QMainWindow):
         # Enable UI after setup is complete
         self.camera_manager.set_ui_enabled(True)
         
+        # Load available camera formats
+        self._load_camera_formats()
+        
     def refresh_detect_tool_manager(self):
         """Refresh DetectToolManager connections when switching to detect page"""
         if hasattr(self, 'detect_tool_manager'):
@@ -434,6 +456,11 @@ class MainWindow(QMainWindow):
         # Get current page type to handle page-specific logic
         current_page = self.settings_manager.get_current_page_type()
         print(f"DEBUG: Applying settings for page type: {current_page}")
+        
+        # Handle camera settings page
+        if current_page == "camera":
+            self._apply_camera_settings()
+            return
         
         # Handle detection settings page
         if current_page == "detection":
@@ -914,6 +941,113 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logging.error(f"Error running job: {str(e)}")
         
+    def _apply_camera_settings(self):
+        """Apply camera settings including format"""
+        print("DEBUG: Applying camera settings...")
+        
+        # Apply camera format if formatCameraComboBox exists and has selection
+        if self.formatCameraComboBox and self.formatCameraComboBox.currentText():
+            selected_format = self.formatCameraComboBox.currentText()
+            print(f"DEBUG: Applying camera format: {selected_format}")
+            
+            # Get camera stream instance
+            if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
+                camera_stream = self.camera_manager.camera_stream
+                
+                # Apply the new format
+                try:
+                    camera_stream.set_format(selected_format)
+                    print(f"DEBUG: Successfully applied camera format: {selected_format}")
+                except Exception as e:
+                    print(f"DEBUG: Failed to apply camera format {selected_format}: {e}")
+            else:
+                print("DEBUG: Camera stream not available for format change")
+        
+        print("DEBUG: Camera settings applied successfully")
+    
+    def _load_camera_formats(self):
+        """Load available camera formats into formatCameraComboBox"""
+        print("DEBUG: _load_camera_formats called")
+        
+        # Always try to find formatCameraComboBox fresh
+        combo_widget = None
+        
+        # First try findChild
+        combo_widget = self.findChild(QComboBox, 'formatCameraComboBox')
+        if combo_widget:
+            print(f"DEBUG: Found formatCameraComboBox via findChild: {combo_widget}")
+        else:
+            print("DEBUG: findChild failed, trying findChildren...")
+            # Alternative method: search through all combo boxes
+            all_combos = self.findChildren(QComboBox)
+            for combo in all_combos:
+                if combo.objectName() == 'formatCameraComboBox':
+                    combo_widget = combo
+                    print(f"DEBUG: Found formatCameraComboBox via findChildren: {combo_widget}")
+                    print(f"DEBUG: Widget valid: {combo_widget is not None}")
+                    print(f"DEBUG: Widget type: {type(combo_widget)}")
+                    print(f"DEBUG: Widget objectName: {combo_widget.objectName()}")
+                    break
+        
+        print(f"DEBUG: Final combo_widget value: {combo_widget}")
+        print(f"DEBUG: combo_widget is None: {combo_widget is None}")
+        
+        if combo_widget is None:
+            print("DEBUG: formatCameraComboBox not found anywhere")
+            return
+            
+        # Assign to self for future use
+        self.formatCameraComboBox = combo_widget
+        print("DEBUG: formatCameraComboBox assigned, proceeding with format loading")
+        
+        # Clear existing items
+        combo_widget.clear()
+        
+        # Get camera stream instance
+        if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
+            camera_stream = self.camera_manager.camera_stream
+            print("DEBUG: Got camera stream instance")
+            
+            # Get available formats from camera
+            available_formats = camera_stream.get_available_formats()
+            print(f"DEBUG: Available formats: {available_formats}")
+            
+            if available_formats:
+                # Add formats to combo box
+                for fmt in available_formats:
+                    combo_widget.addItem(fmt)
+                    print(f"DEBUG: Added format: {fmt}")
+            else:
+                # Add common formats as fallback
+                common_formats = ["BGR888", "RGB888", "YUV420", "MJPEG"]
+                for fmt in common_formats:
+                    combo_widget.addItem(fmt)
+                    print(f"DEBUG: Added fallback format: {fmt}")
+                    
+            # Set current format as selected
+            current_format = getattr(camera_stream, 'current_format', 'BGR888')
+            index = combo_widget.findText(current_format)
+            if index >= 0:
+                combo_widget.setCurrentIndex(index)
+                print(f"DEBUG: Set current format to: {current_format}")
+            
+            print(f"DEBUG: ComboBox now has {combo_widget.count()} items")
+        else:
+            print("DEBUG: Camera stream not available, adding fallback formats")
+            # Add fallback formats when camera not available
+            common_formats = ["BGR888", "RGB888", "YUV420", "MJPEG"]
+            for fmt in common_formats:
+                combo_widget.addItem(fmt)
+                print(f"DEBUG: Added fallback format: {fmt}")
+            print(f"DEBUG: ComboBox now has {combo_widget.count()} fallback items")
+            for fmt in common_formats:
+                self.formatCameraComboBox.addItem(fmt)
+                print(f"DEBUG: Added fallback format: {fmt}")
+    
+    def reload_camera_formats(self):
+        """Public method to reload camera formats - can be called by camera_manager"""
+        self._load_camera_formats()
+    
     def resizeEvent(self, a0):
         """Xử lý sự kiện khi cửa sổ thay đổi kích thước"""
         super().resizeEvent(a0)

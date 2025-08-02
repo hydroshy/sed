@@ -888,7 +888,7 @@
             </widget>
             <widget class="QComboBox" name="formatCameraComboBox">
              <property name="enabled">
-              <bool>false</bool>
+              <bool>true</bool>
              </property>
              <property name="geometry">
               <rect>
@@ -1160,7 +1160,7 @@
      <x>0</x>
      <y>0</y>
      <width>1961</width>
-     <height>21</height>
+     <height>26</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">

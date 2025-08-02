@@ -1,6 +1,7 @@
 import logging
 import cv2
 import time
+import numpy as np
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QRectF, QPoint
 from PyQt5.QtGui import QImage, QPixmap, QCursor, QPainter, QPen, QColor, QFont
 from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
@@ -94,7 +95,7 @@ class CameraView(QObject):
         Hiển thị frame từ camera
         
         Args:
-            frame: Numpy array chứa hình ảnh BGR từ camera
+            frame: Numpy array chứa hình ảnh từ camera (có thể là BGR, RGB, YUV420, etc.)
         """
         if frame is None or frame.size == 0:
             logging.error("Invalid frame received")
@@ -102,10 +103,51 @@ class CameraView(QObject):
 
         logging.debug("Frame received with shape: %s", frame.shape)
 
-        # Handle RGBA format if detected
-        if frame.shape[2] == 4:  # RGBA format
-            logging.debug("Converting RGBA to RGB")
-            frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2RGB)
+        try:
+            # Handle different frame formats safely
+            if len(frame.shape) == 3 and frame.shape[2] >= 3:  # Color image with channels
+                if frame.shape[2] == 4:  # RGBA format
+                    logging.debug("Converting RGBA to RGB")
+                    frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2RGB)
+                elif frame.shape[2] == 3:  # Already 3-channel (BGR/RGB)
+                    logging.debug("Using 3-channel frame as-is")
+            elif len(frame.shape) == 2:  # 2D frame
+                logging.debug("Converting 2D frame to RGB for display")
+                # For simplicity, treat all 2D frames as grayscale
+                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
+            else:
+                # For other formats, try to display as-is or convert to displayable format
+                logging.debug("Frame format: %s, attempting to display directly", frame.shape)
+                if len(frame.shape) == 3 and frame.shape[2] == 1:
+                    # Single channel, convert to grayscale then RGB
+                    frame = frame.squeeze()  # Remove single dimension
+                    frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
+                elif len(frame.shape) == 1:
+                    # 1D array - reshape to 2D if possible
+                    height = int(np.sqrt(frame.size))
+                    if height * height == frame.size:
+                        frame = frame.reshape(height, height)
+                        frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
+                    else:
+                        logging.warning("Cannot display 1D frame of size %s", frame.size)
+                        return
+                else:
+                    logging.warning("Unsupported frame format with shape: %s", frame.shape)
+                    return
+        except Exception as e:
+            logging.error("Error processing frame format: %s", e)
+            # Fallback: try to display as grayscale if possible
+            try:
+                if len(frame.shape) >= 2:
+                    # Take first 2 dimensions and treat as grayscale
+                    gray_frame = frame[:, :, 0] if len(frame.shape) == 3 else frame
+                    frame = cv2.cvtColor(gray_frame.astype(np.uint8), cv2.COLOR_GRAY2RGB)
+                else:
+                    logging.error("Cannot recover from frame format error")
+                    return
+            except Exception as fallback_error:
+                logging.error("Fallback frame processing failed: %s", fallback_error)
+                return
 
         self.current_frame = frame  # Lưu frame hiện tại
         

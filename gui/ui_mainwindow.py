@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file 'mainUi.ui'
+# Form implementation generated from reading ui file 'mainUI.ui'
 #
 # Created by: PyQt5 UI code generator 5.15.11
 #
@@ -370,7 +370,7 @@ class Ui_MainWindow(object):
         self.exposureEdit.setProperty("value", 10000.0)
         self.exposureEdit.setObjectName("exposureEdit")
         self.formatCameraComboBox = QtWidgets.QComboBox(self.cameraSettingFrame)
-        self.formatCameraComboBox.setEnabled(False)
+        self.formatCameraComboBox.setEnabled(True)
         self.formatCameraComboBox.setGeometry(QtCore.QRect(90, 20, 351, 22))
         self.formatCameraComboBox.setObjectName("formatCameraComboBox")
         self.formatCameraLabel = QtWidgets.QLabel(self.cameraSettingFrame)
@@ -454,7 +454,7 @@ class Ui_MainWindow(object):
         self.statusbar.setObjectName("statusbar")
         MainWindow.setStatusBar(self.statusbar)
         self.menuBar = QtWidgets.QMenuBar(MainWindow)
-        self.menuBar.setGeometry(QtCore.QRect(0, 0, 1961, 21))
+        self.menuBar.setGeometry(QtCore.QRect(0, 0, 1961, 26))
         self.menuBar.setObjectName("menuBar")
         self.menuFile = QtWidgets.QMenu(self.menuBar)
         self.menuFile.setObjectName("menuFile")

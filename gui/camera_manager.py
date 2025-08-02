@@ -57,6 +57,10 @@ class CameraManager(QObject):
         self.camera_view = CameraView(camera_view_widget, self.main_window)
         self.camera_stream.frame_ready.connect(self.camera_view.display_frame)
         
+        # Reload camera formats after camera stream is initialized
+        if self.main_window and hasattr(self.main_window, 'reload_camera_formats'):
+            self.main_window.reload_camera_formats()
+        
         # Kết nối các widget - bỏ exposure_slider
         self.exposure_edit = exposure_edit
         self.gain_slider = gain_slider

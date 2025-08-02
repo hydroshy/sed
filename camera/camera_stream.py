@@ -29,6 +29,7 @@ class CameraStream(QObject):
         
         # Initialize exposure tracking
         self.current_exposure = 10000  # Default 10ms in μs
+        self.current_format = "BGR888" # Default format
         
         # Only configure if camera is available
         if self.is_camera_available and self.picam2:
@@ -37,14 +38,14 @@ class CameraStream(QObject):
                 self.frame_size = (1440, 1080)  # Crop nhỏ để tăng fps, bạn có thể chỉnh lại
                 # Đặt FrameRate cao cho Global Shutter (nếu camera hỗ trợ)
                 self.preview_config = self.picam2.create_preview_configuration(
-                    main={"size": self.frame_size},
+                    main={"size": self.frame_size, "format": self.current_format},
                     controls={
                         "FrameRate": 60,
                         "ExposureTime": self.current_exposure,
                         "AeEnable": False  # Start in manual mode
                     }
                 )
-                self.still_config = self.picam2.create_still_configuration(main={"size": self.frame_size})
+                self.still_config = self.picam2.create_still_configuration(main={"size": self.frame_size, "format": self.current_format})
                 
                 # Configure the camera with preview config
                 self.picam2.configure(self.preview_config)
@@ -54,6 +55,56 @@ class CameraStream(QObject):
                 self.is_camera_available = False
         else:
             print("DEBUG: [CameraStream] Camera not available, skipping configuration")
+
+    def get_available_formats(self):
+        """Get available camera formats."""
+        if not self.is_camera_available or not self.picam2:
+            return []
+        try:
+            # Return a list of common format strings
+            # These are the most commonly used formats for picamera2
+            return ["BGR888", "RGB888", "YUV420", "MJPEG", "XBGR8888", "XRGB8888"]
+        except Exception as e:
+            print(f"DEBUG: [CameraStream] Could not get formats: {e}")
+            return ["BGR888", "RGB888"]
+
+    def set_format(self, format_str):
+        """Set the camera format and reconfigure."""
+        if not self.is_camera_available or not self.picam2:
+            print("DEBUG: [CameraStream] Camera not available to set format.")
+            return
+
+        print(f"DEBUG: [CameraStream] Setting format to {format_str}")
+        self.current_format = format_str
+        
+        # Stop the camera if it's running
+        was_live = self.is_live
+        if was_live:
+            self.stop_live()
+
+        # Re-create configurations with the new format
+        try:
+            self.preview_config = self.picam2.create_preview_configuration(
+                main={"size": self.frame_size, "format": self.current_format},
+                controls={
+                    "FrameRate": 60,
+                    "ExposureTime": self.current_exposure,
+                    "AeEnable": False
+                }
+            )
+            self.still_config = self.picam2.create_still_configuration(
+                main={"size": self.frame_size, "format": self.current_format}
+            )
+            
+            # Re-configure the camera
+            self.picam2.configure(self.preview_config)
+            print(f"DEBUG: [CameraStream] Reconfigured camera for format {self.current_format}")
+
+            # Restart the live view if it was running before
+            if was_live:
+                self.start_live()
+        except Exception as e:
+            print(f"DEBUG: [CameraStream] Failed to set format: {e}")
 
     def _update_preview_config(self):
         """Update preview config với current settings"""
