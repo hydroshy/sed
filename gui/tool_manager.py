@@ -16,12 +16,13 @@ class ToolManager(QObject):
         self._tool_view = None
         self._job_view = None
         
-    def setup(self, job_manager, tool_view, job_view, tool_combo_box):
+    def setup(self, job_manager, tool_view, job_view, tool_combo_box, main_window=None):
         """Thiết lập các tham chiếu đến các widget UI và job manager"""
         self.job_manager = job_manager
         self._tool_view = tool_view
         self._job_view = job_view
         self._tool_combo_box = tool_combo_box
+        self.main_window = main_window  # Add main_window reference
         
         # Add Camera Source to tool combo box if not already present
         if self._tool_combo_box:
@@ -413,7 +414,8 @@ class ToolManager(QObject):
             print(f"DEBUG: Job view updated with {len(job.tools)} tools")
             
             # Refresh source output combo when job tools change
-            if hasattr(self.main_window, 'camera_manager') and self.main_window.camera_manager:
+            if (hasattr(self, 'main_window') and self.main_window and 
+                hasattr(self.main_window, 'camera_manager') and self.main_window.camera_manager):
                 self.main_window.camera_manager.refresh_source_output_combo()
                 print("DEBUG: Source output combo refreshed after job update")
         else:
@@ -422,7 +424,8 @@ class ToolManager(QObject):
             print("DEBUG: Job view updated with empty model (no job)")
             
             # Still refresh source output combo for empty job
-            if hasattr(self.main_window, 'camera_manager') and self.main_window.camera_manager:
+            if (hasattr(self, 'main_window') and self.main_window and 
+                hasattr(self.main_window, 'camera_manager') and self.main_window.camera_manager):
                 self.main_window.camera_manager.refresh_source_output_combo()
                 print("DEBUG: Source output combo refreshed for empty job")
             

@@ -1,5 +1,5 @@
 from PyQt5.QtCore import QObject, pyqtSlot
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QComboBox
 from camera.camera_stream import CameraStream
 from gui.camera_view import CameraView
 import logging
@@ -58,7 +58,10 @@ class CameraManager(QObject):
         # Setup source output combo box
         self.source_output_combo = source_output_combo
         if self.source_output_combo:
+            print("DEBUG: sourceOutputComboBox found during setup")
             self.setup_source_output_combo()
+        else:
+            print("DEBUG: sourceOutputComboBox NOT found during setup")
         
         # Reload camera formats after camera stream is initialized
         if self.main_window and hasattr(self.main_window, 'reload_camera_formats'):
@@ -114,9 +117,9 @@ class CameraManager(QObject):
             self.current_mode = None
             self.update_camera_mode_ui()
             
-            # Clear camera view
+            # Clear camera view display areas
             if self.camera_view:
-                self.camera_view.clear_scene()
+                self.camera_view.clear_all_areas()
                 
             # Refresh source output combo to show updated pipeline
             self.refresh_source_output_combo()
@@ -133,31 +136,75 @@ class CameraManager(QObject):
         
     def setup_source_output_combo(self):
         """Setup source output combo box with available pipeline outputs"""
-        if not self.source_output_combo:
+        print("DEBUG: setup_source_output_combo called")
+        print(f"DEBUG: hasattr(self, 'source_output_combo'): {hasattr(self, 'source_output_combo')}")
+        if hasattr(self, 'source_output_combo'):
+            print(f"DEBUG: self.source_output_combo value: {self.source_output_combo}")
+            print(f"DEBUG: self.source_output_combo type: {type(self.source_output_combo)}")
+            print(f"DEBUG: self.source_output_combo is None: {self.source_output_combo is None}")
+        
+        # Try to find the combo if not already set
+        if not hasattr(self, 'source_output_combo') or self.source_output_combo is None:
+            print("DEBUG: Trying to find combo via main_window")
+            if hasattr(self, 'main_window') and self.main_window:
+                combo = self.main_window.findChild(QComboBox, 'sourceOutputComboBox')
+                if combo:
+                    print("DEBUG: Found sourceOutputComboBox via main_window.findChild")
+                    self.source_output_combo = combo
+                else:
+                    print("DEBUG: sourceOutputComboBox not found via findChild")
+                    return
+            else:
+                print("DEBUG: main_window not available")
+                return
+        
+        if self.source_output_combo is None:
+            print("DEBUG: Source output combo is None, skipping setup")
+            return
+        
+        # Check if widget is valid and accessible
+        try:
+            self.source_output_combo.objectName()
+            print("DEBUG: Source output combo is valid and accessible")
+        except Exception as e:
+            print(f"DEBUG: Source output combo is not accessible: {e}")
             return
             
+        print("DEBUG: Source output combo is available, proceeding with setup")
+        
         # Clear existing items
         self.source_output_combo.clear()
         
         # Always add Camera Source as the primary source
         self.source_output_combo.addItem("🎥 Camera Source", "camera")
+        print("DEBUG: Added Camera Source to combo")
         
         # Add pipeline outputs from current job
         if hasattr(self.main_window, 'job_manager') and self.main_window.job_manager:
+            print("DEBUG: Job manager found, checking for current job")
             current_job = self.main_window.job_manager.get_current_job()
             if current_job and current_job.tools:
+                print(f"DEBUG: Current job found with {len(current_job.tools)} tools")
                 for tool in current_job.tools:
                     tool_name = getattr(tool, 'name', getattr(tool, 'display_name', 'Unknown'))
                     tool_type = type(tool).__name__
+                    print(f"DEBUG: Processing tool: {tool_name} (type: {tool_type})")
                     
                     # Add detection tool outputs
                     if tool_type == 'DetectTool' or 'detect' in tool_name.lower():
                         self.source_output_combo.addItem(f"🔍 {tool_name} Output", f"detection_{tool.tool_id}")
+                        print(f"DEBUG: Added detection tool: {tool_name}")
                     # Add other tool outputs as needed
                     elif 'edge' in tool_name.lower():
                         self.source_output_combo.addItem(f"📐 {tool_name} Output", f"edge_{tool.tool_id}")
+                        print(f"DEBUG: Added edge tool: {tool_name}")
                     elif 'ocr' in tool_name.lower():
                         self.source_output_combo.addItem(f"📝 {tool_name} Output", f"ocr_{tool.tool_id}")
+                        print(f"DEBUG: Added OCR tool: {tool_name}")
+            else:
+                print("DEBUG: No current job or no tools in job")
+        else:
+            print("DEBUG: Job manager not found or not available")
         
         # Set default to Camera Source
         self.source_output_combo.setCurrentIndex(0)
@@ -174,8 +221,23 @@ class CameraManager(QObject):
         
     def refresh_source_output_combo(self):
         """Refresh the source output combo when job tools change"""
+        import traceback
+        print("DEBUG: refresh_source_output_combo CALLED!")
+        print("DEBUG: Call stack:")
+        for line in traceback.format_stack()[-3:]:
+            print(f"  {line.strip()}")
         print("DEBUG: Refreshing source output combo")
-        self.setup_source_output_combo()
+        print(f"DEBUG: hasattr(self, 'source_output_combo'): {hasattr(self, 'source_output_combo')}")
+        if hasattr(self, 'source_output_combo'):
+            print(f"DEBUG: self.source_output_combo value: {self.source_output_combo}")
+            print(f"DEBUG: self.source_output_combo type: {type(self.source_output_combo)}")
+        
+        # Setup source output combo if it exists
+        if hasattr(self, 'source_output_combo') and self.source_output_combo is not None:
+            print("DEBUG: Calling setup_source_output_combo")
+            self.setup_source_output_combo()
+        else:
+            print("DEBUG: Source output combo not available, skipping refresh")
         
     def on_source_output_changed(self, text):
         """Handle source output combo box selection change"""
@@ -820,11 +882,21 @@ class CameraManager(QObject):
                 if success:
                     self.current_mode = 'live'
                     self.update_camera_mode_ui()
+                    
+                    # Refresh source output combo to show current pipeline
+                    self.refresh_source_output_combo()
+                    
                     # Apply current source output mode if set
                     current_data = self.source_output_combo.currentData() if self.source_output_combo else "camera"
                     if hasattr(self.camera_view, 'set_display_mode'):
-                        self.camera_view.set_display_mode(current_data)
-                    print("DEBUG: [CameraManager] Live camera started successfully")
+                        tool_id = None
+                        if current_data and "_" in str(current_data):
+                            parts = str(current_data).split("_")
+                            if len(parts) > 1:
+                                tool_id = parts[1]
+                        self.camera_view.set_display_mode(current_data, tool_id)
+                        
+                    print("DEBUG: [CameraManager] Live camera started successfully with display mode:", current_data)
                     return True
                 else:
                     print("DEBUG: [CameraManager] Failed to start live camera")
@@ -847,6 +919,10 @@ class CameraManager(QObject):
             if self.current_mode == 'trigger':
                 # Reset trigger mode first
                 self.current_mode = None
+            
+            # Refresh source output combo before starting
+            print("DEBUG: [CameraManager] Refreshing source output combo before live start")
+            self.refresh_source_output_combo()
                 
             success = self.toggle_live_camera(True)
             if success:

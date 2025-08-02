@@ -79,6 +79,14 @@ class CameraView(QObject):
         self.current_area = None  # Current area being worked with
         self.detection_results = []  # Store detection results for visualization
         
+        # Display mode variables for pipeline output selection
+        self.display_mode = "camera"  # Default to camera source
+        self.display_tool_id = None   # Tool ID for specific tool outputs
+        self.show_detection_overlay = False  # Whether to show detection results
+        self.processed_frames = {}  # Store processed frames from tools: {tool_id: frame}
+        self.current_raw_frame = None  # Store current raw camera frame
+        self.current_editing_tool_id = None  # Tool ID currently being edited
+        
         # Khởi tạo scene và cấu hình graphics view
         self.scene = QGraphicsScene()
         self.graphics_view.setScene(self.scene)
@@ -104,6 +112,66 @@ class CameraView(QObject):
         self.scene_offset = [0, 0]
         self.scene_offset_max = [0, 0]
 
+    def set_display_mode(self, mode, tool_id=None):
+        """
+        Set the display mode for camera view
+        
+        Args:
+            mode: Display mode ('camera', 'detection', 'edge', 'ocr')
+            tool_id: Tool ID for specific tool outputs (optional)
+        """
+        print(f"DEBUG: [CameraView] Setting display mode to: {mode}, tool_id: {tool_id}")
+        self.display_mode = mode
+        self.display_tool_id = tool_id
+        
+        # Configure display based on mode
+        if mode == "camera":
+            self.show_detection_overlay = False
+            print("DEBUG: [CameraView] Display mode: Camera source (raw)")
+        elif mode == "detection":
+            self.show_detection_overlay = True
+            print(f"DEBUG: [CameraView] Display mode: Detection output (tool_id: {tool_id})")
+        elif mode == "edge":
+            self.show_detection_overlay = False
+            print(f"DEBUG: [CameraView] Display mode: Edge detection (tool_id: {tool_id})")
+        elif mode == "ocr":
+            self.show_detection_overlay = False
+            print(f"DEBUG: [CameraView] Display mode: OCR output (tool_id: {tool_id})")
+        else:
+            print(f"DEBUG: [CameraView] Unknown display mode: {mode}, defaulting to camera")
+            self.display_mode = "camera"
+            self.show_detection_overlay = False
+            
+        # Update visibility of detection areas based on display mode
+        self.update_detection_areas_visibility()
+    
+    def _get_display_frame(self):
+        """Get the frame to display based on current display mode"""
+        if self.display_mode == "camera":
+            # Show raw camera frame
+            return self.current_raw_frame
+        elif self.display_mode == "detection" and self.display_tool_id:
+            # Show processed frame from detection tool if available
+            tool_key = f"detection_{self.display_tool_id}"
+            if tool_key in self.processed_frames:
+                print(f"DEBUG: [CameraView] Using processed frame from {tool_key}")
+                return self.processed_frames[tool_key]
+            else:
+                print(f"DEBUG: [CameraView] No processed frame available for {tool_key}, using raw")
+                return self.current_raw_frame
+        elif self.display_mode in ["edge", "ocr"] and self.display_tool_id:
+            # Show processed frame from other tools if available  
+            tool_key = f"{self.display_mode}_{self.display_tool_id}"
+            if tool_key in self.processed_frames:
+                print(f"DEBUG: [CameraView] Using processed frame from {tool_key}")
+                return self.processed_frames[tool_key]
+            else:
+                print(f"DEBUG: [CameraView] No processed frame available for {tool_key}, using raw")
+                return self.current_raw_frame
+        else:
+            # Default to raw camera frame
+            return self.current_raw_frame
+
     def display_frame(self, frame):
         """
         Hiển thị frame từ camera
@@ -116,6 +184,12 @@ class CameraView(QObject):
             return
 
         logging.debug("Frame received with shape: %s", frame.shape)
+        
+        # Store raw frame for display mode switching
+        self.current_raw_frame = frame.copy()
+        
+        # Choose frame to display based on current display mode
+        display_frame = self._get_display_frame()
 
         try:
             # Handle different frame formats safely
@@ -227,6 +301,9 @@ class CameraView(QObject):
                         for tool_name, tool_result in tool_results.items():
                             if isinstance(tool_result, dict):
                                 logging.info(f"Tool {tool_name} available keys: {list(tool_result.keys())}")
+                    
+                    # Store processed frames from tools for display mode switching
+                    self._store_processed_frames(tool_results)
                         
                     logging.debug(f"Job processing completed: {len(tool_results)} tool results")
                 else:
@@ -236,6 +313,38 @@ class CameraView(QObject):
                 
         except Exception as e:
             logging.error(f"Error in job processing: {e}")
+    
+    def _store_processed_frames(self, tool_results):
+        """Store processed frames from job results for display mode switching"""
+        try:
+            for tool_name, tool_result in tool_results.items():
+                # tool_result format from job_manager: (result_image, result_data)
+                if isinstance(tool_result, tuple) and len(tool_result) == 2:
+                    result_image, result_data = tool_result
+                    if result_image is not None:
+                        # Determine tool type and store accordingly
+                        if 'detect' in tool_name.lower():
+                            tool_key = f"detection_detect_tool"
+                            self.processed_frames[tool_key] = result_image
+                            print(f"DEBUG: [CameraView] Stored processed frame for {tool_key}")
+                        elif 'edge' in tool_name.lower():
+                            tool_key = f"edge_edge_tool"
+                            self.processed_frames[tool_key] = result_image
+                            print(f"DEBUG: [CameraView] Stored processed frame for {tool_key}")
+                        elif 'ocr' in tool_name.lower():
+                            tool_key = f"ocr_ocr_tool"
+                            self.processed_frames[tool_key] = result_image
+                            print(f"DEBUG: [CameraView] Stored processed frame for {tool_key}")
+                # Also handle dict format with 'data' field (fallback)
+                elif isinstance(tool_result, dict) and 'processed_frame' in tool_result:
+                    processed_frame = tool_result['processed_frame']
+                    if processed_frame is not None:
+                        if 'detect' in tool_name.lower():
+                            tool_key = f"detection_detect_tool"
+                            self.processed_frames[tool_key] = processed_frame
+                            print(f"DEBUG: [CameraView] Stored processed frame for {tool_key} (dict format)")
+        except Exception as e:
+            logging.error(f"Error storing processed frames: {e}")
     
     def _draw_detection_boxes_on_pixmap(self, pixmap):
         """
@@ -398,8 +507,8 @@ class CameraView(QObject):
                 painter.drawText(10, 30, f"FPS: {self.fps:.1f}")
                 painter.end()
             
-            # Vẽ detection boxes nếu có
-            if self.detection_results:
+            # Vẽ detection boxes nếu có và display mode là detection
+            if self.show_detection_overlay and self.detection_results and self.display_mode == "detection":
                 self._draw_detection_boxes_on_pixmap(pixmap)
 
             # Quản lý pixmap_item
@@ -716,14 +825,23 @@ class CameraView(QObject):
     
     def add_detection_area(self, x1, y1, x2, y2, label="Detection Area"):
         """Add a detection area to be displayed on camera view"""
+        # Use current editing tool ID if available
+        tool_id = self.current_editing_tool_id
+        print(f"DEBUG: add_detection_area called with tool_id: {tool_id}")
+        
         if self.current_overlay:
             # Update existing overlay
             self.current_overlay.update_from_coords(x1, y1, x2, y2)
         else:
-            # Create new overlay
+            # Create new overlay with correct tool ID
             rect = QRectF(x1, y1, x2-x1, y2-y1)
-            self.current_overlay = DetectionAreaOverlay(rect, camera_view=self)
+            self.current_overlay = DetectionAreaOverlay(rect, tool_id=tool_id, camera_view=self)
             self.scene.addItem(self.current_overlay)
+            
+            # Store in overlays dict if tool_id is available
+            if tool_id is not None:
+                self.overlays[self.current_overlay.tool_id] = self.current_overlay
+                print(f"DEBUG: Added overlay with tool_id {self.current_overlay.tool_id} to overlays dict")
             
         print(f"DEBUG: Added detection area overlay: ({x1}, {y1}) to ({x2}, {y2})")
         return self.current_overlay
@@ -742,6 +860,21 @@ class CameraView(QObject):
     def clear_all_areas(self):
         """Alias for clear_detection_areas"""
         self.clear_detection_areas()
+        
+    def update_detection_areas_visibility(self):
+        """Update visibility of detection areas based on current display mode"""
+        print(f"DEBUG: [CameraView] Updating detection areas visibility, show_overlay: {self.show_detection_overlay}")
+        
+        # Update visibility for all overlays
+        for tool_id, overlay in self.overlays.items():
+            if overlay and hasattr(overlay, 'setVisible'):
+                overlay.setVisible(self.show_detection_overlay)
+                print(f"DEBUG: [CameraView] Set overlay {tool_id} visible: {self.show_detection_overlay}")
+        
+        # Update visibility for current overlay being drawn
+        if self.current_overlay and hasattr(self.current_overlay, 'setVisible'):
+            self.current_overlay.setVisible(self.show_detection_overlay)
+            print(f"DEBUG: [CameraView] Set current overlay visible: {self.show_detection_overlay}")
         
     def add_tool_overlay(self, x1, y1, x2, y2, tool_id=None):
         """Add overlay for a specific tool"""
@@ -793,7 +926,10 @@ class CameraView(QObject):
         
     def add_detection_area(self, x1, y1, x2, y2, label="Detection Area"):
         """Add a detection area to be displayed on camera view"""
-        return self.add_tool_overlay(x1, y1, x2, y2)
+        # Use current editing tool ID if available
+        tool_id = getattr(self, 'current_editing_tool_id', None)
+        print(f"DEBUG: [CameraView] add_detection_area using tool_id: {tool_id}")
+        return self.add_tool_overlay(x1, y1, x2, y2, tool_id=tool_id)
         
     def get_tool_overlay_coords(self, tool_id):
         """Get coordinates for specific tool overlay"""

@@ -154,6 +154,25 @@ class SettingsManager(QObject):
                 if page_type == "detect" or tool_name == "Detect Tool":
                     if hasattr(self.main_window, 'refresh_detect_tool_manager'):
                         self.main_window.refresh_detect_tool_manager()
+                    
+                    # Auto-switch sourceOutputComboBox to detection mode
+                    if hasattr(self.main_window, 'camera_manager') and self.main_window.camera_manager:
+                        logging.info("SettingsManager: Auto-switching to detection display mode for Detect Tool editing")
+                        try:
+                            # Switch camera view to detection mode to show detection areas
+                            if hasattr(self.main_window.camera_manager, 'camera_view'):
+                                self.main_window.camera_manager.camera_view.set_display_mode("detection", tool_id="detect_tool")
+                            
+                            # Update sourceOutputComboBox to show detection output
+                            if hasattr(self.main_window.camera_manager, 'source_output_combo') and self.main_window.camera_manager.source_output_combo:
+                                combo = self.main_window.camera_manager.source_output_combo
+                                for i in range(combo.count()):
+                                    if "detect" in combo.itemText(i).lower():
+                                        combo.setCurrentIndex(i)
+                                        logging.info(f"SettingsManager: Switched sourceOutputComboBox to detection output: {combo.itemText(i)}")
+                                        break
+                        except Exception as e:
+                            logging.warning(f"SettingsManager: Failed to auto-switch to detection mode: {e}")
                 
                 # Auto start camera preview when switching to camera settings page
                 # so user can see what they're configuring
@@ -186,6 +205,11 @@ class SettingsManager(QObject):
         if not self.setting_stacked_widget or not self.palette_page:
             logging.error("SettingsManager: settingStackedWidget or palettePage not available.")
             return False
+            
+        # Stop camera if currently running before returning to palette
+        if hasattr(self.main_window, 'camera_manager') and self.main_window.camera_manager:
+            logging.info("SettingsManager: Stopping camera before returning to palette")
+            self.main_window.camera_manager.stop_camera_for_apply()
             
         index = self.setting_stacked_widget.indexOf(self.palette_page)
         if index != -1:

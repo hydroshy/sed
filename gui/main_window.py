@@ -171,6 +171,24 @@ class MainWindow(QMainWindow):
         
         # Source output combo box to control camera view pipeline
         self.sourceOutputComboBox = self.findChild(QComboBox, 'sourceOutputComboBox')
+        print(f"DEBUG: main_window sourceOutputComboBox found: {self.sourceOutputComboBox is not None}")
+        if self.sourceOutputComboBox:
+            print(f"DEBUG: sourceOutputComboBox type: {type(self.sourceOutputComboBox)}")
+        else:
+            print("DEBUG: sourceOutputComboBox is None!")
+            # Try to find it with different methods
+            all_combos = self.findChildren(QComboBox)
+            for combo in all_combos:
+                print(f"DEBUG: Found combo: {combo.objectName()}")
+            # Try to find it specifically
+            source_combo = None
+            for combo in all_combos:
+                if 'sourceOutput' in combo.objectName():
+                    source_combo = combo
+                    break
+            if source_combo:
+                print(f"DEBUG: Found sourceOutput combo via manual search: {source_combo.objectName()}")
+                self.sourceOutputComboBox = source_combo
         
         # Settings widgets
         self.settingStackedWidget = self.findChild(QStackedWidget, 'settingStackedWidget')
@@ -240,7 +258,8 @@ class MainWindow(QMainWindow):
             self.job_manager,
             self.toolView,
             self.jobView,
-            self.toolComboBox
+            self.toolComboBox,
+            self  # Pass main_window reference
         )
         
         # Setup SettingsManager
@@ -486,10 +505,17 @@ class MainWindow(QMainWindow):
         if selected_tool:
             self._editing_tool = selected_tool
             self.tool_manager._pending_tool = None
+            
+            # Set current editing tool ID BEFORE any overlay operations
+            if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                self.camera_manager.camera_view.current_editing_tool_id = selected_tool.tool_id
+                print(f"DEBUG: Set current_editing_tool_id to: {selected_tool.tool_id}")
+            
             detection_area = None
             if hasattr(selected_tool, 'config') and hasattr(selected_tool.config, 'get'):
                 detection_area = selected_tool.config.get('detection_area')
             self.tool_manager._pending_detection_area = detection_area
+            
             if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                 overlay = self.camera_manager.camera_view.edit_tool_overlay(selected_tool.tool_id)
                 if overlay:
@@ -820,20 +846,37 @@ class MainWindow(QMainWindow):
 
             # --- Load detection area (x1, y1, x2, y2) robustly ---
             area = None
+            print(f"DEBUG: Looking for detection area in config...")
+            print(f"DEBUG: detection_area in config: {'detection_area' in config}")
+            print(f"DEBUG: detection_region in config: {'detection_region' in config}")
+            if 'detection_area' in config:
+                print(f"DEBUG: detection_area value: {config['detection_area']}")
+            if 'detection_region' in config:
+                print(f"DEBUG: detection_region value: {config['detection_region']}")
+                
             if 'detection_area' in config and config['detection_area'] is not None:
                 area = config['detection_area']
+                print(f"DEBUG: Using detection_area: {area}")
             elif 'detection_region' in config and config['detection_region'] is not None:
                 area = config['detection_region']
+                print(f"DEBUG: Using detection_region: {area}")
 
             # If area is still None, try to get from overlay (if exists)
             if (not area or not (isinstance(area, (list, tuple)) and len(area) == 4)) and hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                print(f"DEBUG: Trying to get area from existing overlay...")
                 camera_view = self.camera_manager.camera_view
-                overlay = camera_view.overlays.get(tool.tool_id) if hasattr(camera_view, 'overlays') else None
-                if overlay and hasattr(overlay, 'get_area_coords'):
-                    area = overlay.get_area_coords()
-                    # Update config so next time it is available
-                    tool.config['detection_area'] = area
-                    print(f"DEBUG: Loaded detection_area from overlay: {area}")
+                if hasattr(camera_view, 'overlays'):
+                    print(f"DEBUG: Available overlays: {list(camera_view.overlays.keys())}")
+                    overlay = camera_view.overlays.get(tool.tool_id)
+                    if overlay and hasattr(overlay, 'get_area_coords'):
+                        area = overlay.get_area_coords()
+                        # Update config so next time it is available
+                        tool.config['detection_area'] = area
+                        print(f"DEBUG: Loaded detection_area from overlay: {area}")
+                    else:
+                        print(f"DEBUG: No overlay found for tool #{tool.tool_id}")
+                else:
+                    print(f"DEBUG: No overlays attribute in camera_view")
 
             if area and isinstance(area, (list, tuple)) and len(area) == 4:
                 x1, y1, x2, y2 = area
@@ -848,6 +891,11 @@ class MainWindow(QMainWindow):
                 # Add or update detection area overlay for editing (preserve other overlays)
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                     camera_view = self.camera_manager.camera_view
+                    
+                    # Set current editing tool ID
+                    camera_view.current_editing_tool_id = tool.tool_id
+                    print(f"DEBUG: Set current editing tool ID to: {tool.tool_id}")
+                    
                     if tool.tool_id in camera_view.overlays:
                         overlay = camera_view.overlays[tool.tool_id]
                         overlay.update_from_coords(x1, y1, x2, y2)
@@ -955,14 +1003,27 @@ class MainWindow(QMainWindow):
     
     def _collect_detection_area(self):
         """Collect detection area coordinates from UI or current drawn area"""
+        print("DEBUG: _collect_detection_area called")
+        
         # First try to get from current drawn area
         if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
-            current_coords = self.camera_manager.camera_view.get_current_area_coords()
+            camera_view = self.camera_manager.camera_view
+            print(f"DEBUG: Camera view available, current_overlay: {camera_view.current_overlay}")
+            print(f"DEBUG: Camera view overlays count: {len(camera_view.overlays) if hasattr(camera_view, 'overlays') else 0}")
+            if hasattr(camera_view, 'overlays'):
+                for tool_id, overlay in camera_view.overlays.items():
+                    coords = overlay.get_area_coords() if overlay else None
+                    print(f"DEBUG: Overlay {tool_id} coords: {coords}")
+            
+            current_coords = camera_view.get_current_area_coords()
             if current_coords:
                 print(f"DEBUG: Got coordinates from drawn area: {current_coords}")
                 return current_coords
+            else:
+                print("DEBUG: No current overlay coordinates available")
         
         # Fallback to text input
+        print("DEBUG: Trying text input fallback")
         try:
             if self.x1PositionLineEdit and self.y1PositionLineEdit and self.x2PositionLineEdit and self.y2PositionLineEdit:
                 x1_text = self.x1PositionLineEdit.text().strip()

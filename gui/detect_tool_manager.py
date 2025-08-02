@@ -34,6 +34,7 @@ class DetectToolManager:
         # Current selections
         self.current_model = None
         self.selected_classes = []  # List of selected class names
+        self.loading_config = False  # Flag to prevent signal recursion during config loading
         
         # UI components will be set during setup
         self.algorithm_combo = None
@@ -236,6 +237,10 @@ class DetectToolManager:
         """Handle model selection change by index"""
         logging.info(f"🔥 _on_model_index_changed triggered with index: {index}")
         
+        if self.loading_config:
+            logging.info("🔥 Skipping signal - currently loading config")
+            return
+        
         if not self.algorithm_combo or index < 0:
             return
             
@@ -257,6 +262,11 @@ class DetectToolManager:
     def _on_model_changed(self, model_name: str):
         """Handle model selection change"""
         logging.info(f"🔥 _on_model_changed triggered with: '{model_name}'")
+        
+        if self.loading_config:
+            logging.info("🔥 Skipping signal - currently loading config")
+            return
+            
         logging.info(f"🔥 Signal received from real UI interaction!")
         
         if not model_name or model_name == "Select Model..." or model_name == "No models found":
@@ -524,17 +534,26 @@ class DetectToolManager:
         """Set current model (for loading tool configuration)"""
         try:
             if self.algorithm_combo:
+                # Temporarily block signals to prevent multiple triggers
+                self.algorithm_combo.blockSignals(True)
+                
                 # Find and select the model in combo box
                 index = self.algorithm_combo.findText(model_name)
                 if index >= 0:
                     self.algorithm_combo.setCurrentIndex(index)
-                    # Manually trigger the model change to ensure classes are loaded
-                    self._on_model_changed(model_name)
                     logging.info(f"Set current model: {model_name}")
+                    
+                    # Re-enable signals and manually trigger the model change
+                    self.algorithm_combo.blockSignals(False)
+                    self._on_model_changed(model_name)
                 else:
+                    self.algorithm_combo.blockSignals(False)
                     logging.warning(f"Model not found in combo box: {model_name}")
                     
         except Exception as e:
+            # Ensure signals are re-enabled even if error occurs
+            if self.algorithm_combo:
+                self.algorithm_combo.blockSignals(False)
             logging.error(f"Error setting current model: {e}")
     
     def get_tool_config(self) -> Dict:
@@ -551,6 +570,9 @@ class DetectToolManager:
     def load_tool_config(self, config: Dict):
         """Load tool configuration"""
         try:
+            # Set flag to prevent signal recursion
+            self.loading_config = True
+            
             # Set model if specified
             if 'model_name' in config and config['model_name']:
                 self.set_current_model(config['model_name'])
@@ -565,7 +587,7 @@ class DetectToolManager:
             
             # Load other DetectTool-specific settings
             if 'confidence_threshold' in config:
-                # This could be used to set a global threshold if UI supports it
+                self._load_confidence_threshold(config['confidence_threshold'])
                 logging.info(f"Global confidence threshold: {config['confidence_threshold']}")
             
             logging.info("Tool configuration loaded successfully")
@@ -574,3 +596,46 @@ class DetectToolManager:
             logging.error(f"Error loading tool configuration: {e}")
             import traceback
             traceback.print_exc()
+        finally:
+            # Always reset flag
+            self.loading_config = False
+    
+    def _load_confidence_threshold(self, threshold: float):
+        """Load confidence threshold into UI field"""
+        try:
+            # Try to find min_confidence_edit field in main window
+            if hasattr(self, 'main_window') and self.main_window:
+                # Look for the field in detect settings page
+                from PyQt5.QtWidgets import QDoubleSpinBox, QLineEdit
+                
+                # Debug: Find all QDoubleSpinBox widgets to see available names
+                all_spinboxes = self.main_window.findChildren(QDoubleSpinBox)
+                logging.info(f"DEBUG: Found {len(all_spinboxes)} QDoubleSpinBox widgets:")
+                for sb in all_spinboxes:
+                    logging.info(f"  - {sb.objectName()} (value: {sb.value()})")
+                
+                # Try different possible names
+                possible_names = ["min_confidence_edit", "minConfidenceEdit", "confidenceEdit", "confidence_edit"]
+                confidence_field = None
+                
+                for name in possible_names:
+                    confidence_field = self.main_window.findChild(QDoubleSpinBox, name)
+                    if confidence_field:
+                        logging.info(f"Found confidence field with name: {name}")
+                        break
+                    confidence_field = self.main_window.findChild(QLineEdit, name)
+                    if confidence_field:
+                        logging.info(f"Found confidence field (LineEdit) with name: {name}")
+                        break
+                    
+                if confidence_field:
+                    if hasattr(confidence_field, 'setValue'):
+                        confidence_field.setValue(threshold)
+                    elif hasattr(confidence_field, 'setText'):
+                        confidence_field.setText(str(threshold))
+                    logging.info(f"Loaded confidence threshold {threshold} into UI field")
+                else:
+                    logging.warning("min_confidence_edit field not found in UI with any tried names")
+                    
+        except Exception as e:
+            logging.error(f"Error loading confidence threshold: {e}")

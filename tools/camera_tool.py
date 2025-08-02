@@ -66,6 +66,7 @@ class CameraTool(BaseTool):
         # CameraTool just stores configuration that will be applied to main camera_manager
         self.is_camera_available = False
         self.picam2 = None
+        self.is_live = False  # Add is_live attribute for job manager compatibility
         
         # Camera configuration (stored for reference)
         self.current_exposure = self.config.get("exposure", 10000)
