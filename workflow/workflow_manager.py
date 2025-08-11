@@ -1,3 +1,7 @@
+"""
+WorkflowManager - quản lý các workflow và công cụ xử lý hình ảnh
+Thay thế cho JobManager cũ với mô hình workflow mới giống Cognex Vision Pro
+"""
 
 import json
 import os
@@ -9,12 +13,12 @@ import numpy as np
 
 # Cấu hình logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("JobManager")
+logger = logging.getLogger("WorkflowManager")
 
 from tools.base_tool import ToolConfig, BaseTool, GenericTool
 
 
-class Job:
+class Workflow:
     """Đại diện cho một chuỗi công cụ xử lý hình ảnh với cấu trúc input/output"""
     
     def __init__(self, name: str, tools: Optional[List[BaseTool]] = None, description: str = ""):
@@ -56,7 +60,7 @@ class Job:
                 self.start_tools.append(tool)
             if not tool.get_outputs():
                 self.end_tools.append(tool)
-        
+    
     def add_tool(self, tool: Union[BaseTool, Dict[str, Any]], source_tool_id: Optional[int] = None) -> Optional[BaseTool]:
         """
         Thêm một công cụ vào chuỗi xử lý và kết nối với tool nguồn nếu được chỉ định
@@ -68,13 +72,6 @@ class Job:
         Returns:
             Công cụ đã được thêm hoặc None nếu có lỗi
         """
-        # Debug log
-        logger.info(f"Adding tool to job: {self.name}")
-        tool_name = getattr(tool, 'name', 'Unknown') if not isinstance(tool, dict) else tool.get('name', 'Unknown dict')
-        tool_display_name = getattr(tool, 'display_name', 'No display name') if not isinstance(tool, dict) else tool.get('display_name', 'No display name')
-        tool_type = type(tool).__name__
-        logger.info(f"Tool details: name={tool_name}, display_name={tool_display_name}, type={tool_type}")
-        
         # Kiểm tra nếu tool là dictionary thay vì BaseTool
         if isinstance(tool, dict):
             # Convert dict to BaseTool
@@ -96,26 +93,9 @@ class Job:
                 # Fallback nếu không có phương thức set_tool_id
                 tool.tool_id = self._next_tool_id
             self._next_tool_id += 1
-            logger.info(f"Assigned tool ID: {tool.tool_id}")
-        else:
-            logger.info(f"Tool already has ID: {tool.tool_id}")
         
         # Thêm tool vào danh sách
         self.tools.append(tool)
-        logger.info(f"Added tool to job. Job now has {len(self.tools)} tools")
-        
-        # Kiểm tra xem tool đã được thêm chưa
-        found = False
-        for idx, t in enumerate(self.tools):
-            if hasattr(t, 'tool_id') and hasattr(tool, 'tool_id') and t.tool_id == tool.tool_id:
-                found = True
-                t_name = getattr(t, 'name', 'Unknown')
-                t_display = getattr(t, 'display_name', 'No display')
-                logger.info(f"Verified tool in position {idx}: ID={t.tool_id}, name={t_name}, display={t_display}")
-                break
-        
-        if not found:
-            logger.warning(f"Tool was not found in tools list after adding! This is a bug.")
         
         # Kết nối với tool nguồn nếu được chỉ định
         if source_tool_id is not None:
@@ -133,7 +113,7 @@ class Job:
         
         # Log với tên hiển thị
         display_name = tool.display_name if hasattr(tool, 'display_name') else "Unknown Tool"
-        logger.info(f"Added tool: {display_name} to job {self.name}")
+        logger.info(f"Added tool: {display_name} to workflow {self.name}")
         
         return tool
         
@@ -246,43 +226,6 @@ class Job:
         logger.info(f"Đã đặt {source_tool.display_name} làm nguồn dữ liệu cho {target_tool.display_name}")
         return True
         
-    def get_workflow_structure(self) -> Dict[str, Any]:
-        """
-        Lấy cấu trúc workflow của job
-        
-        Returns:
-            Dictionary chứa thông tin về cấu trúc workflow
-        """
-        # Cập nhật workflow trước khi trả về cấu trúc
-        self._rebuild_workflow()
-        
-        connections = []
-        for tool in self.tools:
-            for output_tool in tool.outputs:
-                connections.append({
-                    "source_id": tool.tool_id,
-                    "source_name": tool.display_name,
-                    "target_id": output_tool.tool_id,
-                    "target_name": output_tool.display_name,
-                    "is_primary": output_tool.source_tool == tool
-                })
-                
-        return {
-            "tools": [
-                {
-                    "id": t.tool_id,
-                    "name": t.display_name,
-                    "type": t.__class__.__name__,
-                    "inputs": [i.tool_id for i in t.inputs],
-                    "outputs": [o.tool_id for o in t.outputs],
-                    "source_id": t.source_tool.tool_id if t.source_tool else None
-                } for t in self.tools
-            ],
-            "connections": connections,
-            "start_tools": [t.tool_id for t in self.start_tools],
-            "end_tools": [t.tool_id for t in self.end_tools]
-        }
-        
     def remove_tool(self, index: int) -> bool:
         """
         Xóa một công cụ theo chỉ số và cập nhật các kết nối
@@ -332,10 +275,71 @@ class Job:
     def edit_tool(self, index: int, new_tool: BaseTool) -> bool:
         """Chỉnh sửa một công cụ theo chỉ số"""
         if 0 <= index < len(self.tools):
+            # Lưu các kết nối hiện tại
+            old_tool = self.tools[index]
+            inputs = old_tool.inputs.copy()
+            outputs = old_tool.outputs.copy()
+            source_tool = old_tool.source_tool
+            
+            # Cập nhật tool mới
             self.tools[index] = new_tool
+            
+            # Khôi phục kết nối
+            for input_tool in inputs:
+                new_tool.add_input(input_tool)
+                if input_tool in output.outputs:
+                    continue  # Không cần thêm nếu đã có
+                input_tool.add_output(new_tool)
+                
+            for output_tool in outputs:
+                new_tool.add_output(output_tool)
+                
+            if source_tool:
+                new_tool.set_source_tool(source_tool)
+                
+            # Cập nhật workflow
+            self._rebuild_workflow()
+            
             self.status = "ready"
             return True
         return False
+        
+    def get_workflow_structure(self) -> Dict[str, Any]:
+        """
+        Lấy cấu trúc workflow của job
+        
+        Returns:
+            Dictionary chứa thông tin về cấu trúc workflow
+        """
+        # Cập nhật workflow trước khi trả về cấu trúc
+        self._rebuild_workflow()
+        
+        connections = []
+        for tool in self.tools:
+            for output_tool in tool.outputs:
+                connections.append({
+                    "source_id": tool.tool_id,
+                    "source_name": tool.display_name,
+                    "target_id": output_tool.tool_id,
+                    "target_name": output_tool.display_name,
+                    "is_primary": output_tool.source_tool == tool
+                })
+                
+        return {
+            "tools": [
+                {
+                    "id": t.tool_id,
+                    "name": t.display_name,
+                    "type": t.__class__.__name__,
+                    "inputs": [i.tool_id for i in t.inputs],
+                    "outputs": [o.tool_id for o in t.outputs],
+                    "source_id": t.source_tool.tool_id if t.source_tool else None
+                } for t in self.tools
+            ],
+            "connections": connections,
+            "start_tools": [t.tool_id for t in self.start_tools],
+            "end_tools": [t.tool_id for t in self.end_tools]
+        }
         
     def run(self, image: np.ndarray) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
@@ -348,7 +352,7 @@ class Job:
             Tuple chứa hình ảnh cuối cùng và kết quả tổng hợp
         """
         if not self.tools:
-            logger.warning(f"Không có công cụ nào trong job {self.name}")
+            logger.warning(f"Không có công cụ nào trong workflow {self.name}")
             return image, {"error": "Không có công cụ nào"}
             
         self.status = "running"
@@ -426,22 +430,22 @@ class Job:
             
             self.execution_time = time.time() - start_time
             self.status = "completed"
-            logger.info(f"Job {self.name} hoàn thành trong {self.execution_time:.2f}s")
+            logger.info(f"Workflow {self.name} hoàn thành trong {self.execution_time:.2f}s")
             
             return processed_image, {
-                "job_name": self.name,
+                "workflow_name": self.name,
                 "execution_time": self.execution_time,
                 "results": self.results
             }
             
         except Exception as e:
             self.status = "failed"
-            error_msg = f"Lỗi khi chạy job {self.name}: {str(e)}"
+            error_msg = f"Lỗi khi chạy workflow {self.name}: {str(e)}"
             logger.error(error_msg)
             return image, {"error": error_msg}
             
     def to_dict(self) -> Dict[str, Any]:
-        """Chuyển đổi job thành từ điển để lưu trữ"""
+        """Chuyển đổi workflow thành từ điển để lưu trữ"""
         tool_dicts = []
         connections = []
         
@@ -471,16 +475,16 @@ class Job:
         }
     
     @staticmethod
-    def from_dict(d: Dict[str, Any], tool_registry: Dict[str, type]) -> 'Job':
-        """Tạo job từ từ điển"""
+    def from_dict(d: Dict[str, Any], tool_registry: Dict[str, type]) -> 'Workflow':
+        """Tạo workflow từ từ điển"""
         # Tạo các công cụ trước
         tools = [BaseTool.from_dict(td, tool_registry) for td in d.get('tools', [])]
         
-        # Tạo job với các công cụ
-        job = Job(d['name'], tools, d.get('description', ''))
-        job.status = d.get('status', 'ready')
-        job.last_run_time = d.get('last_run_time', 0)
-        job.execution_time = d.get('execution_time', 0)
+        # Tạo workflow với các công cụ
+        workflow = Workflow(d['name'], tools, d.get('description', ''))
+        workflow.status = d.get('status', 'ready')
+        workflow.last_run_time = d.get('last_run_time', 0)
+        workflow.execution_time = d.get('execution_time', 0)
         
         # Khôi phục kết nối giữa các công cụ
         connections = d.get('connections', [])
@@ -490,8 +494,8 @@ class Job:
             is_primary = conn.get('is_primary', False)
             
             if source_id is not None and target_id is not None:
-                source_tool = job.get_tool_by_id(source_id)
-                target_tool = job.get_tool_by_id(target_id)
+                source_tool = workflow.get_tool_by_id(source_id)
+                target_tool = workflow.get_tool_by_id(target_id)
                 
                 if source_tool and target_tool:
                     # Tạo kết nối
@@ -502,17 +506,17 @@ class Job:
                         target_tool.set_source_tool(source_tool)
         
         # Cập nhật cấu trúc workflow
-        job._rebuild_workflow()
+        workflow._rebuild_workflow()
         
-        return job
+        return workflow
 
 
-class JobManager:
-    """Quản lý tất cả các job và công cụ có sẵn"""
+class WorkflowManager:
+    """Quản lý tất cả các workflow và công cụ có sẵn"""
     
     def __init__(self):
-        self.jobs: List[Job] = []
-        self.current_job_index = -1
+        self.workflows: List[Workflow] = []
+        self.current_workflow_index = -1
         self.tool_registry: Dict[str, type] = {}  # map tool_type -> Tool class
         self.register_default_tools()
         
@@ -556,140 +560,140 @@ class JobManager:
         logger.warning(f"Loại công cụ không hợp lệ: {tool_type}")
         return None
         
-    def add_job(self, job: Job) -> None:
-        """Thêm một job mới và đặt làm job hiện tại"""
-        self.jobs.append(job)
-        self.current_job_index = len(self.jobs) - 1
+    def add_workflow(self, workflow: Workflow) -> None:
+        """Thêm một workflow mới và đặt làm workflow hiện tại"""
+        self.workflows.append(workflow)
+        self.current_workflow_index = len(self.workflows) - 1
         
-    def remove_job(self, index: int) -> bool:
-        """Xóa một job theo chỉ số"""
-        if 0 <= index < len(self.jobs):
-            del self.jobs[index]
-            # Cập nhật chỉ số job hiện tại
-            if not self.jobs:
-                self.current_job_index = -1
-            elif index <= self.current_job_index:
-                self.current_job_index = max(0, self.current_job_index - 1)
+    def remove_workflow(self, index: int) -> bool:
+        """Xóa một workflow theo chỉ số"""
+        if 0 <= index < len(self.workflows):
+            del self.workflows[index]
+            # Cập nhật chỉ số workflow hiện tại
+            if not self.workflows:
+                self.current_workflow_index = -1
+            elif index <= self.current_workflow_index:
+                self.current_workflow_index = max(0, self.current_workflow_index - 1)
             return True
         return False
         
-    def set_current_job(self, index: int) -> bool:
-        """Đặt job hiện tại theo chỉ số"""
-        if 0 <= index < len(self.jobs):
-            self.current_job_index = index
+    def set_current_workflow(self, index: int) -> bool:
+        """Đặt workflow hiện tại theo chỉ số"""
+        if 0 <= index < len(self.workflows):
+            self.current_workflow_index = index
             return True
         return False
         
-    def get_current_job(self) -> Optional[Job]:
-        """Lấy job hiện tại"""
-        if 0 <= self.current_job_index < len(self.jobs):
-            return self.jobs[self.current_job_index]
+    def get_current_workflow(self) -> Optional[Workflow]:
+        """Lấy workflow hiện tại"""
+        if 0 <= self.current_workflow_index < len(self.workflows):
+            return self.workflows[self.current_workflow_index]
         return None
         
-    def run_job(self, job_index: int, image: np.ndarray) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def run_workflow(self, workflow_index: int, image: np.ndarray) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
-        Chạy một job theo chỉ số
+        Chạy một workflow theo chỉ số
         
         Args:
-            job_index: Chỉ số của job cần chạy
+            workflow_index: Chỉ số của workflow cần chạy
             image: Hình ảnh đầu vào
             
         Returns:
             Tuple chứa hình ảnh đã xử lý và kết quả
         """
-        if 0 <= job_index < len(self.jobs):
-            return self.jobs[job_index].run(image)
-        return image, {"error": "Chỉ số job không hợp lệ"}
+        if 0 <= workflow_index < len(self.workflows):
+            return self.workflows[workflow_index].run(image)
+        return image, {"error": "Chỉ số workflow không hợp lệ"}
         
-    def run_current_job(self, image: np.ndarray) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """Chạy job hiện tại"""
-        current_job = self.get_current_job()
-        if current_job:
-            return current_job.run(image)
-        return image, {"error": "Không có job hiện tại"}
+    def run_current_workflow(self, image: np.ndarray) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """Chạy workflow hiện tại"""
+        current_workflow = self.get_current_workflow()
+        if current_workflow:
+            return current_workflow.run(image)
+        return image, {"error": "Không có workflow hiện tại"}
         
-    def save_job(self, job_index: int, path: str) -> bool:
-        """Lưu một job vào file"""
-        if not (0 <= job_index < len(self.jobs)):
-            logger.error(f"Chỉ số job không hợp lệ: {job_index}")
+    def save_workflow(self, workflow_index: int, path: str) -> bool:
+        """Lưu một workflow vào file"""
+        if not (0 <= workflow_index < len(self.workflows)):
+            logger.error(f"Chỉ số workflow không hợp lệ: {workflow_index}")
             return False
             
         try:
             os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
             with open(path, 'w', encoding='utf-8') as f:
-                json.dump(self.jobs[job_index].to_dict(), f, ensure_ascii=False, indent=2)
-            logger.info(f"Đã lưu job vào {path}")
+                json.dump(self.workflows[workflow_index].to_dict(), f, ensure_ascii=False, indent=2)
+            logger.info(f"Đã lưu workflow vào {path}")
             return True
         except Exception as e:
-            logger.error(f"Lỗi khi lưu job: {str(e)}")
+            logger.error(f"Lỗi khi lưu workflow: {str(e)}")
             return False
             
-    def save_current_job(self, path: str) -> bool:
-        """Lưu job hiện tại vào file"""
-        if self.current_job_index < 0:
-            logger.error("Không có job hiện tại để lưu")
+    def save_current_workflow(self, path: str) -> bool:
+        """Lưu workflow hiện tại vào file"""
+        if self.current_workflow_index < 0:
+            logger.error("Không có workflow hiện tại để lưu")
             return False
-        return self.save_job(self.current_job_index, path)
+        return self.save_workflow(self.current_workflow_index, path)
         
-    def save_all_jobs(self, path: str) -> bool:
-        """Lưu tất cả các job vào file"""
+    def save_all_workflows(self, path: str) -> bool:
+        """Lưu tất cả các workflow vào file"""
         try:
             os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump({
-                    'jobs': [job.to_dict() for job in self.jobs],
-                    'current_job_index': self.current_job_index
+                    'workflows': [workflow.to_dict() for workflow in self.workflows],
+                    'current_workflow_index': self.current_workflow_index
                 }, f, ensure_ascii=False, indent=2)
-            logger.info(f"Đã lưu tất cả job vào {path}")
+            logger.info(f"Đã lưu tất cả workflow vào {path}")
             return True
         except Exception as e:
-            logger.error(f"Lỗi khi lưu tất cả job: {str(e)}")
+            logger.error(f"Lỗi khi lưu tất cả workflow: {str(e)}")
             return False
             
-    def load_job(self, path: str) -> Optional[Job]:
-        """Tải một job từ file và thêm vào danh sách"""
+    def load_workflow(self, path: str) -> Optional[Workflow]:
+        """Tải một workflow từ file và thêm vào danh sách"""
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                job = Job.from_dict(data, self.tool_registry)
-                self.add_job(job)
-                logger.info(f"Đã tải job từ {path}")
-                return job
+                workflow = Workflow.from_dict(data, self.tool_registry)
+                self.add_workflow(workflow)
+                logger.info(f"Đã tải workflow từ {path}")
+                return workflow
         except Exception as e:
-            logger.error(f"Lỗi khi tải job: {str(e)}")
+            logger.error(f"Lỗi khi tải workflow: {str(e)}")
             return None
             
-    def load_all_jobs(self, path: str) -> bool:
-        """Tải tất cả các job từ file"""
+    def load_all_workflows(self, path: str) -> bool:
+        """Tải tất cả các workflow từ file"""
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                self.jobs = [Job.from_dict(jd, self.tool_registry) for jd in data.get('jobs', [])]
-                self.current_job_index = data.get('current_job_index', 0 if self.jobs else -1)
-                logger.info(f"Đã tải {len(self.jobs)} job từ {path}")
+                self.workflows = [Workflow.from_dict(wd, self.tool_registry) for wd in data.get('workflows', [])]
+                self.current_workflow_index = data.get('current_workflow_index', 0 if self.workflows else -1)
+                logger.info(f"Đã tải {len(self.workflows)} workflow từ {path}")
                 return True
         except Exception as e:
-            logger.error(f"Lỗi khi tải tất cả job: {str(e)}")
+            logger.error(f"Lỗi khi tải tất cả workflow: {str(e)}")
             return False
             
     def get_available_tool_types(self) -> List[str]:
         """Lấy danh sách các loại công cụ có sẵn"""
         return list(self.tool_registry.keys())
         
-    def get_job_list(self) -> List[Job]:
-        """Lấy danh sách các job"""
-        return self.jobs
+    def get_workflow_list(self) -> List[Workflow]:
+        """Lấy danh sách các workflow"""
+        return self.workflows
         
-    def create_default_job(self, name: str = "New Job") -> Job:
-        """Tạo một job mặc định với tên được chỉ định"""
-        job = Job(name)
-        self.add_job(job)
-        return job
-        
-    # Phương thức để làm việc với workflow của job
-    def connect_tools_in_current_job(self, source_tool_id: int, target_tool_id: int) -> bool:
+    def create_default_workflow(self, name: str = "New Workflow") -> Workflow:
+        """Tạo một workflow mặc định với tên được chỉ định"""
+        workflow = Workflow(name)
+        self.add_workflow(workflow)
+        return workflow
+
+    # Phương thức để làm việc với workflow
+    def connect_tools_in_current_workflow(self, source_tool_id: int, target_tool_id: int) -> bool:
         """
-        Kết nối hai công cụ trong job hiện tại
+        Kết nối hai công cụ trong workflow hiện tại
         
         Args:
             source_tool_id: ID của công cụ nguồn
@@ -698,15 +702,15 @@ class JobManager:
         Returns:
             True nếu kết nối thành công, False nếu không
         """
-        current_job = self.get_current_job()
-        if current_job:
-            return current_job.connect_tools(source_tool_id, target_tool_id)
-        logger.warning("Không có job hiện tại để kết nối công cụ")
+        current_workflow = self.get_current_workflow()
+        if current_workflow:
+            return current_workflow.connect_tools(source_tool_id, target_tool_id)
+        logger.warning("Không có workflow hiện tại để kết nối công cụ")
         return False
         
-    def disconnect_tools_in_current_job(self, source_tool_id: int, target_tool_id: int) -> bool:
+    def disconnect_tools_in_current_workflow(self, source_tool_id: int, target_tool_id: int) -> bool:
         """
-        Ngắt kết nối giữa hai công cụ trong job hiện tại
+        Ngắt kết nối giữa hai công cụ trong workflow hiện tại
         
         Args:
             source_tool_id: ID của công cụ nguồn
@@ -715,15 +719,15 @@ class JobManager:
         Returns:
             True nếu ngắt kết nối thành công, False nếu không
         """
-        current_job = self.get_current_job()
-        if current_job:
-            return current_job.disconnect_tools(source_tool_id, target_tool_id)
-        logger.warning("Không có job hiện tại để ngắt kết nối công cụ")
+        current_workflow = self.get_current_workflow()
+        if current_workflow:
+            return current_workflow.disconnect_tools(source_tool_id, target_tool_id)
+        logger.warning("Không có workflow hiện tại để ngắt kết nối công cụ")
         return False
         
-    def set_source_tool_in_current_job(self, source_tool_id: int, target_tool_id: int) -> bool:
+    def set_source_tool_in_current_workflow(self, source_tool_id: int, target_tool_id: int) -> bool:
         """
-        Thiết lập một công cụ làm nguồn dữ liệu chính cho một công cụ khác trong job hiện tại
+        Thiết lập một công cụ làm nguồn dữ liệu chính cho một công cụ khác trong workflow hiện tại
         
         Args:
             source_tool_id: ID của công cụ nguồn
@@ -732,27 +736,27 @@ class JobManager:
         Returns:
             True nếu thiết lập thành công, False nếu không
         """
-        current_job = self.get_current_job()
-        if current_job:
-            return current_job.set_tool_as_source(source_tool_id, target_tool_id)
-        logger.warning("Không có job hiện tại để thiết lập công cụ nguồn")
+        current_workflow = self.get_current_workflow()
+        if current_workflow:
+            return current_workflow.set_tool_as_source(source_tool_id, target_tool_id)
+        logger.warning("Không có workflow hiện tại để thiết lập công cụ nguồn")
         return False
         
-    def get_current_job_workflow(self) -> Optional[Dict[str, Any]]:
+    def get_current_workflow_structure(self) -> Optional[Dict[str, Any]]:
         """
-        Lấy cấu trúc workflow của job hiện tại
+        Lấy cấu trúc workflow của workflow hiện tại
         
         Returns:
-            Dictionary chứa thông tin về cấu trúc workflow hoặc None nếu không có job hiện tại
+            Dictionary chứa thông tin về cấu trúc workflow hoặc None nếu không có workflow hiện tại
         """
-        current_job = self.get_current_job()
-        if current_job:
-            return current_job.get_workflow_structure()
+        current_workflow = self.get_current_workflow()
+        if current_workflow:
+            return current_workflow.get_workflow_structure()
         return None
         
-    def add_tool_to_current_job(self, tool: Union[BaseTool, Dict[str, Any]], source_tool_id: Optional[int] = None) -> Optional[BaseTool]:
+    def add_tool_to_current_workflow(self, tool: Union[BaseTool, Dict[str, Any]], source_tool_id: Optional[int] = None) -> Optional[BaseTool]:
         """
-        Thêm một công cụ vào job hiện tại và kết nối với công cụ nguồn nếu được chỉ định
+        Thêm một công cụ vào workflow hiện tại và kết nối với công cụ nguồn nếu được chỉ định
         
         Args:
             tool: Công cụ cần thêm hoặc dictionary cấu hình
@@ -761,70 +765,12 @@ class JobManager:
         Returns:
             Công cụ đã được thêm hoặc None nếu có lỗi
         """
-        logger.info(f"JobManager: add_tool_to_current_job called with tool: {tool}")
-        
-        # Log chi tiết về tool
-        tool_name = getattr(tool, 'name', 'Unknown') if not isinstance(tool, dict) else tool.get('name', 'Unknown dict')
-        tool_display_name = getattr(tool, 'display_name', 'No display name') if not isinstance(tool, dict) else tool.get('display_name', 'No display name')
-        tool_id = getattr(tool, 'tool_id', 'No ID') if not isinstance(tool, dict) else tool.get('tool_id', 'No ID')
-        
-        logger.info(f"JobManager: Tool details - name={tool_name}, display_name={tool_display_name}, ID={tool_id}")
-        
-        current_job = self.get_current_job()
-        if current_job:
-            # Kiểm tra xem có phải Camera Source không
-            is_camera_source = False
-            if isinstance(tool, BaseTool) and hasattr(tool, 'name') and "camera" in tool.name.lower():
-                is_camera_source = True
-                logger.info("JobManager: Detected Camera Source tool")
-                
-            # Thêm tool vào job
-            result = current_job.add_tool(tool, source_tool_id)
-            
-            # Kiểm tra kết quả
-            if result:
-                logger.info(f"JobManager: Tool '{tool_name}' added successfully to job '{current_job.name}'")
-                
-                # Log danh sách tools trong job
-                logger.info(f"JobManager: Current job now has {len(current_job.tools)} tools:")
-                for i, t in enumerate(current_job.tools):
-                    t_name = getattr(t, 'name', 'Unknown')
-                    t_display = getattr(t, 'display_name', 'No display')
-                    t_id = getattr(t, 'tool_id', 'No ID')
-                    logger.info(f"JobManager:   Tool {i}: name={t_name}, display_name={t_display}, id={t_id}")
-                    
-                # Thông báo job đã thay đổi
-                self._notify_job_changed()
-                
-                # Xử lý đặc biệt cho Camera Source
-                if is_camera_source:
-                    logger.info("JobManager: Camera Source added successfully to job")
-                
-                return result
-            else:
-                logger.error(f"JobManager: Failed to add tool '{tool_name}' to job")
-                return None
-        
-        logger.warning("JobManager: No current job to add tool to")
+        current_workflow = self.get_current_workflow()
+        if current_workflow:
+            return current_workflow.add_tool(tool, source_tool_id)
+        logger.warning("Không có workflow hiện tại để thêm công cụ")
         return None
         
-    def _notify_job_changed(self):
-        """
-        Thông báo rằng job đã thay đổi để các đối tượng quan sát có thể cập nhật
-        """
-        logger.info("JobManager: Job changed notification triggered")
-        # Ở đây có thể thêm code thông báo cho các observer nếu cần
-        
-        # In danh sách công cụ hiện tại trong job để debug
-        current_job = self.get_current_job()
-        if current_job:
-            logger.info(f"JobManager: Current job '{current_job.name}' has {len(current_job.tools)} tools:")
-            for i, tool in enumerate(current_job.tools):
-                tool_name = getattr(tool, 'name', 'Unknown')
-                tool_display = getattr(tool, 'display_name', 'No display')
-                tool_id = getattr(tool, 'tool_id', 'No ID')
-                logger.info(f"JobManager:   Tool {i}: name={tool_name}, display_name={tool_display}, id={tool_id}")
-                
     def get_tool_list(self) -> List[BaseTool]:
         """Lấy danh sách các công cụ có sẵn (tương thích với giao diện cũ)"""
         tools: List[BaseTool] = []

@@ -1,6 +1,8 @@
 from PyQt5.QtGui import QCloseEvent
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QGraphicsView, QWidget, QStackedWidget, QComboBox, QPushButton, QSlider, QLineEdit, QProgressBar, QLCDNumber, QTabWidget, QListView, QTreeView, QMainWindow, QSpinBox, QDoubleSpinBox, QTableView
+from PyQt5.QtWidgets import (QGraphicsView, QWidget, QStackedWidget, QComboBox, QPushButton, 
+                            QSlider, QLineEdit, QProgressBar, QLCDNumber, QTabWidget, QListView, 
+                            QTreeView, QMainWindow, QSpinBox, QDoubleSpinBox, QTableView, QVBoxLayout)
 from PyQt5 import uic
 import os
 import logging
@@ -9,6 +11,7 @@ from gui.tool_manager import ToolManager
 from gui.settings_manager import SettingsManager
 from gui.camera_manager import CameraManager
 from gui.detect_tool_manager import DetectToolManager
+from gui.workflow_view import WorkflowWidget
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -109,8 +112,8 @@ class MainWindow(QMainWindow):
         self.liveCameraMode = self.findChild(QPushButton, 'liveCameraMode')
         
         # Camera settings widgets
-        self.evEdit = self.findChild(QDoubleSpinBox, 'evEdit')  # Also change to QDoubleSpinBox
-        self.evSlider = self.findChild(QSlider, 'evSlider')
+        self.evEdit = self.findChild(QDoubleSpinBox, 'evEdit')
+        self.gainEdit = self.findChild(QDoubleSpinBox, 'gainEdit')
         self.manualExposure = self.findChild(QPushButton, 'manualExposure')
         self.autoExposure = self.findChild(QPushButton, 'autoExposure')
         
@@ -147,6 +150,16 @@ class MainWindow(QMainWindow):
         self.jobView = self.findChild(QTreeView, 'jobView')
         self.removeJob = self.findChild(QPushButton, 'removeJob')
         self.editJob = self.findChild(QPushButton, 'editJob')
+        
+        # Tạo tab Workflow để hiển thị workflow
+        self.workflowTab = QWidget()
+        if self.paletteTab:
+            self.paletteTab.addTab(self.workflowTab, "Workflow")
+            # Tạo WorkflowWidget và thêm vào tab
+            self.workflow_widget = WorkflowWidget(self.workflowTab)
+            layout = QVBoxLayout(self.workflowTab)
+            layout.addWidget(self.workflow_widget)
+            self.workflowTab.setLayout(layout)
         self.addJob = self.findChild(QPushButton, 'addJob')
         self.loadJob = self.findChild(QPushButton, 'loadJob')
         self.toolView = self.findChild(QListView, 'toolView')
@@ -155,6 +168,27 @@ class MainWindow(QMainWindow):
         self.removeTool = self.findChild(QPushButton, 'removeTool')
         self.cancleTool = self.findChild(QPushButton, 'cancleTool')
         self.toolComboBox = self.findChild(QComboBox, 'toolComboBox')
+        
+        # Source output combo box to control camera view pipeline
+        self.sourceOutputComboBox = self.findChild(QComboBox, 'sourceOutputComboBox')
+        print(f"DEBUG: main_window sourceOutputComboBox found: {self.sourceOutputComboBox is not None}")
+        if self.sourceOutputComboBox:
+            print(f"DEBUG: sourceOutputComboBox type: {type(self.sourceOutputComboBox)}")
+        else:
+            print("DEBUG: sourceOutputComboBox is None!")
+            # Try to find it with different methods
+            all_combos = self.findChildren(QComboBox)
+            for combo in all_combos:
+                print(f"DEBUG: Found combo: {combo.objectName()}")
+            # Try to find it specifically
+            source_combo = None
+            for combo in all_combos:
+                if 'sourceOutput' in combo.objectName():
+                    source_combo = combo
+                    break
+            if source_combo:
+                print(f"DEBUG: Found sourceOutput combo via manual search: {source_combo.objectName()}")
+                self.sourceOutputComboBox = source_combo
         
         # Settings widgets
         self.settingStackedWidget = self.findChild(QStackedWidget, 'settingStackedWidget')
@@ -183,13 +217,12 @@ class MainWindow(QMainWindow):
             self.evEdit.setValue(0.0)  # 0.0 default EV
             self.evEdit.setDecimals(1)  # 1 decimal place
             
-        # Thiết lập range cho các slider (bỏ exposureSlider vì không dùng nữa)
-        if self.gainSlider:
-            self.gainSlider.setMinimum(0)
-            self.gainSlider.setMaximum(100)
-        if self.evSlider:
-            self.evSlider.setMinimum(-1)
-            self.evSlider.setMaximum(1)
+        if self.gainEdit:
+            self.gainEdit.setMinimum(0.0)  # Minimum gain
+            self.gainEdit.setMaximum(10.0)  # Maximum gain
+            self.gainEdit.setValue(1.0)  # Default gain
+            self.gainEdit.setDecimals(2)  # 2 decimal places
+            self.gainEdit.setSingleStep(0.1)  # Step by 0.1
             
         # Tìm các widget Detect Tool settings (không phụ thuộc vào detectSettingFrame)
         self.thresholdSlider = self.findChild(QSlider, 'thresholdSlider')
@@ -225,7 +258,8 @@ class MainWindow(QMainWindow):
             self.job_manager,
             self.toolView,
             self.jobView,
-            self.toolComboBox
+            self.toolComboBox,
+            self  # Pass main_window reference
         )
         
         # Setup SettingsManager
@@ -241,12 +275,11 @@ class MainWindow(QMainWindow):
         self.camera_manager.setup(
             self.cameraView,
             self.exposureEdit,
-            self.gainSlider,
             self.gainEdit,
-            self.evSlider,
             self.evEdit,
             self.focusBar,
-            self.fpsNum
+            self.fpsNum,
+            self.sourceOutputComboBox
         )
         
         # Setup frame size spinboxes if they exist
@@ -297,6 +330,20 @@ class MainWindow(QMainWindow):
         
         # Load available camera formats
         self._load_camera_formats()
+        
+        # Đảm bảo rằng nút Apply/Cancel bị vô hiệu hóa khi khởi động
+        if hasattr(self, 'settings_manager'):
+            self.settings_manager.post_init()
+            
+        # Cập nhật workflow view ban đầu
+        self._update_workflow_view()
+        
+    def _update_workflow_view(self):
+        """Cập nhật workflow view khi job thay đổi"""
+        if hasattr(self, 'workflow_widget'):
+            current_job = self.job_manager.get_current_job()
+            self.workflow_widget.build_workflow_from_job(current_job)
+            logging.info("Đã cập nhật workflow view")
         
     def refresh_detect_tool_manager(self):
         """Refresh DetectToolManager connections when switching to detect page"""
@@ -397,6 +444,46 @@ class MainWindow(QMainWindow):
             
         if self.removeJob:
             self.removeJob.clicked.connect(self.remove_current_job)
+            
+        # Kết nối sự kiện thay đổi tab để cập nhật workflow khi chuyển tab
+        if hasattr(self, 'paletteTab') and self.paletteTab:
+            self.paletteTab.currentChanged.connect(self._on_tab_changed)
+            
+        # Kết nối workflow view với tool manager
+        if hasattr(self, 'workflow_widget'):
+            self.workflow_widget.node_selected.connect(self._on_workflow_node_selected)
+            
+        # Add Camera Source to tool combo box if not already present
+        self._add_camera_source_to_combo_box()
+    
+    def _add_camera_source_to_combo_box(self):
+        """Add Camera Source to the tool combo box if not already present"""
+        if self.toolComboBox:
+            camera_source_text = "Camera Source"
+            items = [self.toolComboBox.itemText(i) for i in range(self.toolComboBox.count())]
+            if camera_source_text not in items:
+                self.toolComboBox.addItem(camera_source_text)
+                logging.info(f"MainWindow: Added {camera_source_text} to tool combo box")
+    
+    def _on_tab_changed(self, index):
+        """Xử lý khi người dùng chuyển tab"""
+        tab_widget = self.sender()
+        if tab_widget and index < tab_widget.count():
+            tab_name = tab_widget.tabText(index)
+            if tab_name == "Workflow":
+                # Cập nhật workflow view khi chuyển đến tab Workflow
+                self._update_workflow_view()
+                
+    def _on_workflow_node_selected(self, tool_id):
+        """Xử lý khi người dùng chọn một node trong workflow view"""
+        # Tìm tool bằng ID
+        current_job = self.job_manager.get_current_job()
+        if current_job:
+            tool = current_job.get_tool_by_id(tool_id)
+            if tool:
+                # Hiển thị thông tin về tool
+                logging.info(f"Selected tool: {tool.display_name} (ID: {tool.tool_id})")
+                # Có thể thêm code để chọn tool trong jobView
     
     def _on_add_tool(self):
         """Xử lý khi người dùng nhấn nút Add Tool"""
@@ -408,6 +495,8 @@ class MainWindow(QMainWindow):
         if tool_name:
             self.settings_manager.switch_to_tool_setting_page(tool_name)
             self._clear_tool_config_ui()
+            # Cập nhật workflow view
+            self._update_workflow_view()
     
     def _on_edit_tool(self):
         """Xử lý khi người dùng nhấn nút Edit Tool"""
@@ -416,10 +505,17 @@ class MainWindow(QMainWindow):
         if selected_tool:
             self._editing_tool = selected_tool
             self.tool_manager._pending_tool = None
+            
+            # Set current editing tool ID BEFORE any overlay operations
+            if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                self.camera_manager.camera_view.current_editing_tool_id = selected_tool.tool_id
+                print(f"DEBUG: Set current_editing_tool_id to: {selected_tool.tool_id}")
+            
             detection_area = None
             if hasattr(selected_tool, 'config') and hasattr(selected_tool.config, 'get'):
                 detection_area = selected_tool.config.get('detection_area')
             self.tool_manager._pending_detection_area = detection_area
+            
             if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                 overlay = self.camera_manager.camera_view.edit_tool_overlay(selected_tool.tool_id)
                 if overlay:
@@ -443,11 +539,15 @@ class MainWindow(QMainWindow):
             # Remove tool from job
             self.tool_manager.remove_tool_from_job(selected_tool)
             print(f"DEBUG: Removed tool #{selected_tool.tool_id}")
+            
+            # Cập nhật workflow view
+            self._update_workflow_view()
         else:
             print("DEBUG: No tool selected for removal")
     
     def _on_apply_setting(self):
         """Xử lý khi người dùng nhấn nút Apply trong trang cài đặt"""
+        print("DEBUG: _on_apply_setting called in MainWindow")
         
         # Synchronize settings across all pages before applying
         print("DEBUG: Synchronizing settings across pages...")
@@ -460,10 +560,33 @@ class MainWindow(QMainWindow):
         # Handle camera settings page
         if current_page == "camera":
             self._apply_camera_settings()
+            
+            # Check if Camera Source tool is pending and add it
+            if hasattr(self.tool_manager, '_pending_tool') and self.tool_manager._pending_tool == "Camera Source":
+                print("DEBUG: Applying Camera Source tool settings")
+                
+                # Stop camera before applying to prevent conflicts
+                if hasattr(self.camera_manager, 'stop_camera_for_apply'):
+                    self.camera_manager.stop_camera_for_apply()
+                
+                # Call the tool manager to create and add the Camera Source tool
+                added_tool = self.tool_manager.on_apply_setting()
+                if added_tool:
+                    print(f"DEBUG: Camera Source tool added successfully with ID: {added_tool.tool_id}")
+                    # Update job view to show the new tool
+                    self.tool_manager._update_job_view()
+                    
+                    # Don't automatically start camera - user must choose manually
+                    print("DEBUG: Camera Source tool added - user must manually start camera using Live/Trigger buttons")
+                else:
+                    print("DEBUG: Failed to add Camera Source tool")
+            
+            # Chuyển về trang palette sau khi áp dụng cài đặt camera
+            self.settings_manager.return_to_palette_page()
             return
         
         # Handle detection settings page
-        if current_page == "detection":
+        if current_page == "detect":
             # Nếu đang ở chế độ chỉnh sửa tool (edit), chỉ cập nhật config tool đó
             if self._editing_tool is not None:
                 print(f"DEBUG: Updating config for editing tool: {self._editing_tool.display_name}")
@@ -482,7 +605,10 @@ class MainWindow(QMainWindow):
                 self._editing_tool = None
                 if hasattr(self.tool_manager, '_update_job_view'):
                     self.tool_manager._update_job_view()
-                self.settings_manager.return_to_camera_setting_page()
+                
+                # Chuyển về trang palette sau khi áp dụng cài đặt
+                self.settings_manager.return_to_palette_page()
+                
                 # --- Always robustly disable edit mode for all overlays and current_overlay ---
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                     camera_view = self.camera_manager.camera_view
@@ -499,12 +625,19 @@ class MainWindow(QMainWindow):
                         camera_view.current_overlay = None
                     camera_view.set_overlay_edit_mode(False)
                 print("DEBUG: All overlays and current_overlay are now not editable after apply.")
+                
+                # Cập nhật workflow view
+                self._update_workflow_view()
                 return
             # Nếu không phải chế độ edit, xử lý như cũ (thêm mới tool)
+            print(f"DEBUG: Detection page - _pending_tool: {getattr(self.tool_manager, '_pending_tool', 'None')}")
+            print(f"DEBUG: Detection page - _editing_tool: {self._editing_tool}")
+            
             logging.debug(f"Detection page - tool_manager has _pending_tool: {hasattr(self.tool_manager, '_pending_tool')}")
             if hasattr(self.tool_manager, '_pending_tool'):
                 logging.debug(f"_pending_tool value: {getattr(self.tool_manager, '_pending_tool', 'None')}")
             if hasattr(self.tool_manager, '_pending_tool') and self.tool_manager._pending_tool == "Detect Tool":
+                print("DEBUG: Processing Detect Tool via detect_tool_manager path")
                 logging.info("Applying Detect Tool configuration...")
                 # --- Always save detection_area from UI to config before applying ---
                 detection_area = self._collect_detection_area()
@@ -515,7 +648,7 @@ class MainWindow(QMainWindow):
                 success = self.detect_tool_manager.apply_detect_tool_to_job()
                 if hasattr(self.tool_manager, '_update_job_view'):
                     self.tool_manager._update_job_view()
-                self.settings_manager.return_to_camera_setting_page()
+                self.settings_manager.return_to_palette_page()  # Changed from return_to_camera_setting_page
                 # --- Tắt edit mode cho overlays như cancelSetting ---
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                     camera_view = self.camera_manager.camera_view
@@ -532,14 +665,68 @@ class MainWindow(QMainWindow):
                     logging.error("Failed to apply Detect Tool to job")
                 return
             else:
+                print("DEBUG: Detect Tool not in _pending_tool or _pending_tool not set correctly")
+                print("DEBUG: Falling back to generic tool creation path")
                 logging.debug("Detect Tool not selected or _pending_tool not set correctly")
+            
+            # Fallback: use generic tool manager path for Detect Tool
+            if hasattr(self.tool_manager, '_pending_tool') and self.tool_manager._pending_tool:
+                print(f"DEBUG: Using generic tool creation path for: {self.tool_manager._pending_tool}")
+                
+                # Collect detection area
+                detection_area = self._collect_detection_area()
+                
+                # Get configuration from detect_tool_manager if available
+                if self.tool_manager._pending_tool == "Detect Tool" and hasattr(self, 'detect_tool_manager'):
+                    config = self.detect_tool_manager.get_tool_config()
+                    if detection_area:
+                        config['detection_area'] = detection_area
+                    self.tool_manager.set_tool_config(config)
+                    print(f"DEBUG: Set Detect Tool config: {config}")
+                    
+                # Apply using tool_manager.on_apply_setting()
+                added_tool = self.tool_manager.on_apply_setting()
+                if added_tool:
+                    print(f"DEBUG: Generic path - Tool added successfully: {added_tool.name} with ID: {added_tool.tool_id}")
+                    # Update job view to show the new tool
+                    self.tool_manager._update_job_view()
+                else:
+                    print("DEBUG: Generic path - Failed to add tool")
+                
+                # Return to palette page
+                self.settings_manager.return_to_palette_page()
+                
+                # Disable overlay edit mode
+                if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                    camera_view = self.camera_manager.camera_view
+                    if hasattr(camera_view, 'overlays'):
+                        for overlay in camera_view.overlays.values():
+                            overlay.set_edit_mode(False)
+                    if hasattr(camera_view, 'current_overlay'):
+                        camera_view.current_overlay = None
+                    camera_view.set_overlay_edit_mode(False)
+                    print("DEBUG: Disabled overlay edit mode on apply (generic path)")
+                
+                return
             
             # Đoạn này đã xử lý cập nhật tool ở trên với self._editing_tool, không cần lặp lại với editing_tool
             # Nếu không phải chế độ edit, xử lý như cũ (thêm mới tool)
-            # Adding new tool
-            print("DEBUG: Adding new tool")
+            # Adding new tool (old path - should not reach here for Detect Tool)
+            print("DEBUG: Adding new tool (old path)")
             # Lưu cấu hình vào tool_manager
             if hasattr(self.tool_manager, '_pending_tool') and self.tool_manager._pending_tool:
+                # Get UI widgets from appropriate setting page
+                ui_widgets = {}
+                current_widget = self.settingStackedWidget.currentWidget()
+                
+                # Collect all relevant UI widgets from the current setting page
+                if current_widget:
+                    # Find all relevant UI controls
+                    all_controls = current_widget.findChildren(QWidget)
+                    for control in all_controls:
+                        if control.objectName():
+                            ui_widgets[control.objectName()] = control
+                
                 config = self.settings_manager.collect_tool_config(
                     self.tool_manager._pending_tool,
                     ui_widgets
@@ -548,7 +735,18 @@ class MainWindow(QMainWindow):
 
                 # Áp dụng cài đặt detection và get added tool
                 added_tool = self.tool_manager.on_apply_setting()
-
+                
+                # Debug log để kiểm tra tool đã được thêm chưa
+                print(f"DEBUG: Added tool result: {added_tool}")
+                if added_tool:
+                    print(f"DEBUG: Added tool details - name: {added_tool.name}, display_name: {getattr(added_tool, 'display_name', 'N/A')}, ID: {getattr(added_tool, 'tool_id', 'N/A')}")
+                    # Kiểm tra xem tool đã được thêm vào job chưa
+                    current_job = self.job_manager.get_current_job()
+                    if current_job:
+                        print(f"DEBUG: Current job has {len(current_job.tools)} tools")
+                        for i, t in enumerate(current_job.tools):
+                            print(f"DEBUG: Job tool {i}: {getattr(t, 'name', 'Unknown')}, ID: {getattr(t, 'tool_id', 'N/A')}")
+                
                 # Update overlay with tool_id if tool was added
                 if added_tool and hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                     if self.camera_manager.camera_view.current_overlay:
@@ -568,8 +766,8 @@ class MainWindow(QMainWindow):
                         self.camera_manager.camera_view.current_overlay = None
                         print(f"DEBUG: Updated overlay with tool ID #{added_tool.tool_id}")
 
-            # Quay lại trang cài đặt camera
-            self.settings_manager.return_to_camera_setting_page()
+            # Quay lại trang palette (không phải trang camera)
+            self.settings_manager.return_to_palette_page()
         
         # Clear pending changes after successful apply
         self.settings_manager.clear_pending_changes()
@@ -605,8 +803,8 @@ class MainWindow(QMainWindow):
         # Hủy bỏ thao tác thêm tool
         self.tool_manager.on_cancel_setting()
         
-        # Quay lại trang cài đặt camera
-        self.settings_manager.return_to_camera_setting_page()
+        # Quay lại trang palette (không phải camera setting)
+        self.settings_manager.return_to_palette_page()
     
     def _on_edit_job(self):
         """Xử lý khi người dùng nhấn nút Edit Job"""
@@ -648,20 +846,37 @@ class MainWindow(QMainWindow):
 
             # --- Load detection area (x1, y1, x2, y2) robustly ---
             area = None
+            print(f"DEBUG: Looking for detection area in config...")
+            print(f"DEBUG: detection_area in config: {'detection_area' in config}")
+            print(f"DEBUG: detection_region in config: {'detection_region' in config}")
+            if 'detection_area' in config:
+                print(f"DEBUG: detection_area value: {config['detection_area']}")
+            if 'detection_region' in config:
+                print(f"DEBUG: detection_region value: {config['detection_region']}")
+                
             if 'detection_area' in config and config['detection_area'] is not None:
                 area = config['detection_area']
+                print(f"DEBUG: Using detection_area: {area}")
             elif 'detection_region' in config and config['detection_region'] is not None:
                 area = config['detection_region']
+                print(f"DEBUG: Using detection_region: {area}")
 
             # If area is still None, try to get from overlay (if exists)
             if (not area or not (isinstance(area, (list, tuple)) and len(area) == 4)) and hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                print(f"DEBUG: Trying to get area from existing overlay...")
                 camera_view = self.camera_manager.camera_view
-                overlay = camera_view.overlays.get(tool.tool_id) if hasattr(camera_view, 'overlays') else None
-                if overlay and hasattr(overlay, 'get_area_coords'):
-                    area = overlay.get_area_coords()
-                    # Update config so next time it is available
-                    tool.config['detection_area'] = area
-                    print(f"DEBUG: Loaded detection_area from overlay: {area}")
+                if hasattr(camera_view, 'overlays'):
+                    print(f"DEBUG: Available overlays: {list(camera_view.overlays.keys())}")
+                    overlay = camera_view.overlays.get(tool.tool_id)
+                    if overlay and hasattr(overlay, 'get_area_coords'):
+                        area = overlay.get_area_coords()
+                        # Update config so next time it is available
+                        tool.config['detection_area'] = area
+                        print(f"DEBUG: Loaded detection_area from overlay: {area}")
+                    else:
+                        print(f"DEBUG: No overlay found for tool #{tool.tool_id}")
+                else:
+                    print(f"DEBUG: No overlays attribute in camera_view")
 
             if area and isinstance(area, (list, tuple)) and len(area) == 4:
                 x1, y1, x2, y2 = area
@@ -676,6 +891,11 @@ class MainWindow(QMainWindow):
                 # Add or update detection area overlay for editing (preserve other overlays)
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                     camera_view = self.camera_manager.camera_view
+                    
+                    # Set current editing tool ID
+                    camera_view.current_editing_tool_id = tool.tool_id
+                    print(f"DEBUG: Set current editing tool ID to: {tool.tool_id}")
+                    
                     if tool.tool_id in camera_view.overlays:
                         overlay = camera_view.overlays[tool.tool_id]
                         overlay.update_from_coords(x1, y1, x2, y2)
@@ -783,14 +1003,27 @@ class MainWindow(QMainWindow):
     
     def _collect_detection_area(self):
         """Collect detection area coordinates from UI or current drawn area"""
+        print("DEBUG: _collect_detection_area called")
+        
         # First try to get from current drawn area
         if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
-            current_coords = self.camera_manager.camera_view.get_current_area_coords()
+            camera_view = self.camera_manager.camera_view
+            print(f"DEBUG: Camera view available, current_overlay: {camera_view.current_overlay}")
+            print(f"DEBUG: Camera view overlays count: {len(camera_view.overlays) if hasattr(camera_view, 'overlays') else 0}")
+            if hasattr(camera_view, 'overlays'):
+                for tool_id, overlay in camera_view.overlays.items():
+                    coords = overlay.get_area_coords() if overlay else None
+                    print(f"DEBUG: Overlay {tool_id} coords: {coords}")
+            
+            current_coords = camera_view.get_current_area_coords()
             if current_coords:
                 print(f"DEBUG: Got coordinates from drawn area: {current_coords}")
                 return current_coords
+            else:
+                print("DEBUG: No current overlay coordinates available")
         
         # Fallback to text input
+        print("DEBUG: Trying text input fallback")
         try:
             if self.x1PositionLineEdit and self.y1PositionLineEdit and self.x2PositionLineEdit and self.y2PositionLineEdit:
                 x1_text = self.x1PositionLineEdit.text().strip()
@@ -847,6 +1080,8 @@ class MainWindow(QMainWindow):
                 if job:
                     # Cập nhật UI
                     self.tool_manager._update_job_view()
+                    # Cập nhật workflow view
+                    self._update_workflow_view()
                     logging.info(f"Job loaded successfully from {file_path}")
                 else:
                     logging.error("Failed to load job")
@@ -870,6 +1105,8 @@ class MainWindow(QMainWindow):
             if ok and job_name:
                 new_job = self.job_manager.create_default_job(job_name)
                 self.tool_manager._update_job_view()
+                # Cập nhật workflow view
+                self._update_workflow_view()
                 logging.info(f"New job '{job_name}' created")
                 
         except Exception as e:
@@ -898,6 +1135,8 @@ class MainWindow(QMainWindow):
                 current_index = self.job_manager.current_job_index
                 if self.job_manager.remove_job(current_index):
                     self.tool_manager._update_job_view()
+                    # Cập nhật workflow view
+                    self._update_workflow_view()
                     logging.info(f"Job '{current_job.name}' removed")
                 else:
                     logging.error("Failed to remove job")
@@ -917,15 +1156,30 @@ class MainWindow(QMainWindow):
                 logging.warning("Current job has no tools")
                 return
                 
+            # Import numpy for creating test images if needed
+            import numpy as np
+                
             # Lấy frame hiện tại từ camera
             if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
-                # TODO: Implement getting current frame from camera view
-                # Tạm thời sử dụng test image
-                import numpy as np
-                test_image = np.zeros((480, 640, 3), dtype=np.uint8)
+                frame = None
+                # Check if the job has a CameraTool as the first tool
+                first_tool = current_job.tools[0] if current_job.tools else None
+                if first_tool and first_tool.name == "Camera Source":
+                    logging.info("Using Camera Source tool to get frame")
+                    # We'll let the job processing handle the camera source tool
+                    frame = np.zeros((480, 640, 3), dtype=np.uint8)  # Placeholder - will be replaced by CameraTool
+                else:
+                    # Get current frame from camera_view if no CameraTool is present
+                    if hasattr(self.camera_manager.camera_view, 'get_current_frame'):
+                        frame = self.camera_manager.camera_view.get_current_frame()
+                    
+                    # Fallback to test image if no frame is available
+                    if frame is None:
+                        logging.warning("No frame available, using test image")
+                        frame = np.zeros((480, 640, 3), dtype=np.uint8)
                 
                 # Chạy job
-                processed_image, results = current_job.run(test_image)
+                processed_image, results = current_job.run(frame)
                 
                 # Hiển thị kết quả
                 if 'error' not in results:
@@ -954,12 +1208,35 @@ class MainWindow(QMainWindow):
             if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
                 camera_stream = self.camera_manager.camera_stream
                 
+                # Xác thực định dạng trước khi áp dụng
+                safe_formats = ["BGR888", "RGB888", "YUV420"]
+                if selected_format not in safe_formats:
+                    from PyQt5.QtWidgets import QMessageBox
+                    QMessageBox.warning(
+                        self, 
+                        "Định dạng không được hỗ trợ",
+                        f"Định dạng {selected_format} có thể không được hỗ trợ trên thiết bị này.\n"
+                        f"Sẽ sử dụng BGR888 để tránh crash ứng dụng."
+                    )
+                    selected_format = "BGR888"
+                    # Cập nhật lại combo box để hiển thị định dạng thực tế
+                    index = self.formatCameraComboBox.findText(selected_format)
+                    if index >= 0:
+                        self.formatCameraComboBox.setCurrentIndex(index)
+                
                 # Apply the new format
                 try:
                     camera_stream.set_format(selected_format)
                     print(f"DEBUG: Successfully applied camera format: {selected_format}")
                 except Exception as e:
                     print(f"DEBUG: Failed to apply camera format {selected_format}: {e}")
+                    from PyQt5.QtWidgets import QMessageBox
+                    QMessageBox.critical(
+                        self, 
+                        "Lỗi định dạng camera",
+                        f"Không thể áp dụng định dạng {selected_format}.\n"
+                        f"Lỗi: {str(e)}"
+                    )
             else:
                 print("DEBUG: Camera stream not available for format change")
         
@@ -1018,9 +1295,9 @@ class MainWindow(QMainWindow):
                     combo_widget.addItem(fmt)
                     print(f"DEBUG: Added format: {fmt}")
             else:
-                # Add common formats as fallback
-                common_formats = ["BGR888", "RGB888", "YUV420", "MJPEG"]
-                for fmt in common_formats:
+                # Add safe formats as fallback
+                safe_formats = ["BGR888", "RGB888", "YUV420"]
+                for fmt in safe_formats:
                     combo_widget.addItem(fmt)
                     print(f"DEBUG: Added fallback format: {fmt}")
                     
@@ -1035,14 +1312,11 @@ class MainWindow(QMainWindow):
         else:
             print("DEBUG: Camera stream not available, adding fallback formats")
             # Add fallback formats when camera not available
-            common_formats = ["BGR888", "RGB888", "YUV420", "MJPEG"]
-            for fmt in common_formats:
+            safe_formats = ["BGR888", "RGB888", "YUV420"]
+            for fmt in safe_formats:
                 combo_widget.addItem(fmt)
                 print(f"DEBUG: Added fallback format: {fmt}")
             print(f"DEBUG: ComboBox now has {combo_widget.count()} fallback items")
-            for fmt in common_formats:
-                self.formatCameraComboBox.addItem(fmt)
-                print(f"DEBUG: Added fallback format: {fmt}")
     
     def reload_camera_formats(self):
         """Public method to reload camera formats - can be called by camera_manager"""

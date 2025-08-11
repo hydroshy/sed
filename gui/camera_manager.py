@@ -1,5 +1,5 @@
 from PyQt5.QtCore import QObject, pyqtSlot
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QComboBox
 from camera.camera_stream import CameraStream
 from gui.camera_view import CameraView
 import logging
@@ -14,9 +14,7 @@ class CameraManager(QObject):
         self.camera_stream = None
         self.camera_view = None
         self.exposure_edit = None  # Chỉ còn exposure edit, không có slider
-        self.gain_slider = None
         self.gain_edit = None
-        self.ev_slider = None
         self.ev_edit = None
         self.focus_bar = None
         self.fps_num = None
@@ -48,7 +46,7 @@ class CameraManager(QObject):
         self.ui_enabled = False
         
     def setup(self, camera_view_widget, exposure_edit,
-             gain_slider, gain_edit, ev_slider, ev_edit, focus_bar, fps_num):
+             gain_edit, ev_edit, focus_bar, fps_num, source_output_combo=None):
         """Thiết lập các tham chiếu đến các widget UI và khởi tạo camera"""
         # Khởi tạo camera stream
         self.camera_stream = CameraStream()
@@ -57,15 +55,21 @@ class CameraManager(QObject):
         self.camera_view = CameraView(camera_view_widget, self.main_window)
         self.camera_stream.frame_ready.connect(self.camera_view.display_frame)
         
+        # Setup source output combo box
+        self.source_output_combo = source_output_combo
+        if self.source_output_combo:
+            print("DEBUG: sourceOutputComboBox found during setup")
+            self.setup_source_output_combo()
+        else:
+            print("DEBUG: sourceOutputComboBox NOT found during setup")
+        
         # Reload camera formats after camera stream is initialized
         if self.main_window and hasattr(self.main_window, 'reload_camera_formats'):
             self.main_window.reload_camera_formats()
         
-        # Kết nối các widget - bỏ exposure_slider
+        # Kết nối các widget - đã bỏ gain_slider và ev_slider
         self.exposure_edit = exposure_edit
-        self.gain_slider = gain_slider
         self.gain_edit = gain_edit
-        self.ev_slider = ev_slider
         self.ev_edit = ev_edit
         self.focus_bar = focus_bar
         self.fps_num = fps_num
@@ -94,6 +98,187 @@ class CameraManager(QObject):
         
         # Disable UI initially
         self.set_ui_enabled(False)
+        
+    def stop_camera_for_apply(self):
+        """Stop camera before applying Camera Source tool to prevent conflicts"""
+        print("DEBUG: CameraManager.stop_camera_for_apply called")
+        logging.info("CameraManager: Stopping camera before applying Camera Source tool")
+        
+        if self.camera_stream and self.camera_stream.is_running():
+            print("DEBUG: Stopping camera stream for apply")
+            self.camera_stream.stop_live()
+            
+            # Reset camera mode buttons
+            if self.live_camera_btn:
+                self.live_camera_btn.setChecked(False)
+            if self.trigger_camera_btn:
+                self.trigger_camera_btn.setChecked(False)
+                
+            self.current_mode = None
+            self.update_camera_mode_ui()
+            
+            # Clear camera view display areas
+            if self.camera_view:
+                self.camera_view.clear_all_areas()
+                
+            # Refresh source output combo to show updated pipeline
+            self.refresh_source_output_combo()
+                
+            print("DEBUG: Camera stopped for apply - user can now choose source output")
+            logging.info("CameraManager: Camera stopped for apply - source output combo refreshed")
+            
+            return True
+        else:
+            print("DEBUG: Camera was not running")
+            # Still refresh the combo even if camera wasn't running
+            self.refresh_source_output_combo()
+            return False
+        
+    def setup_source_output_combo(self):
+        """Setup source output combo box with available pipeline outputs"""
+        print("DEBUG: setup_source_output_combo called")
+        print(f"DEBUG: hasattr(self, 'source_output_combo'): {hasattr(self, 'source_output_combo')}")
+        if hasattr(self, 'source_output_combo'):
+            print(f"DEBUG: self.source_output_combo value: {self.source_output_combo}")
+            print(f"DEBUG: self.source_output_combo type: {type(self.source_output_combo)}")
+            print(f"DEBUG: self.source_output_combo is None: {self.source_output_combo is None}")
+        
+        # Try to find the combo if not already set
+        if not hasattr(self, 'source_output_combo') or self.source_output_combo is None:
+            print("DEBUG: Trying to find combo via main_window")
+            if hasattr(self, 'main_window') and self.main_window:
+                combo = self.main_window.findChild(QComboBox, 'sourceOutputComboBox')
+                if combo:
+                    print("DEBUG: Found sourceOutputComboBox via main_window.findChild")
+                    self.source_output_combo = combo
+                else:
+                    print("DEBUG: sourceOutputComboBox not found via findChild")
+                    return
+            else:
+                print("DEBUG: main_window not available")
+                return
+        
+        if self.source_output_combo is None:
+            print("DEBUG: Source output combo is None, skipping setup")
+            return
+        
+        # Check if widget is valid and accessible
+        try:
+            self.source_output_combo.objectName()
+            print("DEBUG: Source output combo is valid and accessible")
+        except Exception as e:
+            print(f"DEBUG: Source output combo is not accessible: {e}")
+            return
+            
+        print("DEBUG: Source output combo is available, proceeding with setup")
+        
+        # Clear existing items
+        self.source_output_combo.clear()
+        
+        # Always add Camera Source as the primary source
+        self.source_output_combo.addItem("🎥 Camera Source", "camera")
+        print("DEBUG: Added Camera Source to combo")
+        
+        # Add pipeline outputs from current job
+        if hasattr(self.main_window, 'job_manager') and self.main_window.job_manager:
+            print("DEBUG: Job manager found, checking for current job")
+            current_job = self.main_window.job_manager.get_current_job()
+            if current_job and current_job.tools:
+                print(f"DEBUG: Current job found with {len(current_job.tools)} tools")
+                for tool in current_job.tools:
+                    tool_name = getattr(tool, 'name', getattr(tool, 'display_name', 'Unknown'))
+                    tool_type = type(tool).__name__
+                    print(f"DEBUG: Processing tool: {tool_name} (type: {tool_type})")
+                    
+                    # Add detection tool outputs
+                    if tool_type == 'DetectTool' or 'detect' in tool_name.lower():
+                        self.source_output_combo.addItem(f"🔍 {tool_name} Output", f"detection_{tool.tool_id}")
+                        print(f"DEBUG: Added detection tool: {tool_name}")
+                    # Add other tool outputs as needed
+                    elif 'edge' in tool_name.lower():
+                        self.source_output_combo.addItem(f"📐 {tool_name} Output", f"edge_{tool.tool_id}")
+                        print(f"DEBUG: Added edge tool: {tool_name}")
+                    elif 'ocr' in tool_name.lower():
+                        self.source_output_combo.addItem(f"📝 {tool_name} Output", f"ocr_{tool.tool_id}")
+                        print(f"DEBUG: Added OCR tool: {tool_name}")
+            else:
+                print("DEBUG: No current job or no tools in job")
+        else:
+            print("DEBUG: Job manager not found or not available")
+        
+        # Set default to Camera Source
+        self.source_output_combo.setCurrentIndex(0)
+        
+        # Connect signal to handle selection changes
+        if hasattr(self.source_output_combo, 'currentTextChanged'):
+            try:
+                self.source_output_combo.currentTextChanged.disconnect()
+            except:
+                pass
+        self.source_output_combo.currentTextChanged.connect(self.on_source_output_changed)
+        
+        print(f"DEBUG: Source output combo populated with {self.source_output_combo.count()} items")
+        
+    def refresh_source_output_combo(self):
+        """Refresh the source output combo when job tools change"""
+        import traceback
+        print("DEBUG: refresh_source_output_combo CALLED!")
+        print("DEBUG: Call stack:")
+        for line in traceback.format_stack()[-3:]:
+            print(f"  {line.strip()}")
+        print("DEBUG: Refreshing source output combo")
+        print(f"DEBUG: hasattr(self, 'source_output_combo'): {hasattr(self, 'source_output_combo')}")
+        if hasattr(self, 'source_output_combo'):
+            print(f"DEBUG: self.source_output_combo value: {self.source_output_combo}")
+            print(f"DEBUG: self.source_output_combo type: {type(self.source_output_combo)}")
+        
+        # Setup source output combo if it exists
+        if hasattr(self, 'source_output_combo') and self.source_output_combo is not None:
+            print("DEBUG: Calling setup_source_output_combo")
+            self.setup_source_output_combo()
+        else:
+            print("DEBUG: Source output combo not available, skipping refresh")
+        
+    def on_source_output_changed(self, text):
+        """Handle source output combo box selection change"""
+        print(f"DEBUG: Source output changed to: {text}")
+        
+        if not self.source_output_combo:
+            return
+            
+        # Get the data associated with the selection
+        current_data = self.source_output_combo.currentData()
+        print(f"DEBUG: Source output data: {current_data}")
+        
+        # Handle different pipeline outputs
+        if current_data == "camera":
+            # Show raw camera feed
+            print("DEBUG: Switching to camera source display")
+            if hasattr(self.camera_view, 'set_display_mode'):
+                self.camera_view.set_display_mode("camera")
+        elif current_data and current_data.startswith("detection_"):
+            # Show detection results overlay
+            print("DEBUG: Switching to detection output display")
+            tool_id = current_data.split("_")[1]
+            if hasattr(self.camera_view, 'set_display_mode'):
+                self.camera_view.set_display_mode("detection", tool_id=tool_id)
+        elif current_data and current_data.startswith("edge_"):
+            # Show edge detection results
+            print("DEBUG: Switching to edge detection display")
+            tool_id = current_data.split("_")[1]
+            if hasattr(self.camera_view, 'set_display_mode'):
+                self.camera_view.set_display_mode("edge", tool_id=tool_id)
+        elif current_data and current_data.startswith("ocr_"):
+            # Show OCR results overlay
+            print("DEBUG: Switching to OCR output display")
+            tool_id = current_data.split("_")[1]
+            if hasattr(self.camera_view, 'set_display_mode'):
+                self.camera_view.set_display_mode("ocr", tool_id=tool_id)
+        else:
+            # Default to camera source
+            print("DEBUG: Unknown source output, defaulting to camera")
+            if hasattr(self.camera_view, 'set_display_mode'):
+                self.camera_view.set_display_mode("camera")
         
     def setup_camera_buttons(self, live_camera_btn=None, trigger_camera_btn=None, 
                            auto_exposure_btn=None, manual_exposure_btn=None,
@@ -142,8 +327,16 @@ class CameraManager(QObject):
         # Kết nối signals
         if self.live_camera_btn:
             self.live_camera_btn.clicked.connect(self.on_live_camera_clicked)
+            # Initially disable the liveCamera button until a Camera Source tool is added
+            self.live_camera_btn.setEnabled(False)
+            self.live_camera_btn.setToolTip("Add a Camera Source tool first")
+            
         if self.trigger_camera_btn:
             self.trigger_camera_btn.clicked.connect(self.on_trigger_camera_clicked)
+            # Initially disable the triggerCamera button until a Camera Source tool is added
+            self.trigger_camera_btn.setEnabled(False)
+            self.trigger_camera_btn.setToolTip("Add a Camera Source tool first")
+            
         if self.auto_exposure_btn:
             self.auto_exposure_btn.clicked.connect(self.on_auto_exposure_clicked)
         if self.manual_exposure_btn:
@@ -198,16 +391,52 @@ class CameraManager(QObject):
         if self.cancel_settings_btn:
             self.cancel_settings_btn.setEnabled(enabled)
     
+    def get_exposure_value(self):
+        """Lấy giá trị exposure hiện tại"""
+        try:
+            if self.exposure_edit:
+                return int(self.exposure_edit.text())
+            elif self.camera_stream and hasattr(self.camera_stream, 'get_exposure'):
+                return self.camera_stream.get_exposure()
+            return 0
+        except (ValueError, AttributeError):
+            logging.error("Failed to get exposure value", exc_info=True)
+            return 0
+            
+    def get_gain_value(self):
+        """Lấy giá trị gain hiện tại"""
+        try:
+            if self.gain_edit:
+                return float(self.gain_edit.text())
+            elif self.camera_stream and hasattr(self.camera_stream, 'get_gain'):
+                return self.camera_stream.get_gain()
+            return 1.0
+        except (ValueError, AttributeError):
+            logging.error("Failed to get gain value", exc_info=True)
+            return 1.0
+            
+    def get_ev_value(self):
+        """Lấy giá trị EV hiện tại"""
+        try:
+            if self.ev_edit:
+                return float(self.ev_edit.text())
+            elif self.camera_stream and hasattr(self.camera_stream, 'get_ev'):
+                return self.camera_stream.get_ev()
+            return 0.0
+        except (ValueError, AttributeError):
+            logging.error("Failed to get EV value", exc_info=True)
+            return 0.0
+            
+    def is_auto_exposure(self):
+        """Kiểm tra xem có đang ở chế độ auto exposure không"""
+        return self._is_auto_exposure
+        
     def set_settings_controls_enabled(self, enabled):
         """Bật/tắt các control settings (exposure, gain, ev)"""
         if self.exposure_edit:
             self.exposure_edit.setEnabled(enabled)
-        if self.gain_slider:
-            self.gain_slider.setEnabled(enabled)
         if self.gain_edit:
             self.gain_edit.setEnabled(enabled)
-        if self.ev_slider:
-            self.ev_slider.setEnabled(enabled)
         if self.ev_edit:
             self.ev_edit.setEnabled(enabled)
         
@@ -220,15 +449,17 @@ class CameraManager(QObject):
             else:  # QLineEdit fallback
                 self.exposure_edit.editingFinished.connect(self.on_exposure_edit_changed)
         # Gain
-        if self.gain_slider:
-            self.gain_slider.valueChanged.connect(self.on_gain_slider_changed)
         if self.gain_edit:
-            self.gain_edit.editingFinished.connect(self.on_gain_edit_changed)
+            if hasattr(self.gain_edit, 'valueChanged'):  # QDoubleSpinBox
+                self.gain_edit.valueChanged.connect(self.on_gain_edit_changed)
+            else:  # QLineEdit fallback
+                self.gain_edit.editingFinished.connect(self.on_gain_edit_changed)
         # EV
-        if self.ev_slider:
-            self.ev_slider.valueChanged.connect(self.on_ev_slider_changed)
         if self.ev_edit:
-            self.ev_edit.editingFinished.connect(self.on_ev_edit_changed)
+            if hasattr(self.ev_edit, 'valueChanged'):  # QDoubleSpinBox
+                self.ev_edit.valueChanged.connect(self.on_ev_edit_changed)
+            else:  # QLineEdit fallback
+                self.ev_edit.editingFinished.connect(self.on_ev_edit_changed)
             
     def setup_frame_size_spinboxes(self, width_spinbox=None, height_spinbox=None):
         """
@@ -296,18 +527,20 @@ class CameraManager(QObject):
     def set_gain(self, value):
         """Đặt giá trị gain cho camera"""
         if self.gain_edit:
-            self.gain_edit.setText(str(value))
-        if self.gain_slider:
-            self.gain_slider.setValue(int(value))
+            if hasattr(self.gain_edit, 'setValue'):  # QDoubleSpinBox
+                self.gain_edit.setValue(float(value))
+            else:  # QLineEdit fallback
+                self.gain_edit.setText(str(value))
         if hasattr(self.camera_stream, 'set_gain'):
             self.camera_stream.set_gain(value)
 
     def set_ev(self, value):
         """Đặt giá trị EV cho camera"""
         if self.ev_edit:
-            self.ev_edit.setText(str(value))
-        if self.ev_slider:
-            self.ev_slider.setValue(int(value))
+            if hasattr(self.ev_edit, 'setValue'):  # QDoubleSpinBox
+                self.ev_edit.setValue(float(value))
+            else:  # QLineEdit fallback
+                self.ev_edit.setText(str(value))
         if hasattr(self.camera_stream, 'set_ev'):
             self.camera_stream.set_ev(value)
 
@@ -343,42 +576,32 @@ class CameraManager(QObject):
         self.settings_manager = settings_manager
         print(f"DEBUG: CameraManager linked to SettingsManager")
 
-    def on_gain_slider_changed(self, value):
-        """Xử lý khi người dùng thay đổi slider gain"""
-        if self.gain_edit:
-            self.gain_edit.setText(str(value))
-        if hasattr(self.camera_stream, 'set_gain'):
-            self.camera_stream.set_gain(value)
-
-    def on_gain_edit_changed(self):
-        """Xử lý khi người dùng thay đổi giá trị gain trong ô văn bản"""
+    def on_gain_edit_changed(self, value=None):
+        """Xử lý khi người dùng thay đổi giá trị gain"""
         try:
             if self.gain_edit:
-                value = int(self.gain_edit.text())
-                if self.gain_slider:
-                    self.gain_slider.setValue(value)
+                if value is None:
+                    # Trường hợp editingFinished (QLineEdit)
+                    value = float(self.gain_edit.text())
+                # value đã được truyền trực tiếp nếu sự kiện là valueChanged (QDoubleSpinBox)
+                
                 if hasattr(self.camera_stream, 'set_gain'):
                     self.camera_stream.set_gain(value)
-        except ValueError:
+        except (ValueError, AttributeError):
             pass
 
-    def on_ev_slider_changed(self, value):
-        """Xử lý khi người dùng thay đổi slider EV"""
-        if self.ev_edit:
-            self.ev_edit.setText(str(value))
-        if hasattr(self.camera_stream, 'set_ev'):
-            self.camera_stream.set_ev(value)
-
-    def on_ev_edit_changed(self):
-        """Xử lý khi người dùng thay đổi giá trị EV trong ô văn bản"""
+    def on_ev_edit_changed(self, value=None):
+        """Xử lý khi người dùng thay đổi giá trị EV"""
         try:
             if self.ev_edit:
-                value = int(self.ev_edit.text())
-                if self.ev_slider:
-                    self.ev_slider.setValue(value)
+                if value is None:
+                    # Trường hợp editingFinished (QLineEdit)
+                    value = float(self.ev_edit.text())
+                # value đã được truyền trực tiếp nếu sự kiện là valueChanged (QDoubleSpinBox)
+                
                 if hasattr(self.camera_stream, 'set_ev'):
                     self.camera_stream.set_ev(value)
-        except ValueError:
+        except (ValueError, AttributeError):
             pass
 
     def update_camera_params_from_camera(self):
@@ -426,6 +649,24 @@ class CameraManager(QObject):
     def toggle_live_camera(self, checked):
         """Bật/tắt chế độ camera trực tiếp"""
         print(f"DEBUG: [CameraManager] toggle_live_camera called with checked={checked}")
+        
+        # Check if a Camera Source tool exists in the current job
+        has_camera_source = False
+        if self.main_window and hasattr(self.main_window, 'job_manager'):
+            current_job = self.main_window.job_manager.get_current_job()
+            if current_job and current_job.tools:
+                for tool in current_job.tools:
+                    if tool.name == "Camera Source":
+                        has_camera_source = True
+                        break
+        
+        if not has_camera_source:
+            print("DEBUG: [CameraManager] No Camera Source tool found in current job")
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.warning(None, "Camera Source Required", 
+                                "You must add a Camera Source tool before using the camera.\n\n"
+                                "Please add a Camera Source tool from the tool dropdown menu.")
+            return False
         
         if not self.camera_stream:
             print("DEBUG: [CameraManager] No camera stream available")
@@ -491,12 +732,10 @@ class CameraManager(QObject):
         # Disable các widget điều chỉnh phơi sáng
         if self.exposure_edit:
             self.exposure_edit.setEnabled(False)
-        if self.gain_slider:
-            self.gain_slider.setEnabled(False)
         if self.gain_edit:
             self.gain_edit.setEnabled(False)
-        if self.ev_slider:
-            self.ev_slider.setEnabled(False)
+        if self.ev_edit:
+            self.ev_edit.setEnabled(False)
         if self.ev_edit:
             self.ev_edit.setEnabled(False)
             
@@ -511,12 +750,8 @@ class CameraManager(QObject):
         if self.exposure_edit:
             self.exposure_edit.setEnabled(True)
             print("DEBUG: Enabled exposure_edit")
-        if self.gain_slider:
-            self.gain_slider.setEnabled(True)
         if self.gain_edit:
             self.gain_edit.setEnabled(True)
-        if self.ev_slider:
-            self.ev_slider.setEnabled(True)
         if self.ev_edit:
             self.ev_edit.setEnabled(True)
             
@@ -536,6 +771,24 @@ class CameraManager(QObject):
             
     def trigger_capture(self):
         """Kích hoạt chụp ảnh"""
+        # Check if a Camera Source tool exists in the current job
+        has_camera_source = False
+        if self.main_window and hasattr(self.main_window, 'job_manager'):
+            current_job = self.main_window.job_manager.get_current_job()
+            if current_job and current_job.tools:
+                for tool in current_job.tools:
+                    if tool.name == "Camera Source":
+                        has_camera_source = True
+                        break
+        
+        if not has_camera_source:
+            print("DEBUG: [CameraManager] No Camera Source tool found in current job")
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.warning(None, "Camera Source Required", 
+                                "You must add a Camera Source tool before using the camera.\n\n"
+                                "Please add a Camera Source tool from the tool dropdown menu.")
+            return False
+            
         if self.camera_stream:
             print("DEBUG: [CameraManager] Triggering capture...")
             
@@ -620,6 +873,41 @@ class CameraManager(QObject):
     
     # ============ CAMERA MODE HANDLERS ============
     
+    def start_live_camera(self):
+        """Start live camera mode (for programmatic access)"""
+        print("DEBUG: [CameraManager] start_live_camera called")
+        if self.camera_stream and not self.camera_stream.is_running():
+            try:
+                success = self.camera_stream.start_live()
+                if success:
+                    self.current_mode = 'live'
+                    self.update_camera_mode_ui()
+                    
+                    # Refresh source output combo to show current pipeline
+                    self.refresh_source_output_combo()
+                    
+                    # Apply current source output mode if set
+                    current_data = self.source_output_combo.currentData() if self.source_output_combo else "camera"
+                    if hasattr(self.camera_view, 'set_display_mode'):
+                        tool_id = None
+                        if current_data and "_" in str(current_data):
+                            parts = str(current_data).split("_")
+                            if len(parts) > 1:
+                                tool_id = parts[1]
+                        self.camera_view.set_display_mode(current_data, tool_id)
+                        
+                    print("DEBUG: [CameraManager] Live camera started successfully with display mode:", current_data)
+                    return True
+                else:
+                    print("DEBUG: [CameraManager] Failed to start live camera")
+                    return False
+            except Exception as e:
+                print(f"DEBUG: [CameraManager] Exception starting live camera: {e}")
+                return False
+        else:
+            print("DEBUG: [CameraManager] Camera stream not available or already running")
+            return False
+    
     def on_live_camera_clicked(self):
         """Xử lý khi click Live Camera button"""
         current_checked = self.live_camera_btn.isChecked() if self.live_camera_btn else False
@@ -631,6 +919,10 @@ class CameraManager(QObject):
             if self.current_mode == 'trigger':
                 # Reset trigger mode first
                 self.current_mode = None
+            
+            # Refresh source output combo before starting
+            print("DEBUG: [CameraManager] Refreshing source output combo before live start")
+            self.refresh_source_output_combo()
                 
             success = self.toggle_live_camera(True)
             if success:
@@ -790,14 +1082,133 @@ class CameraManager(QObject):
             
             # Clear pending settings
             self._pending_exposure_settings.clear()
-            
-            # Hiển thị dialog thông báo thành công
-            # KHÔNG hiển thị dialog thành công, chỉ ghi log
-            logging.info("Camera settings applied successfully (no dialog)")
-            
         except Exception as e:
-            logging.error(f"Error applying camera settings: {str(e)}")
+            logging.error(f"Error applying camera settings: {e}")
+        
+        # Hiển thị dialog thông báo thành công
+        # KHÔNG hiển thị dialog thành công, chỉ ghi log
+        logging.info("Camera settings applied successfully (no dialog)")
     
+    def get_exposure_value(self):
+        """Lấy giá trị exposure hiện tại của camera"""
+        if self.exposure_edit:
+            try:
+                return int(self.exposure_edit.text())
+            except (ValueError, TypeError):
+                logging.warning("CameraManager: Failed to get exposure value from UI")
+                
+        # Fallback: get from camera stream if available
+        if self.camera_stream:
+            return self.camera_stream.get_exposure()
+        return 0
+    
+    def get_gain_value(self):
+        """Lấy giá trị gain hiện tại của camera"""
+        if self.gain_edit:
+            try:
+                return float(self.gain_edit.text())
+            except (ValueError, TypeError):
+                logging.warning("CameraManager: Failed to get gain value from UI")
+                
+        # Fallback: get from camera stream if available
+        if self.camera_stream:
+            return self.camera_stream.get_gain()
+        return 0
+    
+    def get_ev_value(self):
+        """Lấy giá trị EV hiện tại của camera"""
+        if self.ev_edit:
+            try:
+                return float(self.ev_edit.text())
+            except (ValueError, TypeError):
+                logging.warning("CameraManager: Failed to get EV value from UI")
+                
+        # Fallback: get from camera stream if available
+        if self.camera_stream:
+            return self.camera_stream.get_ev()
+        return 0
+    
+    def is_auto_exposure(self):
+        """Kiểm tra chế độ auto exposure của camera"""
+        return self._is_auto_exposure
+        
+    def enable_camera_buttons(self):
+        """Kích hoạt các nút điều khiển camera sau khi đã thêm Camera Source tool"""
+        if self.live_camera_btn:
+            self.live_camera_btn.setEnabled(True)
+            self.live_camera_btn.setToolTip("Start live camera preview")
+            
+        if self.trigger_camera_btn:
+            self.trigger_camera_btn.setEnabled(True)
+            self.trigger_camera_btn.setToolTip("Trigger single frame capture")
+            
+        logging.info("CameraManager: Camera control buttons enabled")
+        
+        # Tự động bắt đầu live camera sau khi thêm Camera Source
+        self.start_camera_preview()
+        
+    def start_camera_preview(self):
+        """Bắt đầu hiển thị camera preview sau khi thêm Camera Source"""
+        print("DEBUG: CameraManager.start_camera_preview called")
+        
+        if not self.camera_stream:
+            print("DEBUG: Camera stream is None, cannot start preview")
+            logging.error("CameraManager: Cannot start preview - camera_stream is None")
+            return False
+            
+        # Ensure job is enabled to see camera feed
+        if not self.camera_stream.job_enabled:
+            print("DEBUG: Enabling job execution for camera stream")
+            self.camera_stream.job_enabled = True
+            if self.job_toggle_btn:
+                self.job_toggle_btn.setChecked(True)
+                
+        # Bắt đầu camera trong live mode
+        if not self.camera_stream.is_running():
+            try:
+                # Khởi động camera stream
+                print("DEBUG: Starting camera live mode")
+                success = self.camera_stream.start_live()
+                if success:
+                    print("DEBUG: Camera preview started successfully")
+                    logging.info("Camera preview started automatically after adding Camera Source")
+                    self.current_mode = 'live'
+                    
+                    # Cập nhật UI để phản ánh trạng thái hiện tại
+                    if self.live_camera_btn:
+                        self.live_camera_btn.setChecked(True)
+                    if self.trigger_camera_btn:
+                        self.trigger_camera_btn.setChecked(False)
+                    self.update_camera_mode_ui()
+                    
+                    # Khởi tạo camera view nếu cần
+                    if self.camera_view:
+                        self.camera_view.clear_scene()
+                        self.camera_view.init_scene()
+                        
+                    # Process events để cập nhật UI ngay lập tức
+                    QApplication.processEvents()
+                    
+                    return True
+                else:
+                    print("DEBUG: Failed to start camera preview")
+                    logging.error("Failed to start camera preview automatically")
+                    return False
+            except Exception as e:
+                print(f"DEBUG: Error starting camera preview: {e}")
+                logging.error(f"Error starting camera preview: {e}")
+                return False
+        else:
+            print("DEBUG: Camera already running, just updating UI")
+            logging.info("Camera already running, updating UI")
+            # Camera đã chạy, chỉ cần cập nhật UI
+            self.current_mode = 'live'
+            if self.live_camera_btn:
+                self.live_camera_btn.setChecked(True)
+            if self.trigger_camera_btn:
+                self.trigger_camera_btn.setChecked(False)
+            self.update_camera_mode_ui()
+            return True
     def on_cancel_settings_clicked(self):
         """Hủy bỏ tất cả thay đổi và khôi phục giá trị mặc định"""
         try:
@@ -807,12 +1218,8 @@ class CameraManager(QObject):
             # Reset UI values
             if self.exposure_edit:
                 self.exposure_edit.setValue(10000.0)  # 10000 microseconds (10ms)
-            if self.gain_slider:
-                self.gain_slider.setValue(100)  # 1.0 gain
             if self.gain_edit:
                 self.gain_edit.setValue(1.0)
-            if self.ev_slider:
-                self.ev_slider.setValue(0)
             if self.ev_edit:
                 self.ev_edit.setValue(0.0)
             

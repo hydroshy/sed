@@ -21,9 +21,10 @@ class DetectTool(BaseTool):
     """Detect Tool implementation for job system"""
     
     def __init__(self, name: str = "Detect Tool", config: Optional[Union[Dict[str, Any], ToolConfig]] = None, tool_id: Optional[int] = None):
-        # Đảm bảo truyền đúng thứ tự (name, config) cho BaseTool
-        super().__init__(config, name)
+        # Pass parameters in correct order (name, config) to BaseTool
+        super().__init__(name, config)
         self.tool_id = tool_id
+        self.name = name or "Detect Tool"  # Add explicit name attribute for job system compatibility
         self.yolo_inference = None
         self.model_manager = ModelManager()
         self.is_initialized = False

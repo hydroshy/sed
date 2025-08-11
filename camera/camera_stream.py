@@ -2,6 +2,10 @@ import numpy as np
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer, QThread, QMutex, QMutexLocker
 from picamera2 import Picamera2
 import threading
+import logging
+
+# Setup logging for this module
+logger = logging.getLogger(__name__)
 
 class CameraStream(QObject):
     frame_ready = pyqtSignal(np.ndarray)
@@ -19,8 +23,13 @@ class CameraStream(QObject):
             print("DEBUG: [CameraStream] Camera initialized successfully")
             print("DEBUG: [CameraStream] Job execution is DISABLED by default (camera will still work, but without job processing)")
             print("DEBUG: [CameraStream] Use job toggle button to enable full processing if needed")
+            
+            # Workaround for allocator attribute error in some Picamera2 versions
+            self._setup_allocator_workaround()
+            
         except Exception as e:
             print(f"DEBUG: [CameraStream] Camera initialization failed: {e}")
+            logger.error(f"Camera initialization failed: {e}")
             self.is_camera_available = False
             
         self.timer = QTimer()
@@ -56,14 +65,39 @@ class CameraStream(QObject):
         else:
             print("DEBUG: [CameraStream] Camera not available, skipping configuration")
 
+    def _setup_allocator_workaround(self):
+        """Workaround for allocator attribute error in some Picamera2 versions"""
+        try:
+            if hasattr(self.picam2, 'allocator'):
+                # Allocator exists, no workaround needed
+                return
+            
+            # If allocator doesn't exist, try to create a dummy one
+            # This is a workaround for version compatibility issues
+            class DummyAllocator:
+                def sync(self, allocator, buffer, flag):
+                    # Return a dummy sync object that does nothing
+                    return None
+                    
+            if not hasattr(self.picam2, 'allocator'):
+                self.picam2.allocator = DummyAllocator()
+                logger.info("Applied allocator workaround for Picamera2 compatibility")
+                
+        except Exception as e:
+            logger.warning(f"Could not apply allocator workaround: {e}")
+
+    def is_running(self):
+        """Kiểm tra xem camera có đang chạy hay không"""
+        return self.is_live
+        
     def get_available_formats(self):
         """Get available camera formats."""
         if not self.is_camera_available or not self.picam2:
             return []
         try:
-            # Return a list of common format strings
-            # These are the most commonly used formats for picamera2
-            return ["BGR888", "RGB888", "YUV420", "MJPEG", "XBGR8888", "XRGB8888"]
+            # Return a list of safe format strings
+            # MJPEG format caused a crash, so exclude it
+            return ["BGR888", "RGB888", "YUV420"]
         except Exception as e:
             print(f"DEBUG: [CameraStream] Could not get formats: {e}")
             return ["BGR888", "RGB888"]
@@ -75,6 +109,13 @@ class CameraStream(QObject):
             return
 
         print(f"DEBUG: [CameraStream] Setting format to {format_str}")
+        
+        # Kiểm tra format an toàn
+        safe_formats = ["BGR888", "RGB888", "YUV420"]
+        if format_str not in safe_formats:
+            print(f"DEBUG: [CameraStream] Format {format_str} may not be supported. Using BGR888 instead.")
+            format_str = "BGR888"
+            
         self.current_format = format_str
         
         # Stop the camera if it's running

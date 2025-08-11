@@ -112,6 +112,94 @@ class YOLOInference:
         except Exception as e:
             logger.error(f"Inference error: {e}")
             return []
+    
+    def postprocess_detections(self, outputs: np.ndarray, scale: float, pads: Tuple[int, int], 
+                             original_shape: Tuple[int, int]) -> List[Dict[str, Any]]:
+        """Post-process YOLO outputs to get bounding boxes"""
+        detections = []
+        
+        try:
+            # YOLOv11 output format: [batch, (4_bbox + num_classes), num_detections]
+            output = outputs[0]  # Remove batch dimension: (4+num_classes, num_detections)
+            
+            # Transpose to get (num_detections, 4+num_classes) format
+            output = output.T  # Now shape is (num_detections, 4+num_classes)
+            
+            for detection in output:
+                # Extract box coordinates and class scores
+                x_center, y_center, width, height = detection[:4]
+                class_scores = detection[4:]
+                
+                # Get class with highest confidence
+                class_id = np.argmax(class_scores)
+                confidence = class_scores[class_id]
+                
+                if confidence > self.confidence_threshold:
+                    # Convert center format to corner format
+                    x1 = x_center - width / 2
+                    y1 = y_center - height / 2
+                    x2 = x_center + width / 2
+                    y2 = y_center + height / 2
+                    
+                    # Adjust for padding and scale
+                    x1 = (x1 - pads[0]) / scale
+                    y1 = (y1 - pads[1]) / scale
+                    x2 = (x2 - pads[0]) / scale
+                    y2 = (y2 - pads[1]) / scale
+                    
+                    # Clip to image boundaries
+                    x1 = max(0, min(x1, original_shape[1]))
+                    y1 = max(0, min(y1, original_shape[0]))
+                    x2 = max(0, min(x2, original_shape[1]))
+                    y2 = max(0, min(y2, original_shape[0]))
+                    
+                    detections.append({
+                        'bbox': [int(x1), int(y1), int(x2), int(y2)],
+                        'confidence': float(confidence),
+                        'class_id': int(class_id),
+                        'class_name': self.class_names[class_id] if class_id < len(self.class_names) else f"class_{class_id}"
+                    })
+        
+        except Exception as e:
+            logger.error(f"Error in postprocessing: {e}")
+        
+        return self._apply_nms(detections)
+    
+    def _apply_nms(self, detections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Apply Non-Maximum Suppression to remove overlapping boxes"""
+        if not detections:
+            return []
+        
+        try:
+            # Extract boxes and scores
+            boxes = np.array([det['bbox'] for det in detections])
+            scores = np.array([det['confidence'] for det in detections])
+            
+            # Convert to (x, y, w, h) format for cv2.dnn.NMSBoxes
+            boxes_nms = np.column_stack([
+                boxes[:, 0],  # x
+                boxes[:, 1],  # y
+                boxes[:, 2] - boxes[:, 0],  # width
+                boxes[:, 3] - boxes[:, 1]   # height
+            ])
+            
+            # Apply NMS
+            indices = cv2.dnn.NMSBoxes(
+                boxes_nms.tolist(),
+                scores.tolist(),
+                self.confidence_threshold,
+                self.nms_threshold
+            )
+            
+            # Return filtered detections
+            if len(indices) > 0:
+                return [detections[i] for i in indices.flatten()]
+            else:
+                return []
+                
+        except Exception as e:
+            logger.error(f"Error in NMS: {e}")
+            return detections
 
 # Factory function for creating YOLOInference
 def create_yolo_inference() -> YOLOInference:

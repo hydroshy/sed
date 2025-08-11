@@ -168,6 +168,17 @@ class ModelManager:
                         classes = data
                     elif isinstance(data, dict) and 'classes' in data:
                         classes = data['classes']
+                    elif isinstance(data, dict):
+                        # Handle index-to-class-name mapping (e.g., {"0": "barcode", "1": "hangtag"})
+                        try:
+                            # Sort by index to maintain order
+                            sorted_items = sorted(data.items(), key=lambda x: int(x[0]))
+                            classes = [item[1] for item in sorted_items]
+                            logging.info(f"Loaded {len(classes)} classes from index-to-name mapping in {json_file}")
+                        except (ValueError, TypeError):
+                            # If keys can't be converted to integers, just use values
+                            classes = list(data.values())
+                            logging.info(f"Loaded {len(classes)} classes from dict values in {json_file}")
                     else:
                         classes = []
                 logging.info(f"Loaded {len(classes)} classes from {json_file}")
