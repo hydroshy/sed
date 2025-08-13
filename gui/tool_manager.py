@@ -2,6 +2,7 @@ from PyQt5.QtCore import QObject, QStringListModel
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
 from job.job_manager import Job, JobManager
 from tools.base_tool import BaseTool
+from gui.job_tree_view_simple import JobTreeView
 import logging
 
 class ToolManager(QObject):
@@ -32,14 +33,53 @@ class ToolManager(QObject):
                 self._tool_combo_box.addItem(camera_source_text)
                 logging.info(f"ToolManager: Added {camera_source_text} to tool combo box")
         
-        # Setup job view selection
+        # Setup job view - check if it's our custom JobTreeView
         if self._job_view:
-            from PyQt5.QtWidgets import QAbstractItemView
-            self._job_view.setSelectionMode(QAbstractItemView.SingleSelection)
-            self._job_view.setSelectionBehavior(QAbstractItemView.SelectRows)
+            if isinstance(self._job_view, JobTreeView):
+                # Connect signals for custom tree view
+                self._job_view.tool_moved.connect(self.on_tool_moved)
+                self._job_view.tool_selected.connect(self.on_tool_selected)
+                logging.info("ToolManager: Connected to custom JobTreeView")
+            else:
+                # Standard QTreeView setup
+                from PyQt5.QtWidgets import QAbstractItemView
+                self._job_view.setSelectionMode(QAbstractItemView.SingleSelection)
+                self._job_view.setSelectionBehavior(QAbstractItemView.SelectRows)
             
         self._update_job_view()
         logging.info("ToolManager: Setup completed")
+        
+    def on_tool_moved(self, from_index, to_index):
+        """Handle tool reordering from drag-drop"""
+        if not self.job_manager:
+            return
+            
+        job = self.job_manager.get_current_job()
+        if not job or from_index >= len(job.tools) or to_index >= len(job.tools):
+            return
+            
+        # Reorder tools in job
+        tool = job.tools.pop(from_index)
+        job.tools.insert(to_index, tool)
+        
+        # Update UI
+        self._update_job_view()
+        logging.info(f"ToolManager: Tool moved from {from_index} to {to_index}")
+        
+    def on_tool_selected(self, tool_index):
+        """Handle tool selection from tree view"""
+        if not self.job_manager:
+            return
+            
+        job = self.job_manager.get_current_job()
+        if not job or tool_index >= len(job.tools):
+            return
+            
+        tool = job.tools[tool_index]
+        logging.info(f"ToolManager: Tool selected at index {tool_index}: {getattr(tool, 'name', 'Unknown')}")
+        
+        # You can add additional logic here for tool selection
+        # For example, updating tool properties panel, etc.
         
     def on_add_tool(self):
         """Xử lý sự kiện khi người dùng nhấn nút thêm công cụ"""
@@ -335,7 +375,7 @@ class ToolManager(QObject):
         return True
 
     def _update_job_view(self):
-        """Cập nhật hiển thị job trong UI với QTreeView"""
+        """Cập nhật hiển thị job trong UI với QTreeView hoặc JobTreeView"""
         print(f"DEBUG: _update_job_view called")
         print(f"DEBUG: _job_view exists: {self._job_view is not None}")
         print(f"DEBUG: job_manager exists: {self.job_manager is not None}")
@@ -344,14 +384,28 @@ class ToolManager(QObject):
             print("DEBUG: Missing job_view or job_manager")
             return
             
-        # Create tree model
-        model = QStandardItemModel()
-        model.setHorizontalHeaderLabels(["Tools"])
-        
         job = self.job_manager.get_current_job()
         print(f"DEBUG: Current job: {job}")
         
         if job:
+            # Check if we're using custom JobTreeView
+            if isinstance(self._job_view, JobTreeView):
+                # Use custom tree view method
+                self._job_view.update_job_view(job)
+                print(f"DEBUG: Updated custom JobTreeView with {len(job.tools)} tools")
+                
+                # Refresh source output combo when job tools change
+                if (hasattr(self, 'main_window') and self.main_window and 
+                    hasattr(self.main_window, 'camera_manager') and self.main_window.camera_manager):
+                    self.main_window.camera_manager.refresh_source_output_combo()
+                    print("DEBUG: Source output combo refreshed after job update")
+                return
+                
+            # Standard QTreeView implementation
+            # Create tree model
+            model = QStandardItemModel()
+            model.setHorizontalHeaderLabels(["Tools"])
+            
             # Create job root item
             job_item = QStandardItem(f"📁 {job.name}")
             job_item.setEditable(False)
@@ -401,6 +455,10 @@ class ToolManager(QObject):
                     tool_id_str = f"⚙️ Tool #{tool_id}"
                     print(f"DEBUG: Creating generic tool item: {tool_id_str}")
                 
+                # Add flow indicator for non-first tools
+                if i > 0:
+                    tool_id_str = f"↓ {tool_id_str}"
+                
                 tool_item = QStandardItem(tool_id_str)
                 tool_item.setEditable(False)
                 # Store tool reference for later use
@@ -420,6 +478,8 @@ class ToolManager(QObject):
                 print("DEBUG: Source output combo refreshed after job update")
         else:
             # No job, empty model
+            model = QStandardItemModel()
+            model.setHorizontalHeaderLabels(["Tools"])
             self._job_view.setModel(model)
             print("DEBUG: Job view updated with empty model (no job)")
             

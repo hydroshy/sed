@@ -68,6 +68,10 @@ class MainWindow(QMainWindow):
         
         # Tìm và kết nối các widget chính
         self._find_widgets()
+        
+        # Thay thế jobView bằng JobTreeView với drag-drop
+        self._upgrade_job_view()
+        
         # Debug: Log all QComboBox objectNames after UI load
         for w in self.findChildren(QComboBox):
             logging.info(f"QComboBox found: {w.objectName()}")
@@ -79,6 +83,106 @@ class MainWindow(QMainWindow):
         self._connect_signals()
         
         logging.info("MainWindow initialized successfully")
+        
+    def _upgrade_job_view(self):
+        """Thay thế jobView thông thường bằng JobTreeView với drag-drop"""
+        try:
+            from gui.job_tree_view_simple import JobTreeView
+            from PyQt5.QtWidgets import QTreeView, QWidget
+            
+            if self.jobView and isinstance(self.jobView, QTreeView):
+                parent = self.jobView.parent()
+                
+                # Kiểm tra parent có phải là QWidget không
+                if isinstance(parent, QWidget):
+                    layout = parent.layout()
+                    
+                    if layout is not None:
+                        # Lưu thông tin của widget cũ
+                        geometry = self.jobView.geometry()
+                        style_sheet = self.jobView.styleSheet()
+                        object_name = self.jobView.objectName()
+                        
+                        # Tìm index trong layout
+                        index = -1
+                        for i in range(layout.count()):
+                            item = layout.itemAt(i)
+                            if item and item.widget() == self.jobView:
+                                index = i
+                                break
+                        
+                        if index >= 0:
+                            # Xóa widget cũ khỏi layout
+                            old_item = layout.takeAt(index)
+                            old_widget = old_item.widget() if old_item else None
+                            
+                            # Tạo JobTreeView mới
+                            new_job_view = JobTreeView(parent)
+                            new_job_view.setObjectName(object_name)
+                            new_job_view.setGeometry(geometry)
+                            if style_sheet:
+                                new_job_view.setStyleSheet(style_sheet)
+                            
+                            # Thêm vào layout tại vị trí cũ
+                            layout.insertWidget(index, new_job_view)
+                            
+                            # Cập nhật reference
+                            self.jobView = new_job_view
+                            
+                            # Xóa widget cũ
+                            if old_widget:
+                                old_widget.setParent(None)
+                                old_widget.deleteLater()
+                            
+                            logging.info("✅ JobView upgraded to JobTreeView with drag-drop support!")
+                            print(f"DEBUG: JobView type after upgrade: {type(self.jobView)}")
+                            print(f"DEBUG: JobView drag enabled: {self.jobView.dragEnabled()}")
+                            print(f"DEBUG: JobView accepts drops: {self.jobView.acceptDrops()}")
+                            return True
+                        else:
+                            logging.warning("Could not find jobView in parent layout")
+                    else:
+                        # Trường hợp parent không có layout, thử thay thế trực tiếp
+                        logging.info("Parent has no layout, trying direct replacement...")
+                        
+                        # Lưu thông tin widget cũ
+                        geometry = self.jobView.geometry()
+                        style_sheet = self.jobView.styleSheet()
+                        object_name = self.jobView.objectName()
+                        
+                        # Tạo JobTreeView mới
+                        new_job_view = JobTreeView(parent)
+                        new_job_view.setObjectName(object_name)
+                        new_job_view.setGeometry(geometry)
+                        if style_sheet:
+                            new_job_view.setStyleSheet(style_sheet)
+                        
+                        # Ẩn widget cũ và hiển thị widget mới
+                        self.jobView.hide()
+                        new_job_view.show()
+                        
+                        # Cập nhật reference
+                        old_job_view = self.jobView
+                        self.jobView = new_job_view
+                        
+                        # Xóa widget cũ sau một chút
+                        old_job_view.deleteLater()
+                        
+                        logging.info("✅ JobView replaced directly with JobTreeView!")
+                        return True
+                else:
+                    logging.warning("JobView parent is not a QWidget")
+            else:
+                logging.warning("JobView not found or not a QTreeView")
+                
+        except ImportError as e:
+            logging.error(f"Failed to import JobTreeView: {e}")
+        except Exception as e:
+            logging.error(f"Failed to upgrade jobView: {e}")
+            import traceback
+            traceback.print_exc()
+            
+        return False
         
     def _find_widgets(self):
         """Tìm tất cả các widget cần thiết từ UI file"""

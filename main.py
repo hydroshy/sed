@@ -38,7 +38,9 @@ def main():
     parser.add_argument('--no-camera', 
                        action='store_true',
                        help='Run without camera (for testing)')
-    
+    parser.add_argument('--new', 
+                       action='store_true',
+                       help='Use new main window architecture')
     args = parser.parse_args()
     
     # Set debug level if requested
@@ -56,12 +58,14 @@ def main():
     app.setStyle('Fusion')
     
     try:
-        # Import main window (using new architecture only)
+        # Import main window (chọn phiên bản theo tham số --new)
         logger.info("Loading SED application...")
-        from gui.main_window import MainWindow
-            
-        # Create main window
-        window = MainWindow()
+        if getattr(args, 'new', False):
+            from gui.main_window_new import MainWindowNew
+            window = MainWindowNew()
+        else:
+            from gui.main_window import MainWindow
+            window = MainWindow()
         
         # Handle no-camera mode for testing
         if args.no_camera:
