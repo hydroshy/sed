@@ -63,6 +63,7 @@ class BaseTool:
             tool_id: ID của công cụ trong job
         """
         self.display_name = name or self.__class__.__name__
+        self.name = name or self.__class__.__name__  # Add name attribute for compatibility
         self.tool_id = tool_id
         
         # Always use ToolConfig for consistent interface

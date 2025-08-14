@@ -555,12 +555,17 @@
               </property>
               <item>
                <property name="text">
+                <string>Camera Source</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
                 <string>Detect Tool</string>
                </property>
               </item>
               <item>
                <property name="text">
-                <string>Camera Source</string>
+                <string>Save Image</string>
                </property>
               </item>
              </widget>
@@ -1103,6 +1108,126 @@
             </widget>
            </widget>
           </widget>
+          <widget class="QWidget" name="saveImagePage">
+           <widget class="QFrame" name="saveImageFrame">
+            <property name="geometry">
+             <rect>
+              <x>10</x>
+              <y>10</y>
+              <width>461</width>
+              <height>731</height>
+             </rect>
+            </property>
+            <property name="frameShape">
+             <enum>QFrame::StyledPanel</enum>
+            </property>
+            <property name="frameShadow">
+             <enum>QFrame::Raised</enum>
+            </property>
+            <widget class="QPushButton" name="browseButton">
+             <property name="geometry">
+              <rect>
+               <x>370</x>
+               <y>20</y>
+               <width>75</width>
+               <height>23</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Browse</string>
+             </property>
+            </widget>
+            <widget class="QLineEdit" name="directoryPlace">
+             <property name="geometry">
+              <rect>
+               <x>120</x>
+               <y>20</y>
+               <width>241</width>
+               <height>20</height>
+              </rect>
+             </property>
+            </widget>
+            <widget class="QComboBox" name="formatComboBox">
+             <property name="geometry">
+              <rect>
+               <x>120</x>
+               <y>60</y>
+               <width>111</width>
+               <height>22</height>
+              </rect>
+             </property>
+             <item>
+              <property name="text">
+               <string>JPG</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>PNG</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>BMP</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>RAW</string>
+              </property>
+             </item>
+            </widget>
+            <widget class="QLabel" name="formatLabel">
+             <property name="geometry">
+              <rect>
+               <x>10</x>
+               <y>60</y>
+               <width>101</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Format</string>
+             </property>
+            </widget>
+            <widget class="QLabel" name="directoryLabel">
+             <property name="geometry">
+              <rect>
+               <x>10</x>
+               <y>20</y>
+               <width>101</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Directory</string>
+             </property>
+            </widget>
+            <widget class="QLineEdit" name="structureFile">
+             <property name="geometry">
+              <rect>
+               <x>120</x>
+               <y>100</y>
+               <width>113</width>
+               <height>20</height>
+              </rect>
+             </property>
+            </widget>
+            <widget class="QLabel" name="structureLabel">
+             <property name="geometry">
+              <rect>
+               <x>10</x>
+               <y>100</y>
+               <width>101</width>
+               <height>21</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Structure</string>
+             </property>
+            </widget>
+           </widget>
+          </widget>
          </widget>
         </item>
         <item>
@@ -1154,7 +1279,7 @@
      <x>0</x>
      <y>0</y>
      <width>1522</width>
-     <height>26</height>
+     <height>21</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">

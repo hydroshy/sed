@@ -1,4 +1,3 @@
-
 import json
 import os
 import logging
@@ -524,19 +523,26 @@ class JobManager:
         """Đăng ký các loại công cụ mặc định"""
         # Đăng ký công cụ chung trước
         self.register_tool(GenericTool)
-        
+
         # Import các công cụ cụ thể ở đây để tránh import vòng tròn
         try:
             from tools.detection.ocr_tool import OcrTool
             self.register_tool(OcrTool)
         except ImportError:
             logger.warning("Không thể đăng ký OcrTool")
-            
+
         try:
             from tools.detection.edge_detection import EdgeDetectionTool
             self.register_tool(EdgeDetectionTool)
         except ImportError:
             logger.warning("Không thể đăng ký EdgeDetectionTool")
+
+        try:
+            from tools.saveimage_tool import SaveImageTool
+            self.register_tool(SaveImageTool)
+            logger.info("Đã đăng ký SaveImageTool")
+        except ImportError:
+            logger.warning("Không thể đăng ký SaveImageTool")
         
     def create_tool(self, tool_type: str, name: str, config: Optional[Dict[str, Any]] = None) -> Optional[BaseTool]:
         """
@@ -834,3 +840,20 @@ class JobManager:
                 if tool:
                     tools.append(tool)
         return tools
+
+    def addTool(self, tool_info):
+        # ...existing code for other tool types...
+        if tool_info.get('type', '') == 'save_image':
+            from tools.saveimage_tool import SaveImageTool
+            directory = tool_info.get('path', '')
+            structure = tool_info.get('structure', '')
+            image_format = tool_info.get('format', 'JPG')
+            save_tool = SaveImageTool(directory, structure, image_format)
+            # Add the save image tool instance to the job manager's tool list
+            self.tools.append(save_tool)
+            # Optionally, log tool integration
+            print(f"SaveImageTool added with directory: {directory}, structure: '{structure}', format: {image_format}")
+        else:
+            # ...existing code for handling other tools...
+            pass
+        # ...existing code...

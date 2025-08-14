@@ -173,6 +173,31 @@ class ToolManager(QObject):
                         camera_manager.enable_camera_buttons()
                         print("DEBUG: Camera buttons enabled")
                         logging.info("ToolManager: Camera buttons enabled after adding Camera Source tool")
+            elif self._pending_tool == "Save Image":
+                # Handle Save Image tool
+                from tools.saveimage_tool import SaveImageTool
+                config = self._pending_tool_config if self._pending_tool_config is not None else {}
+
+                print(f"DEBUG: Creating SaveImage tool with config: {config}")
+                logging.info(f"ToolManager: Creating SaveImage tool with config: {config}")
+
+                # Create SaveImage tool
+                tool = SaveImageTool("Save Image", config=config)
+
+                # Debug: Check if tool has required attributes
+                tool_name = getattr(tool, 'name', 'MISSING_NAME')
+                tool_display_name = getattr(tool, 'display_name', 'MISSING_DISPLAY_NAME')
+
+                print(f"DEBUG: Created SaveImage tool: name={tool_name}, display_name={tool_display_name}")
+                logging.info(f"ToolManager: Created SaveImageTool instance. name={tool_name}, display_name={tool_display_name}")
+
+                # Ensure name attribute exists (fallback)
+                if not hasattr(tool, 'name'):
+                    tool.name = "Save Image"
+                    logging.warning("ToolManager: Added missing 'name' attribute to SaveImageTool")
+                if not hasattr(tool, 'display_name'):
+                    tool.display_name = "Save Image"
+                    logging.warning("ToolManager: Added missing 'display_name' attribute to SaveImageTool")
             else:
                 from tools.base_tool import GenericTool
                 config = self._pending_tool_config if self._pending_tool_config is not None else {}

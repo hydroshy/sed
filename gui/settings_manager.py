@@ -13,6 +13,7 @@ class SettingsManager(QObject):
         self.setting_stacked_widget = None
         self.camera_setting_page = None
         self.detect_setting_page = None
+        self.save_image_page = None  # Add saveImagePage reference
         self.palette_page = None  # Trang palette mới (mặc định)
         self.apply_setting_button = None
         self.cancel_setting_button = None
@@ -37,19 +38,31 @@ class SettingsManager(QObject):
         # Mapping tool types to setting pages
         self.tool_to_page_mapping = {
             "EdgeDetectionTool": "detect",
-            "OcrTool": "detect", 
+            "OcrTool": "detect",
             "Detect Tool": "detect",
             "OCR": "detect",
-            "Camera Source": "camera"  # Add Camera Source tool mapping to camera settings page
+            "Camera Source": "camera",  # Add Camera Source tool mapping to camera settings page
+            "Save Image": "save_image"  # Add Save Image tool mapping to saveImagePage
         }
         
-    def setup(self, stacked_widget, camera_page, detect_page, apply_button, cancel_button):
+    def setup(self, stacked_widget, camera_page, detect_page, apply_button, cancel_button, save_image_page=None):
         """Thiết lập các tham chiếu đến các widget UI"""
         self.setting_stacked_widget = stacked_widget
         self.camera_setting_page = camera_page
         self.detect_setting_page = detect_page
         self.apply_setting_button = apply_button
         self.cancel_setting_button = cancel_button
+
+        # Find saveImagePage if not provided
+        if save_image_page:
+            self.save_image_page = save_image_page
+        elif stacked_widget:
+            # Try to find saveImagePage by name
+            self.save_image_page = stacked_widget.findChild(QWidget, 'saveImagePage')
+            if self.save_image_page:
+                logging.info("SettingsManager: Found saveImagePage automatically")
+            else:
+                logging.warning("SettingsManager: saveImagePage not found")
         
         # Vô hiệu hóa nút ngay từ đầu
         if self.apply_setting_button:
@@ -80,6 +93,7 @@ class SettingsManager(QObject):
         logging.info(f"SettingsManager: settingStackedWidget found: {self.setting_stacked_widget is not None}")
         logging.info(f"SettingsManager: cameraSettingPage found: {self.camera_setting_page is not None}")
         logging.info(f"SettingsManager: detectSettingPage found: {self.detect_setting_page is not None}")
+        logging.info(f"SettingsManager: saveImagePage found: {self.save_image_page is not None}")
         logging.info(f"SettingsManager: palettePage found: {self.palette_page is not None}")
         logging.info(f"SettingsManager: applySetting button found: {self.apply_setting_button is not None}")
         logging.info(f"SettingsManager: cancleSetting button found: {self.cancel_setting_button is not None}")
@@ -130,6 +144,9 @@ class SettingsManager(QObject):
         elif page_type == "camera" and self.camera_setting_page:
             target_page = self.camera_setting_page
             logging.info("SettingsManager: Target page is cameraSettingPage")
+        elif page_type == "save_image" and self.save_image_page:
+            target_page = self.save_image_page
+            logging.info("SettingsManager: Target page is saveImagePage")
         else:
             # Fallback to detect page for unknown tools
             if self.detect_setting_page:
@@ -577,7 +594,7 @@ class SettingsManager(QObject):
         """Lấy loại page hiện tại"""
         if not self.setting_stacked_widget:
             return "unknown"
-        
+
         current_widget = self.setting_stacked_widget.currentWidget()
         if current_widget == self.palette_page:
             return "palette"
@@ -585,6 +602,8 @@ class SettingsManager(QObject):
             return "camera"
         elif current_widget == self.detect_setting_page:
             return "detect"  # Changed from "detection" to "detect" to match the logic in main_window.py
+        elif current_widget == self.save_image_page:
+            return "save_image"
         else:
             return "unknown"
     

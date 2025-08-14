@@ -372,7 +372,8 @@ class MainWindow(QMainWindow):
             self.cameraSettingPage,
             self.detectSettingPage,
             self.applySetting,
-            self.cancleSetting
+            self.cancleSetting,
+            save_image_page=getattr(self, 'saveImagePage', None)
         )
         
         # Setup CameraManager
@@ -597,11 +598,136 @@ class MainWindow(QMainWindow):
         # pending_detection_area chỉ dùng cho preview/crop khi cần
         self.tool_manager._pending_detection_area = None
         if tool_name:
-            self.settings_manager.switch_to_tool_setting_page(tool_name)
-            self._clear_tool_config_ui()
-            # Cập nhật workflow view
-            self._update_workflow_view()
+            # Handle Save Image tool specifically
+            if tool_name == "Save Image":
+                if self.settings_manager.switch_to_tool_setting_page("Save Image"):
+                    self.setup_save_image_tool_logic()
+            else:
+                self.settings_manager.switch_to_tool_setting_page(tool_name)
+                self._clear_tool_config_ui()
+                # Cập nhật workflow view
+                self._update_workflow_view()
     
+    def setup_save_image_tool_logic(self):
+        """Thiết lập logic cho Save Image Tool từ giao diện saveImagePage"""
+        logging.info("Setting up Save Image Tool Logic")
+
+        # Get saveImagePage from settings_manager
+        save_image_page = self.settings_manager.save_image_page
+
+        if save_image_page:
+            logging.info("Save Image Page found, setting up widget connections")
+
+            # Find widgets in the saveImagePage
+            self.directoryPlace = save_image_page.findChild(QLineEdit, 'directoryPlace')
+            self.browseButton = save_image_page.findChild(QPushButton, 'browseButton')
+            self.formatComboBox = save_image_page.findChild(QComboBox, 'formatComboBox')
+            self.structureFile = save_image_page.findChild(QLineEdit, 'structureFile')
+
+            # Log found widgets
+            logging.info(f"Found directoryPlace: {self.directoryPlace is not None}")
+            logging.info(f"Found browseButton: {self.browseButton is not None}")
+            logging.info(f"Found formatComboBox: {self.formatComboBox is not None}")
+            logging.info(f"Found structureFile: {self.structureFile is not None}")
+
+            # Connect browse button if found
+            if self.browseButton:
+                # Disconnect any existing connections to avoid duplicates
+                try:
+                    self.browseButton.clicked.disconnect()
+                except:
+                    pass
+                self.browseButton.clicked.connect(self.handle_browse_directory)
+                logging.info("Connected browse button")
+
+            # Set default values
+            if self.formatComboBox:
+                self.formatComboBox.setCurrentText("JPG")
+
+            # Clear any previous values
+            if self.directoryPlace:
+                self.directoryPlace.clear()
+            if self.structureFile:
+                self.structureFile.clear()
+
+        else:
+            logging.error("Save Image Page not found in settings manager")
+
+    def handle_browse_directory(self):
+        """Xử lý sự kiện khi người dùng nhấn nút duyệt thư mục trong trang Save Image"""
+        from PyQt5.QtWidgets import QFileDialog
+
+        logging.info("Browse directory button clicked for Save Image Tool")
+
+        # Open directory selection dialog
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            'Select Directory to Save Images',
+            '',  # Start from current directory
+            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
+        )
+
+        if directory and self.directoryPlace:
+            self.directoryPlace.setText(directory)
+            logging.info(f"Selected directory: {directory}")
+        else:
+            logging.info("No directory selected or directoryPlace widget not found")
+
+    def _apply_save_image_settings(self):
+        """Apply SaveImage tool settings and add tool to job"""
+        logging.info("Applying SaveImage tool settings")
+
+        try:
+            # Collect configuration from UI
+            config = {}
+
+            if self.directoryPlace:
+                config["directory"] = self.directoryPlace.text().strip()
+
+            if self.structureFile:
+                config["structure_file"] = self.structureFile.text().strip()
+
+            if self.formatComboBox:
+                config["image_format"] = self.formatComboBox.currentText()
+
+            # Validate required fields
+            if not config.get("directory"):
+                logging.error("Directory is required for SaveImage tool")
+                return
+
+            # Check if we're editing an existing tool or adding a new one
+            if self._editing_tool is not None:
+                logging.info(f"Updating existing SaveImage tool: {self._editing_tool.display_name}")
+                self._editing_tool.update_config(config)
+                self._editing_tool = None
+            else:
+                # Adding new SaveImage tool
+                if hasattr(self.tool_manager, '_pending_tool') and self.tool_manager._pending_tool == "Save Image":
+                    logging.info("Adding new SaveImage tool")
+
+                    # Set the config in tool manager
+                    self.tool_manager.set_tool_config(config)
+
+                    # Apply using tool_manager
+                    added_tool = self.tool_manager.on_apply_setting()
+                    if added_tool:
+                        logging.info(f"SaveImage tool added successfully: {added_tool.display_name}")
+                    else:
+                        logging.error("Failed to add SaveImage tool")
+
+            # Update job view
+            if hasattr(self.tool_manager, '_update_job_view'):
+                self.tool_manager._update_job_view()
+
+            # Return to palette page
+            self.settings_manager.return_to_palette_page()
+
+            # Update workflow view
+            self._update_workflow_view()
+
+        except Exception as e:
+            logging.error(f"Error applying SaveImage settings: {e}")
+
     def _on_edit_tool(self):
         """Xử lý khi người dùng nhấn nút Edit Tool"""
         # Get selected tool from tool view
@@ -688,7 +814,12 @@ class MainWindow(QMainWindow):
             # Chuyển về trang palette sau khi áp dụng cài đặt camera
             self.settings_manager.return_to_palette_page()
             return
-        
+
+        # Handle save image settings page
+        if current_page == "save_image":
+            self._apply_save_image_settings()
+            return
+
         # Handle detection settings page
         if current_page == "detect":
             # Nếu đang ở chế độ chỉnh sửa tool (edit), chỉ cập nhật config tool đó
