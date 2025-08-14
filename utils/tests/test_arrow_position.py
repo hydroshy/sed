@@ -48,28 +48,28 @@ class TestWindow(QMainWindow):
             # Add test tools - Cognex Vision Pro style workflow
             tool1 = type('Tool', (), {
                 'name': 'Camera Source',
-                'display_name': '📷 Camera Source #1',
+                'display_name': 'dY"� Camera Source #1',
                 'tool_id': 1,
                 'config': {}
             })()
             
             tool2 = type('Tool', (), {
                 'name': 'Detect Tool', 
-                'display_name': '🔍 Detect (yolov11n) #2',
+                'display_name': 'dY"? Detect (yolov11n) #2',
                 'tool_id': 2,
                 'config': {'model_name': 'yolov11n'}
             })()
             
             tool3 = type('Tool', (), {
                 'name': 'Detect Tool',
-                'display_name': '🔍 Detect (yolov11n) #3', 
+                'display_name': 'dY"? Detect (yolov11n) #3', 
                 'tool_id': 3,
                 'config': {'model_name': 'yolov11n'}
             })()
             
             tool4 = type('Tool', (), {
                 'name': 'Detect Tool',
-                'display_name': '🔍 Detect (yolov11n) #4', 
+                'display_name': 'dY"? Detect (yolov11n) #4', 
                 'tool_id': 4,
                 'config': {'model_name': 'yolov11n'}
             })()
@@ -78,11 +78,11 @@ class TestWindow(QMainWindow):
             
             # Update the tree view
             self.job_tree_view.update_job_view(current_job)
-            print("🎯 Added Cognex-style test tools!")
-            print("📷 Camera Source should connect to ALL Detect Tools simultaneously")
-            print("🔍 Multiple arrows should point from Camera Source to each Detect Tool")
+            print("dYZ_ Added Cognex-style test tools!")
+            print("dY"� Camera Source should connect to ALL Detect Tools simultaneously")
+            print("dY"? Multiple arrows should point from Camera Source to each Detect Tool")
         else:
-            print("❌ Could not get current job")
+            print("�?O Could not get current job")
 
 def main():
     app = QApplication(sys.argv)
@@ -90,12 +90,13 @@ def main():
     window = TestWindow()
     window.show()
     
-    print("🚀 Test window created - Testing Cognex Vision Pro style arrows!")
-    print("📷 Camera Source should have multiple arrows pointing to ALL Detect Tools")
-    print("🔍 This demonstrates parallel workflow connections, not just sequential")
-    print("✨ Look for curved arrows connecting Camera Source to multiple Detect Tools!")
+    print("dYs? Test window created - Testing Cognex Vision Pro style arrows!")
+    print("dY"� Camera Source should have multiple arrows pointing to ALL Detect Tools")
+    print("dY"? This demonstrates parallel workflow connections, not just sequential")
+    print("�o" Look for curved arrows connecting Camera Source to multiple Detect Tools!")
     
     sys.exit(app.exec_())
 
 if __name__ == "__main__":
     main()
+

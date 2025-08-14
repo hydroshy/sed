@@ -1,6 +1,6 @@
 """
 Test script for JobTreeView with sequential workflow arrows and step numbers
-Tests Camera Source → Detect Tool 1 → Detect Tool 2 workflow
+Tests Camera Source �+' Detect Tool 1 �+' Detect Tool 2 workflow
 """
 import sys
 import os
@@ -16,7 +16,7 @@ from tools.detect_tool import DetectTool
 class SequentialWorkflowTestWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Sequential Workflow Test - Camera Source → Detect Tool 1 → Detect Tool 2")
+        self.setWindowTitle("Sequential Workflow Test - Camera Source �+' Detect Tool 1 �+' Detect Tool 2")
         self.setGeometry(100, 100, 800, 600)
         
         # Create main widget and layout
@@ -52,7 +52,7 @@ class SequentialWorkflowTestWindow(QMainWindow):
         self.setup_job_tree()
         
         print("=== Sequential Workflow Test Window Initialized ===")
-        print("Click 'Create Sequential Workflow' to test Camera Source → Detect Tool 1 → Detect Tool 2")
+        print("Click 'Create Sequential Workflow' to test Camera Source �+' Detect Tool 1 �+' Detect Tool 2")
     
     def setup_job_tree(self):
         """Setup job tree view with job manager"""
@@ -71,7 +71,7 @@ class SequentialWorkflowTestWindow(QMainWindow):
             print("ERROR: Failed to create default job")
     
     def create_sequential_workflow(self):
-        """Create a sequential workflow: Camera Source → Detect Tool 1 → Detect Tool 2"""
+        """Create a sequential workflow: Camera Source �+' Detect Tool 1 �+' Detect Tool 2"""
         current_job = self.job_manager.get_current_job()
         if not current_job:
             print("ERROR: No current job available")
@@ -86,28 +86,28 @@ class SequentialWorkflowTestWindow(QMainWindow):
         camera_tool = CameraTool(tool_id=1)
         camera_tool.display_name = "Camera Source (Step 1)"
         current_job.add_tool(camera_tool)
-        print(f"✅ Added: {camera_tool.display_name}")
+        print(f"�o. Added: {camera_tool.display_name}")
         
         # Step 2: Add first Detect Tool
         detect_tool_1 = DetectTool(tool_id=2)
         detect_tool_1.display_name = "Detect Tool 1 (Step 2)"
         current_job.add_tool(detect_tool_1)
-        print(f"✅ Added: {detect_tool_1.display_name}")
+        print(f"�o. Added: {detect_tool_1.display_name}")
         
         # Step 3: Add second Detect Tool
         detect_tool_2 = DetectTool(tool_id=3)
         detect_tool_2.display_name = "Detect Tool 2 (Step 3)"
         current_job.add_tool(detect_tool_2)
-        print(f"✅ Added: {detect_tool_2.display_name}")
+        print(f"�o. Added: {detect_tool_2.display_name}")
         
         # Update the tree view
         self.job_tree_view.update_from_job_manager()
         
-        print(f"\n🎯 Sequential workflow created:")
+        print(f"\ndYZ_ Sequential workflow created:")
         print(f"   Step 1: {camera_tool.display_name}")
         print(f"   Step 2: {detect_tool_1.display_name}")
         print(f"   Step 3: {detect_tool_2.display_name}")
-        print(f"\n🔄 Workflow should show arrows: 1→2→3 with different colors and step numbers")
+        print(f"\ndY", Workflow should show arrows: 1�+'2�+'3 with different colors and step numbers")
         
     def add_detect_tool(self):
         """Add another detect tool to extend the workflow"""
@@ -125,12 +125,12 @@ class SequentialWorkflowTestWindow(QMainWindow):
         detect_tool.display_name = f"Detect Tool {next_step - 1} (Step {next_step})"
         current_job.add_tool(detect_tool)
         
-        print(f"\n✅ Added: {detect_tool.display_name}")
+        print(f"\n�o. Added: {detect_tool.display_name}")
         
         # Update the tree view
         self.job_tree_view.update_from_job_manager()
         
-        print(f"🔄 Extended workflow now has {len(current_job.tools)} steps")
+        print(f"dY", Extended workflow now has {len(current_job.tools)} steps")
         
     def clear_workflow(self):
         """Clear all tools from workflow"""
@@ -145,7 +145,7 @@ class SequentialWorkflowTestWindow(QMainWindow):
         # Update the tree view
         self.job_tree_view.update_from_job_manager()
         
-        print("\n🧹 Workflow cleared - no tools remaining")
+        print("\ndY1 Workflow cleared - no tools remaining")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
@@ -154,13 +154,14 @@ if __name__ == "__main__":
     window.show()
     
     print("\n" + "="*60)
-    print("🚀 Sequential Workflow Test Started")
+    print("dYs? Sequential Workflow Test Started")
     print("="*60)
     print("Features to test:")
-    print("1. Sequential arrows: Camera Source → Detect Tool 1 → Detect Tool 2")
+    print("1. Sequential arrows: Camera Source �+' Detect Tool 1 �+' Detect Tool 2")
     print("2. Step numbers displayed with different colors")
     print("3. Workflow step indicators next to each tool")
     print("4. Drag-drop to reorder workflow steps")
     print("="*60)
     
     sys.exit(app.exec_())
+

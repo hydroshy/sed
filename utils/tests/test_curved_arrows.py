@@ -15,7 +15,7 @@ from job.job_manager import JobManager
 class CurvedArrowTestWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("🧪 Test Curved Arrows - Cognex Style")
+        self.setWindowTitle("dY� Test Curved Arrows - Cognex Style")
         self.setGeometry(100, 100, 500, 700)
         
         # Create central widget and layout
@@ -28,11 +28,11 @@ class CurvedArrowTestWindow(QMainWindow):
         layout.addWidget(self.job_tree_view)
         
         # Add test buttons
-        test_btn = QPushButton("🎯 Add Cognex Test Workflow")
+        test_btn = QPushButton("dYZ_ Add Cognex Test Workflow")
         test_btn.clicked.connect(self.add_cognex_workflow)
         layout.addWidget(test_btn)
         
-        clear_btn = QPushButton("🧹 Clear All")
+        clear_btn = QPushButton("dY1 Clear All")
         clear_btn.clicked.connect(self.clear_workflow)
         layout.addWidget(clear_btn)
         
@@ -56,31 +56,31 @@ class CurvedArrowTestWindow(QMainWindow):
             # Clear existing tools
             current_job.tools = []
             
-            # Create Cognex-style workflow: 1 Camera Source → 3 Detect Tools
+            # Create Cognex-style workflow: 1 Camera Source �+' 3 Detect Tools
             camera_tool = type('Tool', (), {
                 'name': 'Camera Source',
-                'display_name': '📷 Camera Source #1',
+                'display_name': 'dY"� Camera Source #1',
                 'tool_id': 1,
                 'config': {}
             })()
             
             detect_tool1 = type('Tool', (), {
                 'name': 'Detect Tool', 
-                'display_name': '🔍 Object Detection #2',
+                'display_name': 'dY"? Object Detection #2',
                 'tool_id': 2,
                 'config': {'model_name': 'yolov11n'}
             })()
             
             detect_tool2 = type('Tool', (), {
                 'name': 'Detect Tool',
-                'display_name': '🔍 Text Detection #3', 
+                'display_name': 'dY"? Text Detection #3', 
                 'tool_id': 3,
                 'config': {'model_name': 'yolov11n'}
             })()
             
             detect_tool3 = type('Tool', (), {
                 'name': 'Detect Tool',
-                'display_name': '🔍 Defect Detection #4', 
+                'display_name': 'dY"? Defect Detection #4', 
                 'tool_id': 4,
                 'config': {'model_name': 'yolov11n'}
             })()
@@ -91,11 +91,11 @@ class CurvedArrowTestWindow(QMainWindow):
             # Update the tree view
             self.job_tree_view.update_job_view(current_job)
             
-            print("🎯 Cognex workflow created!")
-            print("📷 Camera Source should have curved arrows pointing to ALL 3 Detect Tools")
-            print("🔴 Look for THICK RED curved lines connecting the tools")
+            print("dYZ_ Cognex workflow created!")
+            print("dY"� Camera Source should have curved arrows pointing to ALL 3 Detect Tools")
+            print("dY"' Look for THICK RED curved lines connecting the tools")
         else:
-            print("❌ Could not get current job")
+            print("�?O Could not get current job")
             
     def clear_workflow(self):
         """Clear the workflow"""
@@ -103,7 +103,7 @@ class CurvedArrowTestWindow(QMainWindow):
         if current_job:
             current_job.tools = []
             self.job_tree_view.update_job_view(current_job)
-            print("🧹 Workflow cleared")
+            print("dY1 Workflow cleared")
 
 def main():
     app = QApplication(sys.argv)
@@ -111,13 +111,14 @@ def main():
     window = CurvedArrowTestWindow()
     window.show()
     
-    print("🧪 Curved Arrow Test Window launched!")
-    print("🔴 RED thick lines = U-shaped arrows being drawn")
-    print("📱 Right control area (light gray) = Arrow management zone")
-    print("🎯 Arrows point INTO tools (end inside target, not outside)")
-    print("🔲 U-shaped arrows (right angles) pointing INTO targets ⊔→📦")
+    print("dY� Curved Arrow Test Window launched!")
+    print("dY"' RED thick lines = U-shaped arrows being drawn")
+    print("dY"� Right control area (light gray) = Arrow management zone")
+    print("dYZ_ Arrows point INTO tools (end inside target, not outside)")
+    print("dY"� U-shaped arrows (right angles) pointing INTO targets �S"�+'dY"�")
     
     sys.exit(app.exec_())
 
 if __name__ == "__main__":
     main()
+
