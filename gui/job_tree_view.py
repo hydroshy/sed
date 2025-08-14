@@ -6,18 +6,20 @@ import logging
 import math
 from PyQt5.QtCore import Qt, pyqtSignal, QMimeData, QPoint
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QPainter, QPen, QBrush, QColor, QDrag
-from PyQt5.QtWidgets import QTreeView, QAbstractItemView
+from PyQt5.QtWidgets import QTreeView, QAbstractItemView, QApplication
 
 logger = logging.getLogger(__name__)
 
 class JobTreeView(QTreeView):
     """
-    Custom TreeView with drag-drop support and visual flow indicators
+    Custom TreeView with connection-based workflow like Cognex Vision Pro
     """
     
     # Signals
     tool_moved = pyqtSignal(int, int)  # from_index, to_index
     tool_selected = pyqtSignal(int)    # tool_index
+    tool_connected = pyqtSignal(int, int)  # source_tool_index, target_tool_index
+    tool_disconnected = pyqtSignal(int, int)  # source_tool_index, target_tool_index
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -25,10 +27,52 @@ class JobTreeView(QTreeView):
         self.setAlternatingRowColors(True)
         self.setIndentation(20)
         self.setHeaderHidden(False)
+        self.setUniformRowHeights(True)  # Better for drag-drop performance
         
         # Set up right margin for arrow control area (Cognex style)
-        self.arrow_control_width = 80  # Width of right margin for arrows
+        self.arrow_control_width = 100  # Wider for better visibility
         self.setViewportMargins(0, 0, self.arrow_control_width, 0)
+        
+        # Enhanced visual feedback
+        self.setStyleSheet("""
+            QTreeView {
+                show-decoration-selected: 1;
+                border: 1px solid #d0d0d0;
+                background-color: #fafafa;
+            }
+            QTreeView::item {
+                border: none;
+                padding: 4px 8px;
+                min-height: 24px;
+            }
+            QTreeView::item:selected {
+                background-color: #3daee9;
+                color: white;
+            }
+            QTreeView::item:hover {
+                background-color: #e6f3ff;
+            }
+            QTreeView::drop-indicator {
+                background-color: #3daee9;
+                height: 3px;
+                border-radius: 1px;
+            }
+        """)
+        
+        # Drag state tracking
+        self.drag_start_position = None
+        self.is_dragging = False
+        self.connection_dragging = False
+        self.drag_source_tool = None
+        self.drag_target_tool = None
+        
+        # Connection management
+        self.tool_connections = {}  # {source_tool_index: [target_tool_indices]}
+        self.port_size = 12  # Larger ports for better visibility
+        self.port_margin = 4
+        
+        # Demo connections for testing
+        self.demo_mode = True
         
     def setup_drag_drop(self):
         """Setup drag and drop functionality"""
@@ -44,7 +88,7 @@ class JobTreeView(QTreeView):
         print(f"  - Drag drop mode: {self.dragDropMode()}")
         
     def paintEvent(self, event):
-        """Override paint event to draw arrows in right control area"""
+        """Override paint event to draw connection-based workflow"""
         super().paintEvent(event)
         
         model = self.model()
@@ -54,11 +98,15 @@ class JobTreeView(QTreeView):
         painter = QPainter(self.viewport())
         painter.setRenderHint(QPainter.Antialiasing)
         
-        # Draw the right control area background
-        self.draw_arrow_control_area(painter)
+        # Draw input/output ports on tools
+        self.draw_tool_ports(painter, model)
         
-        # Draw flow arrows in the right control area
-        self.draw_flow_arrows_in_control_area(painter, model)
+        # Draw connections between tools
+        self.draw_tool_connections(painter, model)
+        
+        # Draw temporary connection during dragging
+        if self.connection_dragging and self.drag_start_position:
+            self.draw_temp_connection(painter)
         
     def draw_arrow_control_area(self, painter):
         """Draw the right control area background (Cognex style)"""
@@ -568,7 +616,10 @@ class JobTreeView(QTreeView):
             e.ignore()
             
     def mousePressEvent(self, e):
-        """Handle mouse press to emit selection signal"""
+        """Handle mouse press to emit selection signal and start drag detection"""
+        if e.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_position = e.pos()
+            
         super().mousePressEvent(e)
         
         try:
@@ -578,8 +629,30 @@ class JobTreeView(QTreeView):
                     # Tool item clicked
                     tool_row = index.row()
                     self.tool_selected.emit(tool_row)
+                    print(f"DEBUG: Tool selected at row {tool_row}")
         except Exception as ex:
             logger.error(f"Mouse press error: {ex}")
+    
+    def mouseMoveEvent(self, e):
+        """Handle mouse move for drag detection"""
+        if not (e.buttons() & Qt.MouseButton.LeftButton):
+            return
+            
+        if not self.drag_start_position:
+            return
+            
+        # Check if we should start dragging
+        if ((e.pos() - self.drag_start_position).manhattanLength() < 
+            QApplication.startDragDistance()):
+            return
+            
+        # Only drag tool items, not the job root
+        index = self.indexAt(self.drag_start_position)
+        if not index.isValid() or not index.parent().isValid():
+            return
+            
+        self.is_dragging = True
+        self.startDrag(Qt.DropAction.MoveAction)
                 
     def setup_with_job_manager(self, job_manager):
         """Setup tree view with job manager and update display"""
@@ -773,3 +846,369 @@ class JobTreeView(QTreeView):
             pass
             
         return True
+    
+    # Connection Management Methods
+    def add_connection(self, source_tool_index, target_tool_index):
+        """Add a connection between two tools"""
+        if source_tool_index not in self.tool_connections:
+            self.tool_connections[source_tool_index] = []
+        
+        if target_tool_index not in self.tool_connections[source_tool_index]:
+            self.tool_connections[source_tool_index].append(target_tool_index)
+            self.tool_connected.emit(source_tool_index, target_tool_index)
+            print(f"DEBUG: Added connection from tool {source_tool_index} to tool {target_tool_index}")
+            
+            # Update viewport to redraw connections
+            self.viewport().update()
+            return True
+        return False
+    
+    def remove_connection(self, source_tool_index, target_tool_index):
+        """Remove a connection between two tools"""
+        if (source_tool_index in self.tool_connections and 
+            target_tool_index in self.tool_connections[source_tool_index]):
+            
+            self.tool_connections[source_tool_index].remove(target_tool_index)
+            if not self.tool_connections[source_tool_index]:
+                del self.tool_connections[source_tool_index]
+            
+            self.tool_disconnected.emit(source_tool_index, target_tool_index)
+            print(f"DEBUG: Removed connection from tool {source_tool_index} to tool {target_tool_index}")
+            
+            # Update viewport to redraw connections
+            self.viewport().update()
+            return True
+        return False
+    
+    def get_connections(self):
+        """Get all current connections"""
+        return dict(self.tool_connections)
+    
+    def clear_all_connections(self):
+        """Clear all connections"""
+        self.tool_connections.clear()
+        self.viewport().update()
+        print("DEBUG: Cleared all connections")
+    
+    def get_tool_rect_with_ports(self, tool_index):
+        """Get tool rectangle with input/output port positions"""
+        model = self.model()
+        if not isinstance(model, QStandardItemModel) or model.rowCount() == 0:
+            return None
+            
+        job_item = model.item(0)
+        if not job_item or tool_index >= job_item.rowCount():
+            return None
+            
+        tool_item = job_item.child(tool_index)
+        if not tool_item:
+            return None
+            
+        tool_model_index = model.indexFromItem(tool_item)
+        tool_rect = self.visualRect(tool_model_index)
+        
+        # Calculate port positions
+        input_port = QPoint(tool_rect.left() - self.port_size // 2, tool_rect.center().y())
+        output_port = QPoint(tool_rect.right() + self.port_size // 2, tool_rect.center().y())
+        
+        return {
+            'rect': tool_rect,
+            'input_port': input_port,
+            'output_port': output_port,
+            'tool_type': self.get_tool_type(tool_item.text())
+        }
+    
+    def get_port_at_position(self, pos):
+        """Get the port (input/output) at the given position"""
+        model = self.model()
+        if not isinstance(model, QStandardItemModel) or model.rowCount() == 0:
+            return None
+            
+        job_item = model.item(0)
+        if not job_item:
+            return None
+            
+        for i in range(job_item.rowCount()):
+            tool_info = self.get_tool_rect_with_ports(i)
+            if not tool_info:
+                continue
+                
+            # Check if click is near input port
+            input_distance = (pos - tool_info['input_port']).manhattanLength()
+            if input_distance <= self.port_size:
+                return {'tool_index': i, 'port_type': 'input'}
+                
+            # Check if click is near output port
+            output_distance = (pos - tool_info['output_port']).manhattanLength()
+            if output_distance <= self.port_size:
+                return {'tool_index': i, 'port_type': 'output'}
+                
+        return None
+    
+    def draw_tool_ports(self, painter, model):
+        """Draw input/output ports on each tool (Cognex Vision Pro style)"""
+        if model.rowCount() == 0:
+            return
+            
+        job_item = model.item(0)
+        if not job_item:
+            return
+            
+        for i in range(job_item.rowCount()):
+            tool_info = self.get_tool_rect_with_ports(i)
+            if not tool_info:
+                continue
+                
+            tool_type = tool_info['tool_type']
+            
+            # Draw input port (left side) - not for source tools
+            if tool_type != 'source':
+                self.draw_port(painter, tool_info['input_port'], 'input', tool_type)
+                
+            # Draw output port (right side) - for all tools
+            self.draw_port(painter, tool_info['output_port'], 'output', tool_type)
+    
+    def draw_port(self, painter, port_pos, port_type, tool_type):
+        """Draw a single input or output port"""
+        # Port colors based on type
+        if port_type == 'input':
+            port_color = QColor(0, 120, 215)  # Blue for input
+        else:
+            port_color = QColor(0, 150, 0)    # Green for output
+            
+        # Draw port circle
+        painter.setBrush(QBrush(port_color))
+        painter.setPen(QPen(QColor(0, 0, 0), 1))  # Black border
+        
+        port_rect = port_pos - QPoint(self.port_size//2, self.port_size//2)
+        painter.drawEllipse(port_rect.x(), port_rect.y(), self.port_size, self.port_size)
+    
+    def draw_tool_connections(self, painter, model):
+        """Draw all connections between tools based on connection graph"""
+        if not self.tool_connections:
+            return
+            
+        for source_index, target_indices in self.tool_connections.items():
+            source_info = self.get_tool_rect_with_ports(source_index)
+            if not source_info:
+                continue
+                
+            for target_index in target_indices:
+                target_info = self.get_tool_rect_with_ports(target_index)
+                if not target_info:
+                    continue
+                    
+                # Draw connection arrow from source output to target input
+                self.draw_connection_arrow(
+                    painter, 
+                    source_info['output_port'], 
+                    target_info['input_port'],
+                    source_index,
+                    target_index
+                )
+    
+    def draw_connection_arrow(self, painter, start_port, end_port, source_idx, target_idx):
+        """Draw a curved arrow connection between two ports"""
+        # Connection colors based on tool types
+        connection_colors = [
+            QColor(255, 100, 100),  # Red
+            QColor(100, 255, 100),  # Green  
+            QColor(100, 100, 255),  # Blue
+            QColor(255, 255, 100),  # Yellow
+            QColor(255, 100, 255),  # Magenta
+            QColor(100, 255, 255),  # Cyan
+        ]
+        
+        color_index = (source_idx + target_idx) % len(connection_colors)
+        arrow_color = connection_colors[color_index]
+        
+        painter.setPen(QPen(arrow_color, 2))
+        
+        # Calculate control points for smooth curve
+        control_offset = 50
+        
+        # Control points for bezier curve
+        ctrl1 = QPoint(start_port.x() + control_offset, start_port.y())
+        ctrl2 = QPoint(end_port.x() - control_offset, end_port.y())
+        
+        # Draw the curve using multiple line segments
+        segments = 20
+        prev_point = start_port
+        
+        for i in range(1, segments + 1):
+            t = i / segments
+            point = self.bezier_point_simple(start_port, ctrl1, ctrl2, end_port, t)
+            painter.drawLine(prev_point, point)
+            prev_point = point
+        
+        # Draw arrowhead at end point
+        self.draw_connection_arrowhead(painter, end_port, start_port, arrow_color)
+    
+    def draw_connection_arrowhead(self, painter, end_point, start_point, color):
+        """Draw arrowhead for connection pointing into target port"""
+        arrow_size = 6
+        
+        # Calculate arrow direction
+        dx = end_point.x() - start_point.x()
+        dy = end_point.y() - start_point.y()
+        length = math.sqrt(dx*dx + dy*dy)
+        
+        if length == 0:
+            return
+            
+        # Normalize direction
+        dx /= length
+        dy /= length
+        
+        # Calculate arrowhead points
+        p1 = QPoint(
+            int(end_point.x() - arrow_size * dx + arrow_size * dy * 0.5),
+            int(end_point.y() - arrow_size * dy - arrow_size * dx * 0.5)
+        )
+        p2 = QPoint(
+            int(end_point.x() - arrow_size * dx - arrow_size * dy * 0.5),
+            int(end_point.y() - arrow_size * dy + arrow_size * dx * 0.5)
+        )
+        
+        # Draw filled arrowhead
+        painter.setBrush(QBrush(color))
+        painter.setPen(QPen(color, 1))
+        painter.drawPolygon([end_point, p1, p2])
+    
+    def draw_temp_connection(self, painter):
+        """Draw temporary connection line during dragging"""
+        if not hasattr(self, 'temp_connection_end') or not self.drag_start_position:
+            return
+            
+        # Draw temporary connection line
+        painter.setPen(QPen(QColor(255, 0, 0, 128), 2))  # Semi-transparent red
+        painter.drawLine(self.drag_start_position, self.temp_connection_end)
+    
+    # Demo and Test Methods
+    def create_demo_connections(self):
+        """Create demo connections for testing visibility"""
+        print("DEBUG: Creating demo connections for testing...")
+        
+        model = self.model()
+        if not isinstance(model, QStandardItemModel) or model.rowCount() == 0:
+            print("DEBUG: No model available for demo connections")
+            return
+            
+        job_item = model.item(0)
+        if not job_item or job_item.rowCount() < 2:
+            print("DEBUG: Need at least 2 tools for demo connections")
+            return
+        
+        # Clear existing connections
+        self.tool_connections.clear()
+        
+        # Find tools by type
+        source_tools = []
+        detect_tools = []
+        other_tools = []
+        
+        for i in range(job_item.rowCount()):
+            tool_item = job_item.child(i)
+            if tool_item:
+                tool_type = self.get_tool_type(tool_item.text())
+                if tool_type == 'source':
+                    source_tools.append(i)
+                elif tool_type == 'detect':
+                    detect_tools.append(i)
+                else:
+                    other_tools.append(i)
+        
+        print(f"DEBUG: Found {len(source_tools)} source, {len(detect_tools)} detect, {len(other_tools)} other tools")
+        
+        # Create parallel connections: camera source -> multiple detect tools
+        if source_tools and detect_tools:
+            source_idx = source_tools[0]
+            for detect_idx in detect_tools:
+                self.add_connection(source_idx, detect_idx)
+                print(f"DEBUG: Demo connection added: {source_idx} -> {detect_idx}")
+        
+        # If no specific types, create sequential connections
+        elif job_item.rowCount() >= 2:
+            for i in range(job_item.rowCount() - 1):
+                self.add_connection(i, i + 1)
+                print(f"DEBUG: Sequential demo connection added: {i} -> {i + 1}")
+        
+        # Force repaint
+        self.viewport().update()
+        print(f"DEBUG: Demo connections created. Total connections: {len(self.tool_connections)}")
+    
+    def toggle_parallel_sequential(self):
+        """Toggle between parallel and sequential workflow modes"""
+        model = self.model()
+        if not isinstance(model, QStandardItemModel) or model.rowCount() == 0:
+            return
+            
+        job_item = model.item(0)
+        if not job_item or job_item.rowCount() < 2:
+            return
+        
+        # Clear existing connections
+        self.tool_connections.clear()
+        
+        # Check current mode by looking at connections
+        has_parallel = False
+        for source_idx, targets in self.tool_connections.items():
+            if len(targets) > 1:
+                has_parallel = True
+                break
+        
+        # Find tools
+        source_tools = []
+        detect_tools = []
+        all_tools = []
+        
+        for i in range(job_item.rowCount()):
+            tool_item = job_item.child(i)
+            if tool_item:
+                all_tools.append(i)
+                tool_type = self.get_tool_type(tool_item.text())
+                if tool_type == 'source':
+                    source_tools.append(i)
+                elif tool_type == 'detect':
+                    detect_tools.append(i)
+        
+        if not has_parallel:
+            # Switch to parallel: camera source -> multiple detect tools
+            print("DEBUG: Switching to PARALLEL mode")
+            if source_tools and len(detect_tools) >= 2:
+                source_idx = source_tools[0]
+                for detect_idx in detect_tools:
+                    self.add_connection(source_idx, detect_idx)
+                    print(f"DEBUG: Parallel connection: {source_idx} -> {detect_idx}")
+            else:
+                print("DEBUG: Need camera source and 2+ detect tools for parallel mode")
+        else:
+            # Switch to sequential: tool1 -> tool2 -> tool3...
+            print("DEBUG: Switching to SEQUENTIAL mode")
+            for i in range(len(all_tools) - 1):
+                self.add_connection(all_tools[i], all_tools[i + 1])
+                print(f"DEBUG: Sequential connection: {all_tools[i]} -> {all_tools[i + 1]}")
+        
+        # Force repaint
+        self.viewport().update()
+        print(f"DEBUG: Workflow mode switched. Total connections: {len(self.tool_connections)}")
+    
+    def print_debug_info(self):
+        """Print debug information about current state"""
+        print("\n=== JobTreeView Debug Info ===")
+        print(f"Demo mode: {self.demo_mode}")
+        print(f"Port size: {self.port_size}")
+        print(f"Current connections: {self.tool_connections}")
+        
+        model = self.model()
+        if isinstance(model, QStandardItemModel) and model.rowCount() > 0:
+            job_item = model.item(0)
+            if job_item:
+                print(f"Tools in job: {job_item.rowCount()}")
+                for i in range(job_item.rowCount()):
+                    tool_item = job_item.child(i)
+                    if tool_item:
+                        tool_type = self.get_tool_type(tool_item.text())
+                        print(f"  Tool {i}: {tool_item.text()} (type: {tool_type})")
+        
+        print("==============================\n")
