@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton
 from PyQt5.QtCore import Qt
-from gui.job_tree_view_simple import JobTreeView
+from gui.job_tree_view import JobTreeView
 from job.job_manager import JobManager
 
 class TestWindow(QMainWindow):

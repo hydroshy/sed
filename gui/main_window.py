@@ -87,7 +87,7 @@ class MainWindow(QMainWindow):
     def _upgrade_job_view(self):
         """Thay thế jobView thông thường bằng JobTreeView với drag-drop"""
         try:
-            from gui.job_tree_view_simple import JobTreeView
+            from gui.job_tree_view import JobTreeView
             from PyQt5.QtWidgets import QTreeView, QWidget
             
             if self.jobView and isinstance(self.jobView, QTreeView):

@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton, QHBoxLayout
 from PyQt5.QtCore import Qt
-from gui.job_tree_view_simple import JobTreeView
+from gui.job_tree_view import JobTreeView
 from job.job_manager import JobManager
 from tools.camera_tool import CameraTool
 from tools.detect_tool import DetectTool
