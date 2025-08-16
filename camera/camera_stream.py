@@ -521,20 +521,67 @@ class CameraStream(QObject):
                 print(f"DEBUG: [CameraStream] Recovery failed: {recovery_error}")
 
     def set_zoom(self, value):
-        pass  # Có thể cấu hình zoom qua Picamera2 nếu cần
+        """Placeholder for zoom control.
+
+        Currently unused by the codebase. Keep as a no-op placeholder for
+        backwards compatibility. If Picamera2 supports a zoom control on the
+        target device, this method can be implemented. Any calls are logged
+        for observability.
+        """
+        logger.debug(f"CameraStream.set_zoom called with value={value} (placeholder no-op)")
+        try:
+            if self.picam2 and hasattr(self.picam2, 'set_controls'):
+                # Best-effort attempt — many Picamera2 builds do not expose a 'Zoom'
+                # control; wrap in try/except to avoid raising.
+                self.picam2.set_controls({'Zoom': float(value)})
+                logger.debug("CameraStream.set_zoom: attempted to apply Zoom control via picam2.set_controls")
+        except Exception as e:
+            logger.debug(f"CameraStream.set_zoom: not implemented on this camera backend: {e}")
 
     def set_focus(self, value):
-        pass  # Có thể cấu hình focus qua Picamera2 nếu cần
+        """Placeholder for focus control.
+
+        Currently unused by the codebase. Kept as a no-op for compatibility.
+        Logs calls so usage can be discovered during runtime.
+        """
+        logger.debug(f"CameraStream.set_focus called with value={value} (placeholder no-op)")
+        try:
+            if self.picam2 and hasattr(self.picam2, 'set_controls'):
+                # Attempt to set a focus control if available on the backend
+                self.picam2.set_controls({'Focus': float(value)})
+                logger.debug("CameraStream.set_focus: attempted to apply Focus control via picam2.set_controls")
+        except Exception as e:
+            logger.debug(f"CameraStream.set_focus: not implemented on this camera backend: {e}")
 
     # --- Chuyển đổi giá trị giữa UI và camera ---
     def ui_to_exposure(self, value):
-        # UI nhập ms, camera cần us
-        # Nếu bạn muốn UI nhập trực tiếp us thì bỏ *1000
-        return int(float(value) * 1000)
+        """Convert UI exposure (ms) to camera exposure (μs).
+
+        Note: search across the repository shows this helper is not referenced
+        anywhere except its original definition. It is kept for API
+        convenience but any direct calls will be logged for discoverability.
+        """
+        try:
+            res = int(float(value) * 1000)
+            logger.debug(f"ui_to_exposure: converted {value} ms -> {res} μs")
+            return res
+        except Exception as e:
+            logger.debug(f"ui_to_exposure: conversion error for value={value}: {e}")
+            raise
 
     def exposure_to_ui(self, value):
-        # Camera trả về us, UI hiển thị ms
-        return round(float(value) / 1000, 2)
+        """Convert camera exposure (μs) to UI exposure (ms).
+
+        Kept for compatibility; logged when called so unused helpers are easy
+        to detect during runtime.
+        """
+        try:
+            res = round(float(value) / 1000, 2)
+            logger.debug(f"exposure_to_ui: converted {value} μs -> {res} ms")
+            return res
+        except Exception as e:
+            logger.debug(f"exposure_to_ui: conversion error for value={value}: {e}")
+            raise
 
     def ui_to_gain(self, value):
         # UI nhập int, camera cần float

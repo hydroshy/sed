@@ -1,10 +1,23 @@
 """
-Workflow management module for SED (Smart Eye Detection).
+workflow package intentionally disabled.
 
-This module provides workflow management capabilities, allowing users to
-create, save, load, and execute workflows consisting of multiple processing tools.
+This package was archived and removed from active code. Importing
+`workflow` will raise ImportError with instructions to restore from
+the backups located in `backup/workflow_originals/` or `backup/workflow/`.
+"""
+raise ImportError(
+    "The 'workflow' package has been disabled and moved to backup/\n"
+    "To restore, copy the files from backup/workflow_originals/ into this directory."
+)
+"""
+ARCHIVED: workflow package
+
+The `workflow` package has been archived and its contents moved to
+`backup/workflow_originals/`. Importing this package will raise an error to
+prevent accidental use.
 """
 
-from .workflow_manager import WorkflowManager, Workflow, WorkflowStep
-
-__all__ = ['WorkflowManager', 'Workflow', 'WorkflowStep']
+raise ImportError(
+	"The 'workflow' package has been archived and removed from active code. "
+	"See 'backup/workflow_originals/' for the original files."
+)
