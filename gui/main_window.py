@@ -255,15 +255,15 @@ class MainWindow(QMainWindow):
         self.removeJob = self.findChild(QPushButton, 'removeJob')
         self.editJob = self.findChild(QPushButton, 'editJob')
         
-        # Tạo tab Workflow để hiển thị workflow
-        self.workflowTab = QWidget()
-        if self.paletteTab:
-            self.paletteTab.addTab(self.workflowTab, "Workflow")
-            # Tạo WorkflowWidget và thêm vào tab
-            self.workflow_widget = WorkflowWidget(self.workflowTab)
-            layout = QVBoxLayout(self.workflowTab)
-            layout.addWidget(self.workflow_widget)
-            self.workflowTab.setLayout(layout)
+        # Tạo tab Workflow để hiển thị workflow - TEMPORARILY DISABLED
+        # self.workflowTab = QWidget()
+        # if self.paletteTab:
+        #     self.paletteTab.addTab(self.workflowTab, "Workflow")
+        #     # Tạo WorkflowWidget và thêm vào tab
+        #     self.workflow_widget = WorkflowWidget(self.workflowTab)
+        #     layout = QVBoxLayout(self.workflowTab)
+        #     layout.addWidget(self.workflow_widget)
+        #     self.workflowTab.setLayout(layout)
         self.addJob = self.findChild(QPushButton, 'addJob')
         self.loadJob = self.findChild(QPushButton, 'loadJob')
         self.toolView = self.findChild(QListView, 'toolView')
@@ -440,15 +440,16 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'settings_manager'):
             self.settings_manager.post_init()
             
-        # Cập nhật workflow view ban đầu
-        self._update_workflow_view()
+        # Cập nhật workflow view ban đầu - TEMPORARILY DISABLED
+        # self._update_workflow_view()
         
     def _update_workflow_view(self):
-        """Cập nhật workflow view khi job thay đổi"""
-        if hasattr(self, 'workflow_widget'):
-            current_job = self.job_manager.get_current_job()
-            self.workflow_widget.build_workflow_from_job(current_job)
-            logging.info("Đã cập nhật workflow view")
+        """Cập nhật workflow view khi job thay đổi - TEMPORARILY DISABLED"""
+        # if hasattr(self, 'workflow_widget'):
+        #     current_job = self.job_manager.get_current_job()
+        #     self.workflow_widget.build_workflow_from_job(current_job)
+        #     logging.info("Đã cập nhật workflow view")
+        pass
         
     def refresh_detect_tool_manager(self):
         """Refresh DetectToolManager connections when switching to detect page"""
@@ -554,9 +555,9 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'paletteTab') and self.paletteTab:
             self.paletteTab.currentChanged.connect(self._on_tab_changed)
             
-        # Kết nối workflow view với tool manager
-        if hasattr(self, 'workflow_widget'):
-            self.workflow_widget.node_selected.connect(self._on_workflow_node_selected)
+        # Kết nối workflow view với tool manager - TEMPORARILY DISABLED
+        # if hasattr(self, 'workflow_widget'):
+        #     self.workflow_widget.node_selected.connect(self._on_workflow_node_selected)
             
         # Add Camera Source to tool combo box if not already present
         self._add_camera_source_to_combo_box()
