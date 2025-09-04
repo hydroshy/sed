@@ -166,6 +166,14 @@ class ToolManager(QObject):
                 print(f"DEBUG: Tool details: name={tool.name}, display_name={tool.display_name}, id={tool.tool_id}")
                 logging.info(f"ToolManager: Created CameraTool instance. name={tool.name}, display_name={tool.display_name}, id={tool.tool_id}")
                 
+                # Register Camera Tool with Camera Manager
+                if hasattr(self.parent(), 'camera_manager') and self.parent().camera_manager:
+                    camera_manager = self.parent().camera_manager
+                    if hasattr(camera_manager, 'register_tool'):
+                        print("DEBUG: Registering Camera Tool with Camera Manager")
+                        camera_manager.register_tool(tool)
+                        logging.info("ToolManager: Registered Camera Tool with Camera Manager")
+                
                 # Enable camera buttons after adding Camera Source tool
                 if hasattr(self.parent(), 'camera_manager') and self.parent().camera_manager:
                     camera_manager = self.parent().camera_manager

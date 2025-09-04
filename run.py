@@ -28,6 +28,37 @@ def check_dependencies():
         print(f"Missing dependencies: {', '.join(missing)}")
         print("Please install them using: pip install -r requirements.txt")
         return False
+    
+    # Check for Raspberry Pi and verify picamera2/pykms
+    is_raspberry_pi = os.path.exists('/proc/device-tree/model') and 'Raspberry Pi' in open('/proc/device-tree/model', 'r').read()
+    if is_raspberry_pi:
+        print("Detected Raspberry Pi environment")
+        try:
+            # Try importing picamera2
+            import picamera2
+            print("✓ picamera2 is available")
+            
+            # Check if pykms is available without errors
+            try:
+                # Add stubs directory to path if it exists
+                stubs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'stubs')
+                if os.path.exists(stubs_dir):
+                    sys.path.insert(0, stubs_dir)
+                    print(f"Added stubs directory to path: {stubs_dir}")
+                
+                # Try importing pykms
+                import pykms
+                print("✓ pykms is available")
+            except Exception as e:
+                print(f"! pykms error: {e}")
+                print("! Using stubs or fallbacks for pykms")
+                
+                # Ensure the QT_QPA_PLATFORM env var is set for the subprocess
+                os.environ['QT_QPA_PLATFORM'] = 'xcb'
+                print("✓ Set QT_QPA_PLATFORM=xcb for compatibility")
+        except ImportError:
+            print("! picamera2 is not available - camera functionality may be limited")
+            
     return True
 
 def main():
@@ -60,6 +91,13 @@ def main():
         
     if args.no_camera:
         cmd.append('--no-camera')
+        
+    # On Raspberry Pi, suggest using xcb platform if not already set
+    is_raspberry_pi = os.path.exists('/proc/device-tree/model') and 'Raspberry Pi' in open('/proc/device-tree/model', 'r').read()
+    if is_raspberry_pi and 'QT_QPA_PLATFORM' not in os.environ:
+        cmd.append('--platform')
+        cmd.append('xcb')
+        print("Using --platform xcb for better compatibility on Raspberry Pi")
     
     print(f"Running: {' '.join(cmd)}")
     

@@ -402,7 +402,9 @@ class MainWindow(QMainWindow):
             manual_exposure_btn=getattr(self, 'manualExposure', None),
             apply_settings_btn=getattr(self, 'applySetting', None),
             cancel_settings_btn=getattr(self, 'cancelSetting', None),
-            job_toggle_btn=getattr(self, 'runJob', None)  # Use runJob as toggle button
+            job_toggle_btn=getattr(self, 'runJob', None),  # Use runJob as toggle button
+            live_camera_mode=getattr(self, 'liveCameraMode', None),
+            trigger_camera_mode=getattr(self, 'triggerCameraMode', None)
         )
         
         # Link CameraManager with SettingsManager for synchronization
