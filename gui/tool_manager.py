@@ -169,6 +169,11 @@ class ToolManager(QObject):
                 # Register Camera Tool with Camera Manager
                 if hasattr(self.parent(), 'camera_manager') and self.parent().camera_manager:
                     camera_manager = self.parent().camera_manager
+                    
+                    # Set camera_manager reference in CameraTool (Single Source of Truth)
+                    tool.camera_manager = camera_manager
+                    print(f"DEBUG: Set camera_manager reference in CameraTool")
+                    
                     if hasattr(camera_manager, 'register_tool'):
                         print("DEBUG: Registering Camera Tool with Camera Manager")
                         camera_manager.register_tool(tool)
@@ -388,8 +393,11 @@ class ToolManager(QObject):
                 
                 # Tự động bắt đầu preview camera
                 if hasattr(camera_manager, 'start_camera_preview'):
-                    preview_result = camera_manager.start_camera_preview()
-                    print(f"DEBUG: Camera preview start result: {preview_result}")
+                    # Thay vì tự động bắt đầu camera, chỉ đảm bảo UI được cập nhật
+                    print("DEBUG: Setting up camera UI without auto-starting camera")
+                    # Cập nhật UI mà không bắt đầu camera tự động
+                    camera_manager.update_camera_mode_ui()
+                    print("DEBUG: Camera UI updated, waiting for user to start camera manually")
                 
             # Kích hoạt job view cập nhật để đảm bảo tool hiển thị
             self._force_update_job_view()

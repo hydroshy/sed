@@ -135,6 +135,11 @@ class SaveImageTool(BaseTool):
                 "error": None
             }
 
+            # Respect auto_save flag unless explicitly forced via context
+            if not self.auto_save and not (context and context.get('force_save')):
+                logger.info("SaveImageTool: auto_save is disabled; skipping save for this frame")
+                return image, result
+
             # Check if we have a valid directory
             if not self.directory:
                 error_msg = "No directory specified for saving images"
@@ -153,7 +158,6 @@ class SaveImageTool(BaseTool):
                     result["error"] = error_msg
                     return image, result
             
-            # Always try to save (remove auto_save check for now to debug)
             logger.info(f"SaveImageTool: Attempting to save image...")
             filepath = self.save_image_array(image)
             if filepath:

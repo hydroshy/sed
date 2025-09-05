@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file 'mainUI.ui'
+# Form implementation generated from reading ui file '.\mainUI.ui'
 #
 # Created by: PyQt5 UI code generator 5.15.11
 #
@@ -75,26 +75,17 @@ class Ui_MainWindow(object):
         self.cameraView.setResizeAnchor(QtWidgets.QGraphicsView.AnchorViewCenter)
         self.cameraView.setViewportUpdateMode(QtWidgets.QGraphicsView.FullViewportUpdate)
         self.cameraView.setObjectName("cameraView")
-        self.liveCamera = QtWidgets.QPushButton(self.cameraFrame)
-        self.liveCamera.setEnabled(False)
-        self.liveCamera.setGeometry(QtCore.QRect(20, 10, 141, 23))
+        self.onlineCamera = QtWidgets.QPushButton(self.cameraFrame)
+        self.onlineCamera.setEnabled(True)
+        self.onlineCamera.setGeometry(QtCore.QRect(20, 10, 141, 23))
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
-        sizePolicy.setHeightForWidth(self.liveCamera.sizePolicy().hasHeightForWidth())
-        self.liveCamera.setSizePolicy(sizePolicy)
-        self.liveCamera.setObjectName("liveCamera")
-        self.triggerCamera = QtWidgets.QPushButton(self.cameraFrame)
-        self.triggerCamera.setEnabled(False)
-        self.triggerCamera.setGeometry(QtCore.QRect(180, 10, 141, 23))
-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
-        sizePolicy.setHorizontalStretch(0)
-        sizePolicy.setVerticalStretch(0)
-        sizePolicy.setHeightForWidth(self.triggerCamera.sizePolicy().hasHeightForWidth())
-        self.triggerCamera.setSizePolicy(sizePolicy)
-        self.triggerCamera.setObjectName("triggerCamera")
+        sizePolicy.setHeightForWidth(self.onlineCamera.sizePolicy().hasHeightForWidth())
+        self.onlineCamera.setSizePolicy(sizePolicy)
+        self.onlineCamera.setObjectName("onlineCamera")
         self.focusBar = QtWidgets.QProgressBar(self.cameraFrame)
-        self.focusBar.setGeometry(QtCore.QRect(20, 630, 931, 31))
+        self.focusBar.setGeometry(QtCore.QRect(20, 800, 931, 31))
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
@@ -143,6 +134,27 @@ class Ui_MainWindow(object):
         self.sourceOutputComboBox = QtWidgets.QComboBox(self.cameraFrame)
         self.sourceOutputComboBox.setGeometry(QtCore.QRect(20, 40, 931, 22))
         self.sourceOutputComboBox.setObjectName("sourceOutputComboBox")
+        self.horizontalLayoutWidget_2 = QtWidgets.QWidget(self.cameraFrame)
+        self.horizontalLayoutWidget_2.setGeometry(QtCore.QRect(20, 630, 931, 121))
+        self.horizontalLayoutWidget_2.setObjectName("horizontalLayoutWidget_2")
+        self.reviewLayout = QtWidgets.QHBoxLayout(self.horizontalLayoutWidget_2)
+        self.reviewLayout.setContentsMargins(0, 0, 0, 0)
+        self.reviewLayout.setObjectName("reviewLayout")
+        self.reviewView_1 = QtWidgets.QGraphicsView(self.horizontalLayoutWidget_2)
+        self.reviewView_1.setObjectName("reviewView_1")
+        self.reviewLayout.addWidget(self.reviewView_1)
+        self.reviewView_2 = QtWidgets.QGraphicsView(self.horizontalLayoutWidget_2)
+        self.reviewView_2.setObjectName("reviewView_2")
+        self.reviewLayout.addWidget(self.reviewView_2)
+        self.reviewView_3 = QtWidgets.QGraphicsView(self.horizontalLayoutWidget_2)
+        self.reviewView_3.setObjectName("reviewView_3")
+        self.reviewLayout.addWidget(self.reviewView_3)
+        self.reviewView_4 = QtWidgets.QGraphicsView(self.horizontalLayoutWidget_2)
+        self.reviewView_4.setObjectName("reviewView_4")
+        self.reviewLayout.addWidget(self.reviewView_4)
+        self.reviewView_5 = QtWidgets.QGraphicsView(self.horizontalLayoutWidget_2)
+        self.reviewView_5.setObjectName("reviewView_5")
+        self.reviewLayout.addWidget(self.reviewView_5)
         self.cameraLayout.addWidget(self.cameraFrame)
         self.mainLayout.addLayout(self.cameraLayout)
         self.settingLayout = QtWidgets.QVBoxLayout()
@@ -485,8 +497,7 @@ class Ui_MainWindow(object):
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
         MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
-        self.liveCamera.setText(_translate("MainWindow", "Live Camera"))
-        self.triggerCamera.setText(_translate("MainWindow", "Trigger Camera"))
+        self.onlineCamera.setText(_translate("MainWindow", "Online Camera"))
         self.runJob.setText(_translate("MainWindow", "Run Job"))
         self.zoomIn.setText(_translate("MainWindow", "Zoom in +"))
         self.zoomOut.setText(_translate("MainWindow", "Zoom out -"))
@@ -540,23 +551,12 @@ class Ui_MainWindow(object):
         self.menuTool.setTitle(_translate("MainWindow", "Show"))
         self.actionList_tool.setText(_translate("MainWindow", "SED Tool"))
 
-    def setupSaveImageToolLogic(self, jobManager, imageSource):
-        # Ensure event handlers for Save Image tool are connected only once
-        if not hasattr(self, '_saveImageLogicConnected'):
-            # Browse directory
-            self.browseButton.clicked.connect(lambda: self._browseDirectory())
-            # Apply save
-            self.applySettingSave.clicked.connect(lambda: self._applySaveImage(jobManager, imageSource))
-            # Cancel
-            self.cancleTool.clicked.connect(self._cancelSaveImage)
-            self._saveImageLogicConnected = True
-        # Switch to Save Image page
-        self.showSaveImagePage()
 
-    def _cancelSaveImage(self):
-        # Revert back to the default (palettePage) when cancel is pressed
-        self.settingStackedWidget.setCurrentIndex(0)
-
-    def showSaveImagePage(self):
-        # Switch the stacked widget to display the saveImagePage
-        self.settingStackedWidget.setCurrentWidget(self.saveImagePage)
+if __name__ == "__main__":
+    import sys
+    app = QtWidgets.QApplication(sys.argv)
+    MainWindow = QtWidgets.QMainWindow()
+    ui = Ui_MainWindow()
+    ui.setupUi(MainWindow)
+    MainWindow.show()
+    sys.exit(app.exec_())

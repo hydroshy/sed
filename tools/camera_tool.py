@@ -152,246 +152,98 @@ class CameraTool(BaseTool):
             logger.error(f"Chế độ camera không hợp lệ: {mode}")
             return False
             
-        # Cập nhật cấu hình
+        # Cập nhật cấu hình trong CameraTool
+        old_mode = self.config.get("camera_mode", "live")
         self.config["camera_mode"] = mode
-        logger.info(f"Đã đặt chế độ camera thành: {mode}")
+        logger.info(f"CameraTool: Camera mode changed from {old_mode} to {mode}")
         
-        # Khi thay đổi chế độ, đảm bảo camera vẫn hoạt động
-        # Bỏ qua kiểm tra liên quan đến nguồn camera
-        try:
-            # Update configuration in main camera manager if available
-            if hasattr(self, 'camera_manager') and self.camera_manager:
-                print(f"DEBUG: [CameraTool] Applying {mode} mode to camera_manager")
-                
-                if mode == "live":
-                    # Make sure preview is active
-                    if hasattr(self.camera_manager, 'toggle_live_camera'):
-                        self.camera_manager.toggle_live_camera(True)
-                elif mode == "trigger":
-                    # Switch to trigger mode while keeping preview active
-                    if hasattr(self.camera_manager, 'set_trigger_mode'):
-                        self.camera_manager.set_trigger_mode(True)
-                        # Make sure preview is active
-                        if hasattr(self.camera_manager, 'toggle_live_camera'):
-                            self.camera_manager.toggle_live_camera(True)
-                elif mode == "single":
-                    # Similar to trigger but uses software trigger
-                    if hasattr(self.camera_manager, 'set_trigger_mode'):
-                        self.camera_manager.set_trigger_mode(False)
-                        # Make sure preview is active
-                        if hasattr(self.camera_manager, 'toggle_live_camera'):
-                            self.camera_manager.toggle_live_camera(True)
-            
-            # Nếu là camera global shutter và chế độ trigger, cấu hình external trigger
-            if mode == "trigger" and self.is_gs_camera and self.config.get("enable_external_trigger", False):
-                return self._setup_external_trigger(True)
-            elif mode == "live" and self.is_gs_camera and self.config.get("enable_external_trigger", False):
-                return self._setup_external_trigger(False)
-                
-            return True
-        except Exception as e:
-            logger.error(f"Error setting camera mode: {e}")
-            return False
+        # Auto-enable external trigger for IMX296 when switching to trigger mode
+        if mode == "trigger" and self.is_gs_camera:
+            self.config["enable_external_trigger"] = True
+            print(f"DEBUG: [CameraTool] Auto-enabled external trigger for IMX296 in trigger mode")
+        elif mode == "live":
+            self.config["enable_external_trigger"] = False
+            print(f"DEBUG: [CameraTool] Disabled external trigger for live mode")
         
-    def _setup_external_trigger(self, enable: bool) -> bool:
-        """
-        Bật/tắt chế độ external trigger cho camera IMX296
-        
-        Args:
-            enable: True để bật, False để tắt
+        # Delegate to CameraManager for hardware control ONLY
+        if hasattr(self, 'camera_manager') and self.camera_manager:
+            print(f"DEBUG: [CameraTool] Delegating hardware control to CameraManager")
             
-        Returns:
-            True nếu thành công, False nếu không
-        """
-        if not self.is_gs_camera:
-            logger.warning("Không phải camera IMX296, không thể cấu hình external trigger")
-            return False
+            # Update CameraManager's current_mode to stay in sync
+            self.camera_manager.current_mode = mode
             
-        try:
-            # Đặt giá trị cho trigger_mode
-            value = 1 if enable else 0
-            cmd = f"echo {value} | sudo tee /sys/module/imx296/parameters/trigger_mode"
+            # Set hardware trigger mode based on camera mode
+            if mode == "trigger":
+                success = self.camera_manager.set_trigger_mode(True)
+            else:  # live or single
+                success = self.camera_manager.set_trigger_mode(False)
             
-            # Thực thi lệnh
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            # Update CameraManager UI to reflect the mode change
+            if hasattr(self.camera_manager, 'update_camera_mode_ui'):
+                self.camera_manager.update_camera_mode_ui()
             
-            if result.returncode == 0:
-                logger.info(f"Đã {'bật' if enable else 'tắt'} external trigger cho IMX296")
-                return True
-            else:
-                logger.error(f"Lỗi thiết lập external trigger: {result.stderr}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Lỗi thiết lập external trigger: {e}")
-            return False
+            # Apply other camera settings
+            self._apply_config_to_camera_manager()
             
-    def trigger_capture(self) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """
-        Kích hoạt chụp ảnh trong chế độ trigger
-        
-        Returns:
-            Tuple chứa (ảnh chụp, kết quả)
-        """
-        # Kiểm tra xem có đang ở chế độ trigger không
-        if self.config.get("camera_mode") != "trigger":
-            logger.warning("Không thể kích hoạt chụp vì không ở chế độ trigger")
-            # Trả về khung hình cuối cùng hoặc khung hình giả
-            frame = self.last_trigger_frame if self.last_trigger_frame is not None else np.zeros((1080, 1440, 3), dtype=np.uint8)
-            return frame, {"error": "Không ở chế độ trigger"}
-            
-        # Nếu chúng ta sử dụng external trigger, không làm gì cả vì trigger được xử lý bởi phần cứng
-        if self.is_gs_camera and self.config.get("enable_external_trigger", False):
-            logger.info("Đang sử dụng external trigger, chờ camera phản hồi...")
-            # Trả về khung hình cuối cùng hoặc khung hình giả
-            frame = self.last_trigger_frame if self.last_trigger_frame is not None else np.zeros((1080, 1440, 3), dtype=np.uint8)
-            return frame, {"status": "waiting_for_external_trigger"}
-            
-        # Nếu không, thực hiện chụp ảnh qua phần mềm
-        try:
-            # Capture through the main camera_stream
-            if hasattr(self, 'camera_manager') and self.camera_manager:
-                # Use the camera_manager if available
-                frame, metadata = self.camera_manager.trigger_capture()
-                self.last_trigger_frame = frame.copy()
-                return frame, metadata
-            else:
-                # Fallback to direct capture if camera_manager is not available
-                # This assumes picam2 is properly initialized elsewhere
-                if not self.is_camera_available or not self.picam2:
-                    frame = np.zeros((1080, 1440, 3), dtype=np.uint8)
-                    return frame, {"error": "Camera không khả dụng"}
-                
-                # Capture directly using picam2
-                frame = self.picam2.capture_array()
-                self.last_trigger_frame = frame.copy()
-                
-                # Tạo kết quả
-                result = {
-                    'tool_name': self.display_name,
-                    'frame_size': frame.shape[1::-1],  # (width, height)
-                    'frame_format': self.current_format,
-                    'exposure_time': self.current_exposure,
-                    'trigger_mode': True
-                }
-                return frame, result
-                
-        except Exception as e:
-            logger.error(f"Lỗi kích hoạt chụp ảnh: {e}")
-            # Trả về khung hình giả nếu có lỗi
-            frame = self.last_trigger_frame if self.last_trigger_frame is not None else np.zeros((1080, 1440, 3), dtype=np.uint8)
-            return frame, {"error": f"Lỗi kích hoạt chụp ảnh: {e}"}
-            
-    def _query_frame(self) -> np.ndarray:
-        """Lấy khung hình từ camera"""
-        if not self.is_camera_available or not self.is_live:
-            # Tạo khung hình giả nếu camera không khả dụng
-            return np.zeros((480, 640, 3), dtype=np.uint8)
-            
-        try:
-            with QMutexLocker(self._mutex):
-                frame = self.picam2.capture_array()
-                
-                # Xử lý khung hình theo config
-                rotation = self.config.get("rotation", 0)
-                flip_h = self.config.get("flip_horizontal", False)
-                flip_v = self.config.get("flip_vertical", False)
-                
-                # Xoay ảnh nếu cần
-                if rotation == 90:
-                    frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-                elif rotation == 180:
-                    frame = cv2.rotate(frame, cv2.ROTATE_180)
-                elif rotation == 270:
-                    frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-                    
-                # Lật ảnh nếu cần
-                if flip_h or flip_v:
-                    flip_code = -1 if (flip_h and flip_v) else (0 if flip_v else 1)
-                    frame = cv2.flip(frame, flip_code)
-                    
-                return frame
-        except Exception as e:
-            logger.error(f"Lỗi lấy khung hình: {e}")
-            # Trả về khung hình giả nếu có lỗi
-            return np.zeros((480, 640, 3), dtype=np.uint8)
-            
-    def process(self, image: np.ndarray = None, context: Optional[Dict[str, Any]] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """
-        Cung cấp khung hình cho pipeline
-        
-        Args:
-            image: Không được sử dụng vì đây là công cụ đầu vào
-            context: Ngữ cảnh từ các công cụ trước
-            
-        Returns:
-            Tuple chứa (khung hình từ camera, kết quả)
-        """
-        # Xác định chế độ camera
-        camera_mode = self.config.get("camera_mode", "live")
-        
-        # Nếu là chế độ trigger, trả về khung hình đã chụp cuối cùng
-        if camera_mode == "trigger":
-            if self.last_trigger_frame is not None:
-                frame = self.last_trigger_frame.copy()
-            else:
-                # Nếu chưa có khung hình nào, cố gắng lấy một khung hình
-                if hasattr(self, 'camera_manager') and self.camera_manager:
-                    frame, _ = self.camera_manager.trigger_capture()
-                    self.last_trigger_frame = frame.copy()
-                else:
-                    # Trả về khung hình giả nếu không có camera_manager
-                    frame = np.zeros((1080, 1440, 3), dtype=np.uint8)
-                    logger.warning("Chế độ trigger: không có khung hình sẵn có")
-        # Chế độ live: lấy khung hình từ camera hoặc sử dụng ảnh đầu vào
+            return success
         else:
-            if image is not None:
-                frame = image.copy()
+            print(f"DEBUG: [CameraTool] No camera_manager reference, config stored only")
+            return True
+    
+    def get_camera_mode(self) -> str:
+        """
+        Lấy chế độ camera hiện tại
+        
+        Returns:
+            Chế độ camera hiện tại ("live" hoặc "trigger")
+        """
+        return self.config.get("camera_mode", "live")
+    
+    def is_trigger_mode(self) -> bool:
+        """
+        Kiểm tra xem có đang ở chế độ trigger không
+        
+        Returns:
+            True nếu đang ở chế độ trigger, False nếu không
+        """
+        return self.get_camera_mode() == "trigger"
+    
+    def is_live_mode(self) -> bool:
+        """
+        Kiểm tra xem có đang ở chế độ live không
+        
+        Returns:
+            True nếu đang ở chế độ live, False nếu không
+        """
+        return self.get_camera_mode() == "live"
+    
+    def _apply_config_to_camera_manager(self):
+        """Apply current config to camera manager"""
+        if not hasattr(self, 'camera_manager') or not self.camera_manager:
+            return
+            
+        print(f"DEBUG: [CameraTool] Applying config to camera_manager")
+        
+        # Apply exposure settings
+        if "exposure" in self.config and hasattr(self.camera_manager, 'set_exposure_value'):
+            self.camera_manager.set_exposure_value(self.config["exposure"])
+            
+        # Apply gain settings  
+        if "gain" in self.config and hasattr(self.camera_manager, 'set_gain_value'):
+            self.camera_manager.set_gain_value(self.config["gain"])
+            
+        # Apply EV settings
+        if "ev" in self.config and hasattr(self.camera_manager, 'set_ev_value'):
+            self.camera_manager.set_ev_value(self.config["ev"])
+            
+        # Apply auto exposure mode
+        if "is_auto_exposure" in self.config:
+            if self.config["is_auto_exposure"]:
+                if hasattr(self.camera_manager, 'set_auto_exposure_mode'):
+                    self.camera_manager.set_auto_exposure_mode()
             else:
-                frame = self._query_frame()
-        
-        # Áp dụng rotation từ cấu hình của Camera Source
-        rotation = self.config.get("rotation", 0)
-        rotation_angle = self.config.get("rotation_angle", 0)
-        
-        # Áp dụng rotation từ góc xoay trước
-        if rotation_angle != 0:
-            # Tính toán ma trận xoay
-            h, w = frame.shape[:2]
-            center = (w // 2, h // 2)
-            M = cv2.getRotationMatrix2D(center, rotation_angle, 1.0)
-            frame = cv2.warpAffine(frame, M, (w, h), flags=cv2.INTER_LINEAR)
-        
-        # Áp dụng rotation tiêu chuẩn nếu được cấu hình
-        if rotation > 0:
-            if rotation == 90:
-                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-            elif rotation == 180:
-                frame = cv2.rotate(frame, cv2.ROTATE_180)
-            elif rotation == 270:
-                frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-        
-        # Tạo kết quả
-        result = {
-            'tool_name': self.display_name,
-            'frame_size': frame.shape[1::-1],  # (width, height)
-            'frame_format': self.current_format,
-            'exposure_time': self.current_exposure,
-            'exposure': self.config.get("exposure", 10000),
-            'gain': self.config.get("gain", 1.0),
-            'ev': self.config.get("ev", 0.0),
-            'rotation': rotation,
-            'rotation_angle': rotation_angle,
-            'is_camera_available': self.is_camera_available,
-            'is_live': self.is_live,
-            'auto_exposure': self.config.get("auto_exposure", False),
-            'is_auto_exposure': self.config.get("is_auto_exposure", False),
-            'camera_mode': camera_mode,
-            'enable_external_trigger': self.config.get("enable_external_trigger", False),
-            'is_gs_camera': self.is_gs_camera
-        }
-        
-        return frame, result
+                if hasattr(self.camera_manager, 'set_manual_exposure_mode'):
+                    self.camera_manager.set_manual_exposure_mode()
         
     def update_config(self, new_config: Dict[str, Any]) -> bool:
         """
@@ -409,18 +261,21 @@ class CameraTool(BaseTool):
             camera_mode_changed = True
             print(f"DEBUG: [CameraTool] Camera mode changing from {self.config.get('camera_mode', 'live')} to {new_config['camera_mode']}")
         
-        external_trigger_changed = False
-        if "enable_external_trigger" in new_config and new_config["enable_external_trigger"] != self.config.get("enable_external_trigger", False):
-            external_trigger_changed = True
-        
         # Cập nhật config
         result = super().update_config(new_config)
         
         # Nếu cập nhật thành công, áp dụng cấu hình mới
         if result:
-            # Xử lý thay đổi chế độ camera - luôn giữ camera hiển thị khi thay đổi chế độ
+            # Xử lý thay đổi chế độ camera - delegate to CameraManager
             if camera_mode_changed:
                 print(f"DEBUG: [CameraTool] Setting camera mode to {self.config['camera_mode']}")
+                
+                # Nếu chuyển sang chế độ trigger, đảm bảo external_trigger được bật
+                if self.config["camera_mode"] == "trigger" and self.is_gs_camera:
+                    self.config["enable_external_trigger"] = True
+                    print(f"DEBUG: [CameraTool] Setting enable_external_trigger=True for trigger mode")
+                
+                # Delegate to CameraManager
                 self.set_camera_mode(self.config["camera_mode"])
                 
                 # Ensure camera is visible (regardless of whether Camera Source is added to the pipeline)
@@ -428,10 +283,6 @@ class CameraTool(BaseTool):
                     print(f"DEBUG: [CameraTool] Ensuring camera preview is active")
                     if hasattr(self.camera_manager, 'toggle_live_camera'):
                         self.camera_manager.toggle_live_camera(True)
-                
-            # Xử lý thay đổi chế độ external trigger
-            if external_trigger_changed and self.is_gs_camera:
-                self._setup_external_trigger(self.config["enable_external_trigger"])
             
             # Apply any exposure/gain changes directly to camera manager if available
             if hasattr(self, 'camera_manager') and self.camera_manager:
@@ -461,9 +312,39 @@ class CameraTool(BaseTool):
                         if hasattr(self.camera_manager, 'set_manual_exposure_mode'):
                             self.camera_manager.set_manual_exposure_mode()
         
-        return result
+    def trigger_capture(self) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """
+        Kích hoạt chụp ảnh trong chế độ trigger - delegate to CameraManager
         
-    def capture_still(self) -> Tuple[np.ndarray, Dict[str, Any]]:
+        Returns:
+            Tuple chứa (ảnh chụp, kết quả)
+        """
+        # Delegate to CameraManager
+        if hasattr(self, 'camera_manager') and self.camera_manager:
+            return self.camera_manager.trigger_capture()
+        else:
+            # Fallback response if no camera manager
+            frame = np.zeros((1080, 1440, 3), dtype=np.uint8)
+            return frame, {"error": "Camera manager not available"}
+            
+    def _query_frame(self) -> np.ndarray:
+        """Lấy khung hình từ camera - delegate to CameraManager"""
+        if hasattr(self, 'camera_manager') and self.camera_manager:
+            # Get current frame from camera manager's camera stream
+            if self.camera_manager.camera_stream and self.camera_manager.camera_stream.is_running():
+                try:
+                    # Get the latest frame from camera stream
+                    if hasattr(self.camera_manager.camera_stream, 'get_latest_frame'):
+                        return self.camera_manager.camera_stream.get_latest_frame()
+                    else:
+                        # Fallback to a basic frame
+                        return np.zeros((1080, 1440, 3), dtype=np.uint8)
+                except Exception as e:
+                    logger.error(f"Error getting frame from camera stream: {e}")
+                    return np.zeros((1080, 1440, 3), dtype=np.uint8)
+            
+        # Return a blank frame if no camera available
+        return np.zeros((1080, 1440, 3), dtype=np.uint8)
         """
         Chụp ảnh độ phân giải cao
         
@@ -550,13 +431,12 @@ class CameraTool(BaseTool):
         Returns:
             True nếu thành công, False nếu không
         """
-        # Set camera mode to live
-        self.config["camera_mode"] = "live"
-        self.set_camera_mode("live")
+        # Use set_camera_mode instead of manual assignment to avoid duplication
+        result = self.set_camera_mode("live")
         
         # This is a placeholder - actual camera control is done by camera_manager
         logger.info("Camera mode set to LIVE")
-        return True
+        return result
         
     def start_trigger_mode(self) -> bool:
         """
@@ -565,8 +445,7 @@ class CameraTool(BaseTool):
         Returns:
             True nếu thành công, False nếu không
         """
-        # Set camera mode to trigger
-        self.config["camera_mode"] = "trigger"
+        # Use set_camera_mode instead of manual assignment to avoid duplication
         result = self.set_camera_mode("trigger")
         
         # This is a placeholder - actual camera control is done by camera_manager

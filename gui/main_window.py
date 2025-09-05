@@ -195,6 +195,7 @@ class MainWindow(QMainWindow):
         # Camera control buttons
         self.liveCamera = self.findChild(QPushButton, 'liveCamera')
         self.triggerCamera = self.findChild(QPushButton, 'triggerCamera')
+        self.onlineCamera = self.findChild(QPushButton, 'onlineCamera')  # Thêm onlineCamera button
         self.zoomIn = self.findChild(QPushButton, 'zoomIn')
         self.zoomOut = self.findChild(QPushButton, 'zoomOut')
         self.rotateLeft = self.findChild(QPushButton, 'rotateLeft')
@@ -453,6 +454,47 @@ class MainWindow(QMainWindow):
         #     logging.info("Đã cập nhật workflow view")
         pass
         
+    def _toggle_camera(self, checked):
+        """Xử lý khi người dùng nhấn nút onlineCamera để bật/tắt camera
+        
+        Args:
+            checked: Boolean, True nếu nút được chọn, False nếu nút được bỏ chọn
+        """
+        try:
+            logging.info(f"Toggle camera button clicked: {checked}")
+            
+            if not hasattr(self, 'camera_manager') or not self.camera_manager:
+                logging.error("Camera manager not available")
+                return
+                
+            if checked:
+                # Bật camera
+                logging.info("Starting camera")
+                success = self.camera_manager.start_live_camera()
+                
+                if not success:
+                    # Nếu không thành công, đặt lại trạng thái nút
+                    logging.error("Failed to start camera")
+                    self.onlineCamera.setChecked(False)
+            else:
+                # Tắt camera
+                logging.info("Stopping camera")
+                if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
+                    if hasattr(self.camera_manager.camera_stream, 'stop_live'):
+                        self.camera_manager.camera_stream.stop_live()
+                    elif hasattr(self.camera_manager, '_implement_stop_live'):
+                        self.camera_manager._implement_stop_live()
+                    logging.info("Camera stopped")
+                else:
+                    logging.warning("Camera stream not available")
+                    
+        except Exception as e:
+            logging.error(f"Error in _toggle_camera: {e}")
+            import traceback
+            traceback.print_exc()
+            # Đặt lại trạng thái nút nếu có lỗi
+            self.onlineCamera.setChecked(False)
+        
     def refresh_detect_tool_manager(self):
         """Refresh DetectToolManager connections when switching to detect page"""
         if hasattr(self, 'detect_tool_manager'):
@@ -514,6 +556,11 @@ class MainWindow(QMainWindow):
         if self.liveCamera:
             self.liveCamera.setCheckable(True)
             self.liveCamera.clicked.connect(self.camera_manager.on_live_camera_clicked)
+            
+        if self.onlineCamera:  # Thêm kết nối cho nút onlineCamera dạng toggle
+            self.onlineCamera.setCheckable(True)  # Làm cho nút có thể chọn
+            self.onlineCamera.clicked.connect(self._toggle_camera)
+            logging.info("onlineCamera button connected to _toggle_camera.")
             
         if self.triggerCamera:
             self.triggerCamera.clicked.connect(self.camera_manager.on_trigger_camera_clicked)

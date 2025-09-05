@@ -137,9 +137,9 @@
             <enum>QGraphicsView::FullViewportUpdate</enum>
            </property>
           </widget>
-          <widget class="QPushButton" name="liveCamera">
+          <widget class="QPushButton" name="onlineCamera">
            <property name="enabled">
-            <bool>false</bool>
+            <bool>true</bool>
            </property>
            <property name="geometry">
             <rect>
@@ -156,29 +156,7 @@
             </sizepolicy>
            </property>
            <property name="text">
-            <string>Live Camera</string>
-           </property>
-          </widget>
-          <widget class="QPushButton" name="triggerCamera">
-           <property name="enabled">
-            <bool>false</bool>
-           </property>
-           <property name="geometry">
-            <rect>
-             <x>180</x>
-             <y>10</y>
-             <width>141</width>
-             <height>23</height>
-            </rect>
-           </property>
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="text">
-            <string>Trigger Camera</string>
+            <string>Online Camera</string>
            </property>
           </widget>
           <widget class="QProgressBar" name="focusBar">

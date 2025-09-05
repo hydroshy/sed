@@ -16,4 +16,11 @@ try:
 except Exception as e:
     print(f"WARNING: Failed to apply camera patches: {e}")
 
+# Import external trigger methods
+try:
+    import camera.external_trigger_methods
+    print("DEBUG: External trigger methods loaded")
+except Exception as e:
+    print(f"WARNING: Failed to load external trigger methods: {e}")
+
 __all__ = ['CameraStream']
