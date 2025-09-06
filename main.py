@@ -106,13 +106,7 @@ def main():
     # Set application style
     app.setStyle('Fusion')
     
-    # Ensure camera patches are applied
-    try:
-        from camera.camera_patches import apply_all_patches
-        apply_all_patches()
-        logger.info("Camera patches applied successfully")
-    except Exception as e:
-        logger.warning(f"Failed to apply camera patches: {e}")
+    # CameraStream now includes required methods; no dynamic patching needed
     
     try:
         # Import main window (chọn phiên bản theo tham số --new)
