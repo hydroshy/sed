@@ -191,12 +191,15 @@ class SettingsManager(QObject):
                         except Exception as e:
                             logging.warning(f"SettingsManager: Failed to auto-switch to detection mode: {e}")
                 
-                # Auto start camera preview when switching to camera settings page
-                # so user can see what they're configuring
+                # When switching to camera settings page: reflect current mode in UI and (optionally) start preview
                 if page_type == "camera":
-                    logging.info("SettingsManager: Auto-starting camera for camera settings page")
                     if hasattr(self.main_window, 'camera_manager') and self.main_window.camera_manager:
-                        # Auto start live camera mode for settings preview
+                        # Sync mode buttons to current live/trigger state
+                        try:
+                            self.main_window.camera_manager.update_camera_mode_ui()
+                        except Exception:
+                            pass
+                        # Auto-start preview (existing behavior)
                         try:
                             self.main_window.camera_manager.start_live_camera()
                             logging.info("SettingsManager: Camera started for settings preview")

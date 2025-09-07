@@ -488,6 +488,44 @@ class MainWindow(QMainWindow):
                 return
                 
             if checked:
+                # Respect current mode (trigger/live) before starting
+                try:
+                    cm = self.camera_manager
+                    mode = None
+                    try:
+                        if hasattr(cm, 'find_camera_tool'):
+                            ct = cm.find_camera_tool()
+                            if ct and hasattr(ct, 'get_camera_mode'):
+                                mode = ct.get_camera_mode()
+                    except Exception:
+                        mode = None
+                    if (mode == 'trigger') or (hasattr(cm, 'current_mode') and cm.current_mode == 'trigger') or \
+                       (hasattr(cm, 'trigger_camera_mode') and cm.trigger_camera_mode and cm.trigger_camera_mode.isChecked()):
+                        if hasattr(cm, 'live_camera_btn') and cm.live_camera_btn:
+                            cm.live_camera_btn.setChecked(True)
+                        if hasattr(cm, 'on_live_camera_clicked'):
+                            cm.on_live_camera_clicked()
+                            return
+                except Exception:
+                    pass
+                # Respect trigger/live mode: delegate to CameraManager when in trigger mode
+                try:
+                    cm = self.camera_manager
+                    if hasattr(cm, 'current_mode') and cm.current_mode == 'trigger':
+                        if hasattr(cm, 'live_camera_btn') and cm.live_camera_btn:
+                            cm.live_camera_btn.setChecked(True)
+                        if hasattr(cm, 'on_live_camera_clicked'):
+                            cm.on_live_camera_clicked()
+                            return
+                except Exception:
+                    pass
+                # Start camera via CameraManager (mode-aware)
+                try:
+                    if hasattr(self.camera_manager, 'start_live_camera'):
+                        self.camera_manager.start_live_camera()
+                        return
+                except Exception as e:
+                    logging.warning(f"Fallback to direct start due to: {e}")
                 # Bật camera trực tiếp từ CameraStream (không đi qua start_live_camera)
                 logging.info("Starting camera (direct CameraStream.start_live)")
                 success = False

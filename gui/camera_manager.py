@@ -184,7 +184,15 @@ class CameraManager(QObject):
             if self.trigger_camera_btn:
                 self.trigger_camera_btn.setChecked(False)
                 
-            self.current_mode = None
+            # Preserve selected mode; if CameraTool available, sync current_mode from it
+            try:
+                ct = self.find_camera_tool()
+                if ct:
+                    mode = ct.get_camera_mode()
+                    if mode:
+                        self.current_mode = mode
+            except Exception:
+                pass
             self.update_camera_mode_ui()
             
             # Clear camera view display areas
@@ -1330,7 +1338,7 @@ class CameraManager(QObject):
     
     def on_live_camera_clicked(self):
         """Xử lý khi click Live Camera button (onlineCamera)"""
-        current_checked = self.live_camera_btn.isChecked() if self.live_camera_btn else False
+        current_checked = self.live_camera_btn.isChecked() if self.live_camera_btn else True
         print(f"DEBUG: [CameraManager] Live camera button clicked, checked: {current_checked}, current_mode: {self.current_mode}")
         
         if current_checked:
@@ -1538,6 +1546,45 @@ class CameraManager(QObject):
                     self.trigger_camera_mode.setChecked(False)
                     self.trigger_camera_mode.setStyleSheet("")
                     self.trigger_camera_mode.blockSignals(False)
+
+        # Always reflect mode selection color on mode buttons even if camera start/stop buttons are missing
+        try:
+            if current_mode == 'live':
+                if self.live_camera_mode:
+                    self.live_camera_mode.blockSignals(True)
+                    self.live_camera_mode.setChecked(True)
+                    self.live_camera_mode.setStyleSheet("background-color: #ffd43b")
+                    self.live_camera_mode.blockSignals(False)
+                if self.trigger_camera_mode:
+                    self.trigger_camera_mode.blockSignals(True)
+                    self.trigger_camera_mode.setChecked(False)
+                    self.trigger_camera_mode.setStyleSheet("")
+                    self.trigger_camera_mode.blockSignals(False)
+            elif current_mode == 'trigger':
+                if self.live_camera_mode:
+                    self.live_camera_mode.blockSignals(True)
+                    self.live_camera_mode.setChecked(False)
+                    self.live_camera_mode.setStyleSheet("")
+                    self.live_camera_mode.blockSignals(False)
+                if self.trigger_camera_mode:
+                    self.trigger_camera_mode.blockSignals(True)
+                    self.trigger_camera_mode.setChecked(True)
+                    self.trigger_camera_mode.setStyleSheet("background-color: #ffd43b")
+                    self.trigger_camera_mode.blockSignals(False)
+            else:
+                # Default/no mode: highlight live as default
+                if self.live_camera_mode:
+                    self.live_camera_mode.blockSignals(True)
+                    self.live_camera_mode.setChecked(True)
+                    self.live_camera_mode.setStyleSheet("background-color: #ffd43b")
+                    self.live_camera_mode.blockSignals(False)
+                if self.trigger_camera_mode:
+                    self.trigger_camera_mode.blockSignals(True)
+                    self.trigger_camera_mode.setChecked(False)
+                    self.trigger_camera_mode.setStyleSheet("")
+                    self.trigger_camera_mode.blockSignals(False)
+        except Exception:
+            pass
     
     def on_live_camera_mode_clicked(self):
         """Xử lý khi click Live Camera Mode button - delegate to CameraTool"""
@@ -2506,3 +2553,4 @@ class CameraManager(QObject):
         except Exception as e:
             print(f"DEBUG: [CameraManager] Error stopping trigger mode: {e}")
             return False
+

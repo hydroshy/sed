@@ -152,6 +152,22 @@ class ToolManager(QObject):
                         'is_auto_exposure': is_auto_exposure,
                         'rotation_angle': rotation_angle
                     })
+
+                    # Persist current camera mode (live/trigger) into CameraTool config
+                    try:
+                        mode = None
+                        if hasattr(camera_manager, 'current_mode'):
+                            mode = camera_manager.current_mode
+                        # Fallback to buttons
+                        if not mode and hasattr(camera_manager, 'trigger_camera_mode') and camera_manager.trigger_camera_mode and camera_manager.trigger_camera_mode.isChecked():
+                            mode = 'trigger'
+                        if not mode:
+                            mode = 'live'
+                        config['camera_mode'] = mode
+                        if mode == 'trigger':
+                            config['enable_external_trigger'] = True
+                    except Exception:
+                        pass
                     
                     print(f"DEBUG: Camera settings captured - exposure: {exposure_value}, gain: {gain_value}, rotation_angle: {rotation_angle}")
                     logging.info(f"ToolManager: Camera settings captured - exposure: {exposure_value}, gain: {gain_value}, rotation_angle: {rotation_angle}")
