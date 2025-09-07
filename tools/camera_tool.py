@@ -80,6 +80,7 @@ class CameraTool(BaseTool):
         self.current_exposure = self.config.get("exposure", 10000)
         self.current_format = self.config.get("format", "BGR888")
         self.frame_size = self.config.get("frame_size", (1440, 1080))
+        self.target_fps = self.config.get("target_fps", 10.0)
         
         # Reference to the main camera manager - will be set by main window
         self.camera_manager = None
@@ -224,6 +225,27 @@ class CameraTool(BaseTool):
             
         print(f"DEBUG: [CameraTool] Applying config to camera_manager")
         
+        # Apply frame size and format first to avoid reconfigure flicker
+        if "frame_size" in self.config and hasattr(self.camera_manager, 'camera_stream') \
+           and self.camera_manager.camera_stream and hasattr(self.camera_manager.camera_stream, 'set_frame_size'):
+            try:
+                w, h = self.config["frame_size"]
+                self.camera_manager.camera_stream.set_frame_size(w, h)
+            except Exception as e:
+                logger.warning(f"Could not apply frame size: {e}")
+        if "format" in self.config and hasattr(self.camera_manager, 'camera_stream') \
+           and self.camera_manager.camera_stream and hasattr(self.camera_manager.camera_stream, 'set_format'):
+            try:
+                self.camera_manager.camera_stream.set_format(self.config["format"])
+            except Exception as e:
+                logger.warning(f"Could not apply pixel format: {e}")
+        if "target_fps" in self.config and hasattr(self.camera_manager, 'camera_stream') \
+           and self.camera_manager.camera_stream and hasattr(self.camera_manager.camera_stream, 'set_target_fps'):
+            try:
+                self.camera_manager.camera_stream.set_target_fps(self.config["target_fps"])
+            except Exception as e:
+                logger.warning(f"Could not apply target FPS: {e}")
+
         # Apply exposure settings
         if "exposure" in self.config and hasattr(self.camera_manager, 'set_exposure_value'):
             self.camera_manager.set_exposure_value(self.config["exposure"])
@@ -286,6 +308,31 @@ class CameraTool(BaseTool):
             
             # Apply any exposure/gain changes directly to camera manager if available
             if hasattr(self, 'camera_manager') and self.camera_manager:
+                # Frame size / format / fps updates
+                if "frame_size" in new_config and hasattr(self.camera_manager, 'camera_stream') and \
+                   self.camera_manager.camera_stream and hasattr(self.camera_manager.camera_stream, 'set_frame_size'):
+                    try:
+                        w, h = new_config['frame_size']
+                        print(f"DEBUG: [CameraTool] Updating frame size to {w}x{h}")
+                        self.camera_manager.camera_stream.set_frame_size(w, h)
+                    except Exception as e:
+                        logger.warning(f"Failed to update frame size: {e}")
+                if "format" in new_config and hasattr(self.camera_manager, 'camera_stream') and \
+                   self.camera_manager.camera_stream and hasattr(self.camera_manager.camera_stream, 'set_format'):
+                    try:
+                        pf = new_config['format']
+                        print(f"DEBUG: [CameraTool] Updating pixel format to {pf}")
+                        self.camera_manager.camera_stream.set_format(pf)
+                    except Exception as e:
+                        logger.warning(f"Failed to update pixel format: {e}")
+                if "target_fps" in new_config and hasattr(self.camera_manager, 'camera_stream') and \
+                   self.camera_manager.camera_stream and hasattr(self.camera_manager.camera_stream, 'set_target_fps'):
+                    try:
+                        fps = new_config['target_fps']
+                        print(f"DEBUG: [CameraTool] Updating target FPS to {fps}")
+                        self.camera_manager.camera_stream.set_target_fps(fps)
+                    except Exception as e:
+                        logger.warning(f"Failed to update target FPS: {e}")
                 # Check for parameter changes
                 if "exposure" in new_config:
                     print(f"DEBUG: [CameraTool] Updating exposure to {new_config['exposure']}")

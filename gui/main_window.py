@@ -468,10 +468,25 @@ class MainWindow(QMainWindow):
                 return
                 
             if checked:
-                # Bật camera
-                logging.info("Starting camera")
-                success = self.camera_manager.start_live_camera()
-                
+                # Bật camera trực tiếp từ CameraStream (không đi qua start_live_camera)
+                logging.info("Starting camera (direct CameraStream.start_live)")
+                success = False
+                try:
+                    if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
+                        # Ưu tiên gọi trực tiếp start_live() để bật stream
+                        if hasattr(self.camera_manager.camera_stream, 'start_live'):
+                            success = self.camera_manager.camera_stream.start_live()
+                        else:
+                            # Fallback an toàn nếu API không có
+                            logging.warning("CameraStream.start_live not found, trying CameraManager toggle")
+                            if hasattr(self.camera_manager, 'toggle_live_camera'):
+                                success = self.camera_manager.toggle_live_camera(True)
+                    else:
+                        logging.error("Camera stream is not initialized")
+                except Exception as e:
+                    logging.error(f"Error starting camera stream: {e}")
+                    success = False
+
                 if not success:
                     # Nếu không thành công, đặt lại trạng thái nút
                     logging.error("Failed to start camera")

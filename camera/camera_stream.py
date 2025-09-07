@@ -19,6 +19,75 @@ except ImportError:
     has_picamera2 = False
     print("DEBUG: [CameraStream] Failed to import picamera2, will use stub implementation")
 
+def _ensure_xdg_runtime_dir():
+    """Ensure XDG_RUNTIME_DIR is set with correct permissions (for Pi/Qt)."""
+    try:
+        xdg = os.environ.get("XDG_RUNTIME_DIR")
+        if not xdg:
+            # Fallback safe path
+            uid = os.getuid() if hasattr(os, "getuid") else 1000
+            xdg = f"/tmp/xdg-runtime-{uid}"
+            os.makedirs(xdg, exist_ok=True)
+            try:
+                os.chmod(xdg, 0o700)
+            except Exception:
+                pass
+            os.environ["XDG_RUNTIME_DIR"] = xdg
+    except Exception:
+        # Best-effort only
+        pass
+
+
+class _LiveWorker(QObject):
+    """Background worker to pull frames at target FPS using existing picam2."""
+    frame_ready = pyqtSignal(object)
+    error = pyqtSignal(str)
+    finished = pyqtSignal()
+
+    def __init__(self, camera_stream, target_fps=10.0):
+        super().__init__()
+        self._running = False
+        self._stream = camera_stream
+        try:
+            self._target_fps = float(target_fps)
+        except Exception:
+            self._target_fps = 10.0
+
+    @pyqtSlot()
+    def run(self):
+        self._running = True
+        try:
+            period = 1.0 / max(1.0, self._target_fps)
+        except Exception:
+            period = 0.1
+        next_t = time.monotonic()
+        while self._running:
+            try:
+                picam2 = getattr(self._stream, 'picam2', None)
+                if not picam2 or not getattr(picam2, 'started', False):
+                    time.sleep(0.01)
+                    continue
+                frame = picam2.capture_array()
+                if frame is not None:
+                    self.frame_ready.emit(frame)
+            except Exception as e:
+                if not self._running:
+                    break
+                self.error.emit(f"capture_array error: {e}")
+                time.sleep(0.01)
+                continue
+
+            now = time.monotonic()
+            if now < next_t:
+                time.sleep(max(0, next_t - now))
+            next_t = now + period
+
+        self.finished.emit()
+
+    @pyqtSlot()
+    def stop(self):
+        self._running = False
+
 class CameraStream(QObject):
     """Camera stream handler using picamera2"""
     
@@ -37,6 +106,11 @@ class CameraStream(QObject):
         self._last_sensor_ts = 0
         self._trigger_waiting = False
         self._available_formats = []  # Will be populated in _safe_init_picamera
+        self.latest_frame = None       # Store latest frame for consumers
+        self._use_threaded_live = True # Use threaded live capture aligned with testjob.py
+        self._target_fps = 10.0        # Default live FPS
+        self._live_thread = None
+        self._live_worker = None
         
         if not has_picamera2:
             print("DEBUG: [CameraStream] picamera2 not available, using stub implementation")
@@ -71,6 +145,7 @@ class CameraStream(QObject):
             return False
             
         try:
+            _ensure_xdg_runtime_dir()
             self.picam2 = Picamera2()
             print("DEBUG: [CameraStream] picamera2 initialized successfully")
             
@@ -90,8 +165,11 @@ class CameraStream(QObject):
                 # Fallback default formats on error
                 self._available_formats = ["BGGR10", "BGGR12", "BGGR8", "YUV420"]
             
-            # Create default configurations
-            self.preview_config = self.picam2.create_preview_configuration()
+            # Create default configurations (prefer RGB888 for UI-friendly pipeline)
+            try:
+                self.preview_config = self.picam2.create_preview_configuration(main={"format": "RGB888"})
+            except Exception:
+                self.preview_config = self.picam2.create_preview_configuration()
             self.still_config = self.picam2.create_still_configuration()
             
             # Add exposure controls
@@ -191,7 +269,8 @@ class CameraStream(QObject):
         frame[:, :, 1] = np.linspace(0, 255, 480, dtype=np.uint8)[:, np.newaxis]
         frame[:, :, 2] = np.full((480, 640), int(time.time() % 255), dtype=np.uint8)
         
-        # Emit the test frame
+        # Store and emit the test frame
+        self.latest_frame = frame
         self.frame_ready.emit(frame)
     
     def set_trigger_mode(self, enabled):
@@ -324,9 +403,10 @@ class CameraStream(QObject):
                 print("DEBUG: [CameraStream] Empty frame received")
                 return
                 
-            # Emit the frame
+            # Store and emit the frame
+            self.latest_frame = frame
             self.frame_ready.emit(frame)
-            
+        
         except Exception as e:
             print(f"DEBUG: [CameraStream] Error in process_frame: {e}")
             # Only emit error if it seems serious
@@ -369,9 +449,16 @@ class CameraStream(QObject):
             else:
                 self.picam2.start(show_preview=False)
             
-            # Start the timer for frame processing
-            if hasattr(self, 'timer') and not self.timer.isActive():
-                self.timer.start(100)  # 10 FPS
+            # Start threaded live capturing or fallback timer
+            if getattr(self, '_use_threaded_live', False):
+                print(f"DEBUG: [CameraStream] Starting threaded live worker at {self._target_fps} FPS")
+                if hasattr(self, 'timer') and self.timer.isActive():
+                    self.timer.stop()
+                self._start_live_worker()
+            else:
+                if hasattr(self, 'timer') and not self.timer.isActive():
+                    interval = int(1000.0 / max(1.0, float(self._target_fps)))
+                    self.timer.start(interval)
             
             self.is_live = True
             print("DEBUG: [CameraStream] Live view started successfully")
@@ -405,6 +492,21 @@ class CameraStream(QObject):
             if hasattr(self, 'timer') and self.timer.isActive():
                 self.timer.stop()
             
+            # Stop threaded worker if running
+            if getattr(self, '_live_worker', None) is not None:
+                try:
+                    self._live_worker.stop()
+                except Exception:
+                    pass
+            if getattr(self, '_live_thread', None) is not None:
+                try:
+                    self._live_thread.quit()
+                    self._live_thread.wait(1500)
+                except Exception:
+                    pass
+                self._live_thread = None
+                self._live_worker = None
+            
             # Stop the camera if it's running
             if self.is_camera_available and hasattr(self, 'picam2') and self.picam2 and self.picam2.started:
                 print("DEBUG: [CameraStream] Stopping camera")
@@ -419,6 +521,44 @@ class CameraStream(QObject):
             print(f"DEBUG: [CameraStream] Error stopping live view: {e}")
             self.is_live = False
             return False
+
+    def _start_live_worker(self):
+        """Create and start a background worker for live frames."""
+        # Stop any existing worker
+        if getattr(self, '_live_worker', None) is not None:
+            try:
+                self._live_worker.stop()
+            except Exception:
+                pass
+        if getattr(self, '_live_thread', None) is not None:
+            try:
+                self._live_thread.quit()
+                self._live_thread.wait(500)
+            except Exception:
+                pass
+            self._live_thread = None
+            self._live_worker = None
+
+        self._live_thread = QThread()
+        self._live_worker = _LiveWorker(self, target_fps=self._target_fps)
+        self._live_worker.moveToThread(self._live_thread)
+
+        # Wire signals
+        self._live_thread.started.connect(self._live_worker.run)
+        self._live_worker.frame_ready.connect(self._handle_worker_frame)
+        self._live_worker.error.connect(self.camera_error.emit)
+        self._live_worker.finished.connect(self._live_thread.quit)
+
+        self._live_thread.start()
+
+    @pyqtSlot(object)
+    def _handle_worker_frame(self, frame):
+        """Store and forward frames from worker."""
+        try:
+            self.latest_frame = frame
+        except Exception:
+            pass
+        self.frame_ready.emit(frame)
     
     def set_exposure(self, exposure_us):
         """Set camera exposure in microseconds
@@ -466,6 +606,81 @@ class CameraStream(QObject):
             print(f"DEBUG: [CameraStream] Error setting exposure: {e}")
             self.camera_error.emit(f"Failed to set exposure: {str(e)}")
             return False
+
+    def set_frame_size(self, width, height):
+        """Set preview frame size and reconfigure if needed."""
+        try:
+            if not self.is_camera_available or not hasattr(self, 'picam2') or self.picam2 is None:
+                print("DEBUG: [CameraStream] Camera not available for set_frame_size")
+                return False
+            if not hasattr(self, 'preview_config') or self.preview_config is None:
+                try:
+                    self.preview_config = self.picam2.create_preview_configuration(main={"size": (int(width), int(height))})
+                except Exception:
+                    self.preview_config = self.picam2.create_preview_configuration()
+            else:
+                if "main" not in self.preview_config:
+                    self.preview_config["main"] = {}
+                self.preview_config["main"]["size"] = (int(width), int(height))
+            was_running = bool(self.picam2.started)
+            if was_running:
+                self.picam2.stop()
+            self.picam2.configure(self.preview_config)
+            if was_running:
+                self.picam2.start(show_preview=False)
+            print(f"DEBUG: [CameraStream] Frame size set to {width}x{height}")
+            return True
+        except Exception as e:
+            print(f"DEBUG: [CameraStream] Error setting frame size: {e}")
+            return False
+
+    def set_format(self, pixel_format):
+        """Set preview pixel format (e.g., 'RGB888', 'BGR888')."""
+        try:
+            if not self.is_camera_available or not hasattr(self, 'picam2') or self.picam2 is None:
+                print("DEBUG: [CameraStream] Camera not available for set_format")
+                return False
+            if not hasattr(self, 'preview_config') or self.preview_config is None:
+                try:
+                    self.preview_config = self.picam2.create_preview_configuration(main={"format": str(pixel_format)})
+                except Exception:
+                    self.preview_config = self.picam2.create_preview_configuration()
+            else:
+                if "main" not in self.preview_config:
+                    self.preview_config["main"] = {}
+                self.preview_config["main"]["format"] = str(pixel_format)
+            was_running = bool(self.picam2.started)
+            if was_running:
+                self.picam2.stop()
+            self.picam2.configure(self.preview_config)
+            if was_running:
+                self.picam2.start(show_preview=False)
+            print(f"DEBUG: [CameraStream] Pixel format set to {pixel_format}")
+            return True
+        except Exception as e:
+            print(f"DEBUG: [CameraStream] Error setting format: {e}")
+            return False
+
+    def set_target_fps(self, fps):
+        """Set target FPS for live streaming (threaded or timer)."""
+        try:
+            self._target_fps = float(fps)
+            if hasattr(self, 'timer') and self.timer.isActive() and not getattr(self, '_use_threaded_live', False):
+                self.timer.stop()
+                interval = int(1000.0 / max(1.0, self._target_fps))
+                self.timer.start(interval)
+            print(f"DEBUG: [CameraStream] Target FPS set to {self._target_fps}")
+            return True
+        except Exception as e:
+            print(f"DEBUG: [CameraStream] Error setting target FPS: {e}")
+            return False
+
+    def get_latest_frame(self):
+        """Return the most recent frame if available."""
+        try:
+            return self.latest_frame.copy() if self.latest_frame is not None else None
+        except Exception:
+            return self.latest_frame
     
     def trigger_capture(self):
         """
@@ -583,6 +798,7 @@ class CameraStream(QObject):
             
             if frame is not None:
                 print(f"DEBUG: [CameraStream] Frame captured: {frame.shape}")
+                self.latest_frame = frame
                 self.frame_ready.emit(frame)
             else:
                 print("DEBUG: [CameraStream] No frame captured")

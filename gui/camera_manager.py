@@ -2039,8 +2039,32 @@ class CameraManager(QObject):
                 self.live_camera_mode.setChecked(True)
             elif mode == 'trigger' and self.trigger_camera_mode:
                 self.trigger_camera_mode.setChecked(True)
-        
+
         # Apply other settings
+        # Frame size
+        if 'frame_size' in config and self.camera_stream and hasattr(self.camera_stream, 'set_frame_size'):
+            try:
+                w, h = config['frame_size']
+                print(f"DEBUG: [CameraManager] Applying frame size from tool: {w}x{h}")
+                self.camera_stream.set_frame_size(w, h)
+            except Exception as e:
+                print(f"DEBUG: [CameraManager] Could not apply frame size: {e}")
+        # Pixel format
+        if 'format' in config and self.camera_stream and hasattr(self.camera_stream, 'set_format'):
+            try:
+                pf = config['format']
+                print(f"DEBUG: [CameraManager] Applying pixel format from tool: {pf}")
+                self.camera_stream.set_format(pf)
+            except Exception as e:
+                print(f"DEBUG: [CameraManager] Could not apply pixel format: {e}")
+        # Target FPS for live
+        if 'target_fps' in config and self.camera_stream and hasattr(self.camera_stream, 'set_target_fps'):
+            try:
+                fps = config['target_fps']
+                print(f"DEBUG: [CameraManager] Applying target FPS from tool: {fps}")
+                self.camera_stream.set_target_fps(fps)
+            except Exception as e:
+                print(f"DEBUG: [CameraManager] Could not apply target FPS: {e}")
         if 'exposure' in config:
             self.set_exposure_value(config['exposure'])
         if 'gain' in config:
@@ -2052,7 +2076,15 @@ class CameraManager(QObject):
                 self.set_auto_exposure_mode()
             else:
                 self.set_manual_exposure_mode()
-                
+        # External trigger preference (if any)
+        if 'enable_external_trigger' in config and self.camera_stream and hasattr(self.camera_stream, 'set_trigger_mode'):
+            try:
+                trig = bool(config['enable_external_trigger'])
+                print(f"DEBUG: [CameraManager] Applying external trigger preference: {trig}")
+                self.camera_stream.set_trigger_mode(trig)
+            except Exception as e:
+                print(f"DEBUG: [CameraManager] Could not apply external trigger: {e}")
+        
         print(f"DEBUG: [CameraManager] Camera tool config applied successfully")
             
     def cleanup(self):
