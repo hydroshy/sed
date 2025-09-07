@@ -101,6 +101,8 @@ class CameraStream(QObject):
         
         self.is_camera_available = has_picamera2
         self.current_exposure = 5000  # Default 5ms exposure
+        self.current_gain = 1.0       # Default analogue gain
+        self.current_ev = 0.0         # Default EV (UI only)
         self.job_enabled = False
         self.external_trigger_enabled = False
         self._last_sensor_ts = 0
@@ -111,6 +113,10 @@ class CameraStream(QObject):
         self._target_fps = 10.0        # Default live FPS
         self._live_thread = None
         self._live_worker = None
+        self._is_auto_exposure = True  # AE enabled by default (align with new UI)
+        # AWB state
+        self._awb_enable = True
+        self._colour_gains = (1.8, 1.8)
         
         if not has_picamera2:
             print("DEBUG: [CameraStream] picamera2 not available, using stub implementation")
@@ -138,6 +144,120 @@ class CameraStream(QObject):
         
         # Add missing methods if needed
         self._add_missing_methods()
+
+    # -------------- AWB controls (high-level API) --------------
+    def set_awb_enable(self, enabled: bool):
+        """Enable/disable Auto White Balance and apply/persist controls."""
+        try:
+            self._awb_enable = bool(enabled)
+            # Persist into preview_config so it survives reconfigure
+            if hasattr(self, 'preview_config') and self.preview_config is not None:
+                if "controls" not in self.preview_config:
+                    self.preview_config["controls"] = {}
+                self.preview_config["controls"]["AwbEnable"] = self._awb_enable
+            # Apply to running camera if available
+            if self.is_camera_available and hasattr(self, 'picam2') and self.picam2 is not None:
+                controls = {"AwbEnable": self._awb_enable}
+                if not self._awb_enable:
+                    # When switching to manual, also push current gains if known
+                    try:
+                        r, b = self._colour_gains
+                        controls["ColourGains"] = (float(r), float(b))
+                    except Exception:
+                        pass
+                if self.picam2.started:
+                    self.picam2.set_controls(controls)
+            return True
+        except Exception:
+            return False
+
+    def set_colour_gains(self, r_gain: float, b_gain: float):
+        """Set manual colour gains (R, B) and apply if AWB is disabled."""
+        try:
+            r = float(r_gain)
+            b = float(b_gain)
+            self._colour_gains = (r, b)
+            # Persist into preview_config
+            if hasattr(self, 'preview_config') and self.preview_config is not None:
+                if "controls" not in self.preview_config:
+                    self.preview_config["controls"] = {}
+                self.preview_config["controls"]["ColourGains"] = (r, b)
+            # Apply to running camera if available and AWB is manual
+            if (not self._awb_enable) and self.is_camera_available and hasattr(self, 'picam2') and self.picam2 is not None and self.picam2.started:
+                try:
+                    self.picam2.set_controls({"ColourGains": (r, b)})
+                except Exception:
+                    pass
+            return True
+        except Exception:
+            return False
+
+    # ---------- Prime & Lock (like testjob) ----------
+    def prime_and_lock(self, prime_ms: int = 400):
+        """Briefly enable AE/AWB to settle, read metadata, then lock manual values.
+
+        This mimics testjob's _prime_and_lock behaviour.
+        """
+        if not self.is_camera_available:
+            return False
+        try:
+            # Ensure initialized
+            if not hasattr(self, 'picam2') or self.picam2 is None:
+                if not self._safe_init_picamera():
+                    return False
+            # Configure and start with AE/AWB enabled
+            if not getattr(self, 'preview_config', None):
+                try:
+                    self.preview_config = self.picam2.create_preview_configuration(main={"format": "RGB888"})
+                except Exception:
+                    self.preview_config = self.picam2.create_preview_configuration()
+            if "controls" not in self.preview_config:
+                self.preview_config["controls"] = {}
+            self.preview_config["controls"].update({"AeEnable": True, "AwbEnable": True})
+            self.picam2.configure(self.preview_config)
+            self.picam2.start()
+            time.sleep(max(0.0, float(prime_ms) / 1000.0))
+            md = {}
+            try:
+                md = self.picam2.capture_metadata()
+            except Exception:
+                md = {}
+            # Extract values
+            exp = int(md.get("ExposureTime", self.current_exposure))
+            gain = float(md.get("AnalogueGain", self.current_gain))
+            cg = md.get("ColourGains", self._colour_gains)
+            try:
+                cg = (float(cg[0]), float(cg[1]))
+            except Exception:
+                cg = self._colour_gains
+            # Stop and lock manual values
+            self.picam2.stop()
+            self.current_exposure = exp
+            self.current_gain = gain
+            self._colour_gains = cg
+            self._awb_enable = False
+            self._is_auto_exposure = False
+            # Persist locked values
+            if not getattr(self, 'preview_config', None):
+                try:
+                    self.preview_config = self.picam2.create_preview_configuration(main={"format": "RGB888"})
+                except Exception:
+                    self.preview_config = self.picam2.create_preview_configuration()
+            if "controls" not in self.preview_config:
+                self.preview_config["controls"] = {}
+            self.preview_config["controls"].update({
+                "ExposureTime": self.current_exposure,
+                "AnalogueGain": self.current_gain,
+                "AeEnable": False,
+                "AwbEnable": False,
+                "ColourGains": (self._colour_gains[0], self._colour_gains[1]),
+            })
+            # Reconfigure with locked settings
+            self.picam2.configure(self.preview_config)
+            return True
+        except Exception as e:
+            print(f"DEBUG: [CameraStream] prime_and_lock error: {e}")
+            return False
     
     def _safe_init_picamera(self):
         """Safe initialization of picamera2 with error handling"""
@@ -176,7 +296,10 @@ class CameraStream(QObject):
             if "controls" not in self.preview_config:
                 self.preview_config["controls"] = {}
             self.preview_config["controls"]["ExposureTime"] = self.current_exposure
-            self.preview_config["controls"]["AeEnable"] = False  # Manual exposure
+            self.preview_config["controls"]["AnalogueGain"] = self.current_gain
+            self.preview_config["controls"]["AeEnable"] = bool(self._is_auto_exposure)
+            # AWB defaults
+            self.preview_config["controls"]["AwbEnable"] = True
             
             # Configure with preview config by default
             self.picam2.configure(self.preview_config)
@@ -486,8 +609,15 @@ class CameraStream(QObject):
     def stop_live(self):
         """Stop live view"""
         print("DEBUG: [CameraStream] stop_live called")
-        
+
         try:
+            # Ensure any pending requests are cancelled to unblock capture
+            try:
+                if hasattr(self, 'picam2') and self.picam2 is not None and hasattr(self.picam2, 'cancel_all_and_flush'):
+                    self.picam2.cancel_all_and_flush()
+            except Exception:
+                pass
+
             # Stop the timer
             if hasattr(self, 'timer') and self.timer.isActive():
                 self.timer.stop()
@@ -521,6 +651,23 @@ class CameraStream(QObject):
             print(f"DEBUG: [CameraStream] Error stopping live view: {e}")
             self.is_live = False
             return False
+
+    def cancel_all_and_flush(self):
+        """Cancel pending camera requests and flush pipeline (Picamera2 helper)."""
+        try:
+            if hasattr(self, 'picam2') and self.picam2 is not None and hasattr(self.picam2, 'cancel_all_and_flush'):
+                self.picam2.cancel_all_and_flush()
+                print("DEBUG: [CameraStream] cancel_all_and_flush executed")
+                return True
+            return False
+        except Exception as e:
+            print(f"DEBUG: [CameraStream] cancel_all_and_flush error: {e}")
+            return False
+
+    def cancel_and_stop_live(self):
+        """Preferred safe stop: cancel pending requests then stop live view and worker."""
+        self.cancel_all_and_flush()
+        return self.stop_live()
 
     def _start_live_worker(self):
         """Create and start a background worker for live frames."""
@@ -605,6 +752,94 @@ class CameraStream(QObject):
         except Exception as e:
             print(f"DEBUG: [CameraStream] Error setting exposure: {e}")
             self.camera_error.emit(f"Failed to set exposure: {str(e)}")
+            return False
+
+    # ---------- AE controls ----------
+    def set_auto_exposure(self, enabled: bool):
+        """Enable/disable auto exposure (AeEnable) and persist to configs."""
+        try:
+            self._is_auto_exposure = bool(enabled)
+            # Persist to preview config
+            if hasattr(self, 'preview_config') and self.preview_config is not None:
+                if "controls" not in self.preview_config:
+                    self.preview_config["controls"] = {}
+                self.preview_config["controls"]["AeEnable"] = self._is_auto_exposure
+            # Persist to still config as well
+            if hasattr(self, 'still_config') and self.still_config is not None:
+                if "controls" not in self.still_config:
+                    self.still_config["controls"] = {}
+                self.still_config["controls"]["AeEnable"] = self._is_auto_exposure
+            # Apply to running camera
+            if self.is_camera_available and hasattr(self, 'picam2') and self.picam2 is not None and self.picam2.started:
+                self.picam2.set_controls({"AeEnable": self._is_auto_exposure})
+            return True
+        except Exception as e:
+            print(f"DEBUG: [CameraStream] Error in set_auto_exposure: {e}")
+            return False
+
+    def get_exposure(self):
+        """Return current exposure time in microseconds (cached value)."""
+        try:
+            return int(self.current_exposure)
+        except Exception:
+            return self.current_exposure
+
+    # ---------- Gain controls ----------
+    def set_gain(self, gain: float):
+        """Set analogue gain and persist/apply."""
+        try:
+            g = float(gain)
+            self.current_gain = g
+            # Persist
+            if hasattr(self, 'preview_config') and self.preview_config is not None:
+                if "controls" not in self.preview_config:
+                    self.preview_config["controls"] = {}
+                self.preview_config["controls"]["AnalogueGain"] = g
+            if hasattr(self, 'still_config') and self.still_config is not None:
+                if "controls" not in self.still_config:
+                    self.still_config["controls"] = {}
+                self.still_config["controls"]["AnalogueGain"] = g
+            # Apply to running
+            if self.is_camera_available and hasattr(self, 'picam2') and self.picam2 is not None and self.picam2.started:
+                try:
+                    self.picam2.set_controls({"AnalogueGain": g})
+                except Exception:
+                    pass
+            print(f"DEBUG: [CameraStream] Analogue gain set to {g}")
+            return True
+        except Exception as e:
+            print(f"DEBUG: [CameraStream] Error setting gain: {e}")
+            return False
+
+    def get_gain(self):
+        """Return current analogue gain (cached value)."""
+        try:
+            return float(self.current_gain)
+        except Exception:
+            return self.current_gain
+
+    # ---------- EV controls (UI only fallback) ----------
+    def set_ev(self, ev: float):
+        """Store EV compensation value (UI/display)."""
+        try:
+            self.current_ev = float(ev)
+            # Picamera2 EV mapping varies; skip direct hardware apply for safety
+            return True
+        except Exception:
+            return False
+
+    def get_ev(self):
+        try:
+            return float(self.current_ev)
+        except Exception:
+            return self.current_ev
+
+    # ---------- Job toggle (for pipeline processing) ----------
+    def set_job_enabled(self, enabled: bool):
+        try:
+            self.job_enabled = bool(enabled)
+            return True
+        except Exception:
             return False
 
     def set_frame_size(self, width, height):

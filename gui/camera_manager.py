@@ -47,6 +47,13 @@ class CameraManager(QObject):
         # UI state
         self.ui_enabled = False
         
+        # AWB controls
+        self.auto_awb_btn = None
+        self.manual_awb_btn = None
+        self.colour_gain_r_edit = None
+        self.colour_gain_b_edit = None
+        self._is_auto_awb = True
+        
     def setup(self, camera_view_widget, exposure_edit,
              gain_edit, ev_edit, focus_bar, fps_num, source_output_combo=None):
         """Thiết lập các tham chiếu đến các widget UI và khởi tạo camera"""
@@ -158,15 +165,16 @@ class CameraManager(QObject):
         if self.camera_stream and self.camera_stream.is_running():
             print("DEBUG: Stopping camera stream for apply")
             try:
-                # Try with direct method access
+                # Preferred safe stop: cancel pending and stop live
                 try:
-                    print("DEBUG: [CameraManager] First attempt - direct stop_live()")
-                    self.camera_stream.stop_live()
+                    print("DEBUG: [CameraManager] Preferred stop - cancel_and_stop_live()")
+                    self.camera_stream.cancel_and_stop_live()
                 except AttributeError as e:
-                    print(f"DEBUG: [CameraManager] AttributeError stopping camera: {e}")
-                    # Implement method directly if needed
-                    print("DEBUG: [CameraManager] stop_live missing - implementing inline")
-                    self._implement_stop_live()
+                    print(f"DEBUG: [CameraManager] AttributeError cancel_and_stop_live: {e}")
+                    if hasattr(self.camera_stream, 'cancel_all_and_flush'):
+                        self.camera_stream.cancel_all_and_flush()
+                    if hasattr(self.camera_stream, 'stop_live'):
+                        self.camera_stream.stop_live()
             except Exception as e:
                 print(f"DEBUG: [CameraManager] Error stopping camera: {e}")
             
@@ -345,7 +353,9 @@ class CameraManager(QObject):
     def setup_camera_buttons(self, live_camera_btn=None, trigger_camera_btn=None, 
                            auto_exposure_btn=None, manual_exposure_btn=None,
                            apply_settings_btn=None, cancel_settings_btn=None,
-                           job_toggle_btn=None, live_camera_mode=None, trigger_camera_mode=None):
+                           job_toggle_btn=None, live_camera_mode=None, trigger_camera_mode=None,
+                           auto_awb_btn=None, manual_awb_btn=None,
+                           colour_gain_r_edit=None, colour_gain_b_edit=None):
         """
         Thiết lập các button điều khiển camera và exposure
         
@@ -369,6 +379,10 @@ class CameraManager(QObject):
         self.job_toggle_btn = job_toggle_btn
         self.live_camera_mode = live_camera_mode
         self.trigger_camera_mode = trigger_camera_mode
+        self.auto_awb_btn = auto_awb_btn
+        self.manual_awb_btn = manual_awb_btn
+        self.colour_gain_r_edit = colour_gain_r_edit
+        self.colour_gain_b_edit = colour_gain_b_edit
         
         # Log missing widgets
         missing_widgets = []
@@ -428,6 +442,17 @@ class CameraManager(QObject):
             self.auto_exposure_btn.clicked.connect(self.on_auto_exposure_clicked)
         if self.manual_exposure_btn:
             self.manual_exposure_btn.clicked.connect(self.on_manual_exposure_clicked)
+        # AWB controls
+        if self.auto_awb_btn:
+            self.auto_awb_btn.clicked.connect(self.on_auto_awb_clicked)
+            self.auto_awb_btn.setToolTip("Enable auto white balance")
+        if self.manual_awb_btn:
+            self.manual_awb_btn.clicked.connect(self.on_manual_awb_clicked)
+            self.manual_awb_btn.setToolTip("Enable manual white balance")
+        if self.colour_gain_r_edit and hasattr(self.colour_gain_r_edit, 'valueChanged'):
+            self.colour_gain_r_edit.valueChanged.connect(self.on_colour_gain_r_changed)
+        if self.colour_gain_b_edit and hasattr(self.colour_gain_b_edit, 'valueChanged'):
+            self.colour_gain_b_edit.valueChanged.connect(self.on_colour_gain_b_changed)
         if self.apply_settings_btn:
             self.apply_settings_btn.clicked.connect(self.on_apply_settings_clicked)
         if self.cancel_settings_btn:
@@ -438,6 +463,7 @@ class CameraManager(QObject):
         # Khởi tạo UI state
         self.update_camera_mode_ui()
         self.update_exposure_mode_ui()
+        self.update_awb_mode_ui()
         self.update_job_toggle_ui()
         
     def _apply_setting_if_manual(self, setting_type, value):
@@ -475,6 +501,9 @@ class CameraManager(QObject):
             
         # Settings controls
         self.set_settings_controls_enabled(enabled and not self._is_auto_exposure)
+        # AWB controls
+        if hasattr(self, 'set_awb_controls_enabled'):
+            self.set_awb_controls_enabled(enabled and not getattr(self, '_is_auto_awb', True))
         
         # Apply/Cancel buttons
         if self.apply_settings_btn:
@@ -753,6 +782,14 @@ class CameraManager(QObject):
                 # Lưu trực tiếp giá trị microseconds vào pending settings
                 self._pending_exposure_settings['exposure'] = value_us
                 print(f"DEBUG: Saved to pending settings")
+
+                # Instant apply: áp dụng ngay khi ở manual mode để người dùng thấy hiệu ứng tức thời
+                # Chỉ apply khi _instant_apply bật và không ở auto-exposure
+                try:
+                    self._apply_setting_if_manual('exposure', value_us)
+                    print("DEBUG: Instant-applied exposure to camera (manual mode)")
+                except Exception as e:
+                    print(f"DEBUG: Failed instant apply exposure: {e}")
                 
                 # Notify settings manager about the change for synchronization
                 if self.settings_manager:
@@ -910,15 +947,16 @@ class CameraManager(QObject):
                 QApplication.processEvents()
                 
                 try:
-                    # Try with direct method access
+                    # Preferred safe stop
                     try:
-                        print("DEBUG: [CameraManager] First attempt - direct stop_live()")
-                        self.camera_stream.stop_live()
+                        print("DEBUG: [CameraManager] Preferred stop - cancel_and_stop_live()")
+                        self.camera_stream.cancel_and_stop_live()
                     except AttributeError as e:
-                        print(f"DEBUG: [CameraManager] AttributeError stopping camera: {e}")
-                        # Implement method directly if needed
-                        print("DEBUG: [CameraManager] stop_live missing - implementing inline")
-                        self._implement_stop_live()
+                        print(f"DEBUG: [CameraManager] AttributeError cancel_and_stop_live: {e}")
+                        if hasattr(self.camera_stream, 'cancel_all_and_flush'):
+                            self.camera_stream.cancel_all_and_flush()
+                        if hasattr(self.camera_stream, 'stop_live'):
+                            self.camera_stream.stop_live()
                 except Exception as e:
                     print(f"DEBUG: [CameraManager] Error stopping camera: {e}")
                 
@@ -1188,11 +1226,8 @@ class CameraManager(QObject):
                     print(f"DEBUG: [CameraManager] Failed to set trigger mode")
                     return False
             
-            # After setting trigger mode, make sure preview is still active
-            if hasattr(self.camera_stream, 'is_running') and callable(self.camera_stream.is_running):
-                if not self.camera_stream.is_running():
-                    print(f"DEBUG: [CameraManager] Camera not running after setting trigger mode, restarting")
-                    self.toggle_live_camera(True)
+            # Do not auto-start camera; only enforce hardware mode
+            # (Startup should set mode without starting preview)
                 
             self.update_camera_mode_ui()
             return True
@@ -1441,7 +1476,7 @@ class CameraManager(QObject):
                 if self.live_camera_mode:
                     self.live_camera_mode.blockSignals(True)
                     self.live_camera_mode.setChecked(True)
-                    self.live_camera_mode.setStyleSheet("background-color: #4ecdc4")  # Teal
+                    self.live_camera_mode.setStyleSheet("background-color: #ffd43b")  # Yellow selected
                     self.live_camera_mode.blockSignals(False)
                 if self.trigger_camera_mode:
                     self.trigger_camera_mode.blockSignals(True)
@@ -1477,7 +1512,7 @@ class CameraManager(QObject):
                 if self.trigger_camera_mode:
                     self.trigger_camera_mode.blockSignals(True)
                     self.trigger_camera_mode.setChecked(True)
-                    self.trigger_camera_mode.setStyleSheet("background-color: #4ecdc4")  # Teal
+                    self.trigger_camera_mode.setStyleSheet("background-color: #ffd43b")  # Yellow selected
                     self.trigger_camera_mode.blockSignals(False)
             else:
                 # No specific mode or camera stopped
@@ -1521,11 +1556,46 @@ class CameraManager(QObject):
             # Fallback: handle mode change directly if no Camera Source tool found
             print("DEBUG: [CameraManager] No Camera Source tool found, handling mode change directly")
             self._handle_live_mode_directly()
-    
+
+        # Ensure mutual exclusivity like AE/Manual buttons
+        if self.live_camera_mode:
+            try:
+                self.live_camera_mode.blockSignals(True)
+                self.live_camera_mode.setChecked(True)
+            finally:
+                self.live_camera_mode.blockSignals(False)
+        if self.trigger_camera_mode:
+            try:
+                self.trigger_camera_mode.blockSignals(True)
+                self.trigger_camera_mode.setChecked(False)
+            finally:
+                self.trigger_camera_mode.blockSignals(False)
+
+        # When switching back to live mode, revert 3A to Auto
+        try:
+            # AE back to auto
+            self._is_auto_exposure = True
+            self.set_auto_exposure_mode()
+            self.update_exposure_mode_ui()
+        except Exception as e:
+            print(f"DEBUG: [CameraManager] Error forcing auto AE on live mode: {e}")
+
+        try:
+            # AWB back to auto
+            self._is_auto_awb = True
+            # Apply via CameraTool so CameraStream is updated
+            ct = self.find_camera_tool()
+            if ct and hasattr(ct, 'set_auto_awb'):
+                ct.set_auto_awb(True)
+            if hasattr(self, 'update_awb_mode_ui'):
+                self.update_awb_mode_ui()
+        except Exception as e:
+            print(f"DEBUG: [CameraManager] Error forcing auto AWB on live mode: {e}")
+
     def on_trigger_camera_mode_clicked(self):
         """Xử lý khi click Trigger Camera Mode button - delegate to CameraTool"""
         print("DEBUG: [CameraManager] Trigger camera mode button clicked")
-        
+
         # Find the Camera Source tool and delegate mode change to it
         camera_tool = self.find_camera_tool()
         if camera_tool:
@@ -1539,6 +1609,69 @@ class CameraManager(QObject):
             # Fallback: handle mode change directly if no Camera Source tool found
             print("DEBUG: [CameraManager] No Camera Source tool found, handling mode change directly")
             self._handle_trigger_mode_directly()
+
+        # Ensure mutual exclusivity like AE/Manual buttons
+        if self.trigger_camera_mode:
+            try:
+                self.trigger_camera_mode.blockSignals(True)
+                self.trigger_camera_mode.setChecked(True)
+            finally:
+                self.trigger_camera_mode.blockSignals(False)
+        if self.live_camera_mode:
+            try:
+                self.live_camera_mode.blockSignals(True)
+                self.live_camera_mode.setChecked(False)
+            finally:
+                self.live_camera_mode.blockSignals(False)
+
+        # When entering trigger mode, force 3A to manual (lock) and apply current params
+        # 1) Exposure/Gain -> Manual AE and push current values
+        try:
+            self._is_auto_exposure = False
+            self.set_manual_exposure_mode()  # also flips AeEnable=False on camera
+            self.update_exposure_mode_ui()
+            # Push current spinbox values immediately
+            if self.exposure_edit is not None:
+                try:
+                    exp_val = self.exposure_edit.value() if hasattr(self.exposure_edit, 'value') else float(self.exposure_edit.text())
+                    self._apply_setting_if_manual('exposure', exp_val)
+                except Exception:
+                    pass
+            if self.gain_edit is not None:
+                try:
+                    gain_val = self.gain_edit.value() if hasattr(self.gain_edit, 'value') else float(self.gain_edit.text())
+                    self._apply_setting_if_manual('gain', gain_val)
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"DEBUG: [CameraManager] Error forcing manual AE on trigger mode: {e}")
+
+        # 2) White Balance -> Manual AWB and push current R/B gains if available
+        try:
+            self._is_auto_awb = False
+            # Update AWB UI and enable manual fields
+            if hasattr(self, 'update_awb_mode_ui'):
+                self.update_awb_mode_ui()
+            # Apply via CameraTool so it immediately configures CameraStream
+            ct = self.find_camera_tool()
+            if ct and hasattr(ct, 'set_auto_awb'):
+                ct.set_auto_awb(False)
+            # Push current gains
+            r = None; b = None
+            if self.colour_gain_r_edit and hasattr(self.colour_gain_r_edit, 'value'):
+                try:
+                    r = float(self.colour_gain_r_edit.value())
+                except Exception:
+                    pass
+            if self.colour_gain_b_edit and hasattr(self.colour_gain_b_edit, 'value'):
+                try:
+                    b = float(self.colour_gain_b_edit.value())
+                except Exception:
+                    pass
+            if ct and hasattr(ct, 'set_colour_gains') and r is not None and b is not None:
+                ct.set_colour_gains(r, b)
+        except Exception as e:
+            print(f"DEBUG: [CameraManager] Error forcing manual AWB on trigger mode: {e}")
     
     def _handle_live_mode_directly(self):
         """Fallback handler for live mode when no CameraTool is available"""
@@ -1642,15 +1775,16 @@ class CameraManager(QObject):
             # Nếu đang live, tạm dừng để apply settings
             if was_live_active:
                 try:
-                    # Try with direct method access
+                    # Preferred safe stop in apply settings
                     try:
-                        print("DEBUG: [CameraManager] First attempt - direct stop_live() in apply settings")
-                        self.camera_stream.stop_live()
+                        print("DEBUG: [CameraManager] Preferred stop - cancel_and_stop_live() in apply settings")
+                        self.camera_stream.cancel_and_stop_live()
                     except AttributeError as e:
-                        print(f"DEBUG: [CameraManager] AttributeError stopping camera in apply settings: {e}")
-                        # Implement method directly if needed
-                        print("DEBUG: [CameraManager] stop_live missing in apply settings - implementing inline")
-                        self._implement_stop_live()
+                        print(f"DEBUG: [CameraManager] AttributeError cancel_and_stop_live in apply settings: {e}")
+                        if hasattr(self.camera_stream, 'cancel_all_and_flush'):
+                            self.camera_stream.cancel_all_and_flush()
+                        if hasattr(self.camera_stream, 'stop_live'):
+                            self.camera_stream.stop_live()
                 except Exception as e:
                     print(f"DEBUG: [CameraManager] Error stopping camera in apply settings: {e}")
             
@@ -1916,7 +2050,12 @@ class CameraManager(QObject):
         if self.camera_stream.is_running():
             print("DEBUG: [CameraManager] Camera is already running, stopping it first")
             try:
-                self.camera_stream.stop_live()
+                try:
+                    self.camera_stream.cancel_and_stop_live()
+                except AttributeError:
+                    if hasattr(self.camera_stream, 'cancel_all_and_flush'):
+                        self.camera_stream.cancel_all_and_flush()
+                    self.camera_stream.stop_live()
             except Exception as e:
                 print(f"DEBUG: [CameraManager] Error stopping camera: {e}")
         
@@ -1978,7 +2117,12 @@ class CameraManager(QObject):
         if self.current_mode == 'live' and self.camera_stream:
             print(f"DEBUG: [CameraManager] Restarting live mode with job_enabled={self.job_enabled}")
             # Stop and restart live mode
-            self.camera_stream.stop_live()
+            try:
+                self.camera_stream.cancel_and_stop_live()
+            except AttributeError:
+                if hasattr(self.camera_stream, 'cancel_all_and_flush'):
+                    self.camera_stream.cancel_all_and_flush()
+                self.camera_stream.stop_live()
             self.camera_stream.start_live()
         
         print(f"DEBUG: [CameraManager] Job execution {'ENABLED' if self.job_enabled else 'DISABLED'}")
@@ -2086,6 +2230,108 @@ class CameraManager(QObject):
                 print(f"DEBUG: [CameraManager] Could not apply external trigger: {e}")
         
         print(f"DEBUG: [CameraManager] Camera tool config applied successfully")
+
+    # ============ AWB MODE HANDLERS (inserted) ============
+    def set_awb_controls_enabled(self, enabled):
+        """Enable/disable manual AWB controls (colour gains)."""
+        if hasattr(self, 'colour_gain_r_edit') and self.colour_gain_r_edit:
+            self.colour_gain_r_edit.setEnabled(enabled)
+        if hasattr(self, 'colour_gain_b_edit') and self.colour_gain_b_edit:
+            self.colour_gain_b_edit.setEnabled(enabled)
+
+    def on_auto_awb_clicked(self):
+        """Handle click on Auto AWB button."""
+        self._is_auto_awb = True
+        self.update_awb_mode_ui()
+        ct = self.find_camera_tool()
+        try:
+            if ct and hasattr(ct, 'set_auto_awb'):
+                ct.set_auto_awb(True)
+            # Reset displayed manual gains to defaults (visual reset)
+            default_r = 1.0
+            default_b = 1.0
+            try:
+                if ct and hasattr(ct, 'config'):
+                    default_r = float(ct.config.get('colour_gain_r', default_r))
+                    default_b = float(ct.config.get('colour_gain_b', default_b))
+            except Exception:
+                pass
+            if hasattr(self, 'colour_gain_r_edit') and self.colour_gain_r_edit and hasattr(self.colour_gain_r_edit, 'setValue'):
+                try:
+                    self.colour_gain_r_edit.setValue(default_r)
+                except Exception:
+                    pass
+            if hasattr(self, 'colour_gain_b_edit') and self.colour_gain_b_edit and hasattr(self.colour_gain_b_edit, 'setValue'):
+                try:
+                    self.colour_gain_b_edit.setValue(default_b)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def on_manual_awb_clicked(self):
+        """Handle click on Manual AWB button."""
+        self._is_auto_awb = False
+        self.update_awb_mode_ui()
+        ct = self.find_camera_tool()
+        try:
+            if ct and hasattr(ct, 'set_auto_awb'):
+                ct.set_auto_awb(False)
+            r = None
+            b = None
+            if hasattr(self, 'colour_gain_r_edit') and self.colour_gain_r_edit:
+                try:
+                    r = float(self.colour_gain_r_edit.value())
+                except Exception:
+                    pass
+            if hasattr(self, 'colour_gain_b_edit') and self.colour_gain_b_edit:
+                try:
+                    b = float(self.colour_gain_b_edit.value())
+                except Exception:
+                    pass
+            if ct and hasattr(ct, 'set_colour_gains') and r is not None and b is not None:
+                ct.set_colour_gains(r, b)
+        except Exception:
+            pass
+
+    def update_awb_mode_ui(self):
+        """Update UI according to current AWB mode."""
+        self.set_awb_controls_enabled(getattr(self, 'ui_enabled', False) and not getattr(self, '_is_auto_awb', True))
+        if hasattr(self, 'auto_awb_btn') and hasattr(self, 'manual_awb_btn') and self.auto_awb_btn and self.manual_awb_btn:
+            if getattr(self, '_is_auto_awb', True):
+                self.auto_awb_btn.setStyleSheet("background-color: #51cf66")
+                self.manual_awb_btn.setStyleSheet("")
+            else:
+                self.auto_awb_btn.setStyleSheet("")
+                self.manual_awb_btn.setStyleSheet("background-color: #ffd43b")
+
+    def on_colour_gain_r_changed(self, value=None):
+        """Instant apply manual R gain when AWB is manual."""
+        if getattr(self, '_is_auto_awb', True):
+            return
+        ct = self.find_camera_tool()
+        if ct and hasattr(ct, 'set_colour_gains'):
+            try:
+                r = float(self.colour_gain_r_edit.value()) if self.colour_gain_r_edit else None
+                b = float(self.colour_gain_b_edit.value()) if self.colour_gain_b_edit else None
+                if r is not None and b is not None:
+                    ct.set_colour_gains(r, b)
+            except Exception:
+                pass
+
+    def on_colour_gain_b_changed(self, value=None):
+        """Instant apply manual B gain when AWB is manual."""
+        if getattr(self, '_is_auto_awb', True):
+            return
+        ct = self.find_camera_tool()
+        if ct and hasattr(ct, 'set_colour_gains'):
+            try:
+                r = float(self.colour_gain_r_edit.value()) if self.colour_gain_r_edit else None
+                b = float(self.colour_gain_b_edit.value()) if self.colour_gain_b_edit else None
+                if r is not None and b is not None:
+                    ct.set_colour_gains(r, b)
+            except Exception:
+                pass
             
     def cleanup(self):
         """Dọn dẹp tài nguyên camera khi thoát ứng dụng"""
@@ -2096,10 +2342,16 @@ class CameraManager(QObject):
                 try:
                     logger.info("Stopping camera live preview...")
                     try:
-                        self.camera_stream.stop_live()
+                        self.camera_stream.cancel_and_stop_live()
                     except AttributeError as e:
-                        logger.warning(f"AttributeError stopping camera in cleanup: {e}")
-                        self._implement_stop_live()
+                        logger.warning(f"AttributeError cancel_and_stop_live in cleanup: {e}")
+                        try:
+                            if hasattr(self.camera_stream, 'cancel_all_and_flush'):
+                                self.camera_stream.cancel_all_and_flush()
+                            if hasattr(self.camera_stream, 'stop_live'):
+                                self.camera_stream.stop_live()
+                        except Exception:
+                            self._implement_stop_live()
                 except Exception as e:
                     logger.error(f"Error stopping camera in cleanup: {e}")
             

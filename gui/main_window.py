@@ -216,11 +216,20 @@ class MainWindow(QMainWindow):
         self.triggerCameraMode = self.findChild(QPushButton, 'triggerCameraMode')
         self.liveCameraMode = self.findChild(QPushButton, 'liveCameraMode')
         
-        # Camera settings widgets
+        # Camera settings widgets (use only new names)
+        # EV may be absent
         self.evEdit = self.findChild(QDoubleSpinBox, 'evEdit')
-        self.gainEdit = self.findChild(QDoubleSpinBox, 'gainEdit')
-        self.manualExposure = self.findChild(QPushButton, 'manualExposure')
-        self.autoExposure = self.findChild(QPushButton, 'autoExposure')
+        # New-only: exposure and gain controls
+        self.exposureEdit = self.findChild(QDoubleSpinBox, 'exposureTimeEdit')
+        self.gainEdit = self.findChild(QDoubleSpinBox, 'analogueGainEdit')
+        # AE buttons (new-only)
+        self.manualExposure = self.findChild(QPushButton, 'manualAE')
+        self.autoExposure = self.findChild(QPushButton, 'autoAE')
+        # AWB buttons & spinboxes (new-only)
+        self.autoAWB = self.findChild(QPushButton, 'autoAWB')
+        self.manualAWB = self.findChild(QPushButton, 'manualAWB')
+        self.colourGainREdit = self.findChild(QDoubleSpinBox, 'colourGainREdit')
+        self.colourGainBEdit = self.findChild(QDoubleSpinBox, 'colourGainBEdit')
         
         # Try to find formatCameraComboBox using different methods
         self.formatCameraComboBox = self.findChild(QComboBox, 'formatCameraComboBox')
@@ -399,13 +408,17 @@ class MainWindow(QMainWindow):
         self.camera_manager.setup_camera_buttons(
             live_camera_btn=getattr(self, 'liveCamera', None),
             trigger_camera_btn=getattr(self, 'triggerCamera', None),
-            auto_exposure_btn=getattr(self, 'autoExposure', None),
-            manual_exposure_btn=getattr(self, 'manualExposure', None),
+            auto_exposure_btn=self.autoExposure,
+            manual_exposure_btn=self.manualExposure,
             apply_settings_btn=getattr(self, 'applySetting', None),
             cancel_settings_btn=getattr(self, 'cancelSetting', None),
             job_toggle_btn=getattr(self, 'runJob', None),  # Use runJob as toggle button
             live_camera_mode=getattr(self, 'liveCameraMode', None),
-            trigger_camera_mode=getattr(self, 'triggerCameraMode', None)
+            trigger_camera_mode=getattr(self, 'triggerCameraMode', None),
+            auto_awb_btn=self.autoAWB,
+            manual_awb_btn=self.manualAWB,
+            colour_gain_r_edit=self.colourGainREdit,
+            colour_gain_b_edit=self.colourGainBEdit
         )
         
         # Link CameraManager with SettingsManager for synchronization
@@ -435,6 +448,13 @@ class MainWindow(QMainWindow):
         
         # Enable UI after setup is complete
         self.camera_manager.set_ui_enabled(True)
+        
+        # Force mode to Live on startup (do not start camera)
+        try:
+            if hasattr(self.camera_manager, 'on_live_camera_mode_clicked'):
+                self.camera_manager.on_live_camera_mode_clicked()
+        except Exception as e:
+            logging.error(f"Failed to set default live mode: {e}")
         
         # Load available camera formats
         self._load_camera_formats()
@@ -843,7 +863,16 @@ class MainWindow(QMainWindow):
     def _on_apply_setting(self):
         """Xử lý khi người dùng nhấn nút Apply trong trang cài đặt"""
         print("DEBUG: _on_apply_setting called in MainWindow")
-        
+        # Flush camera pipeline before applying to avoid pending requests
+        try:
+            if hasattr(self, 'camera_manager') and self.camera_manager and \
+               hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream and \
+               hasattr(self.camera_manager.camera_stream, 'cancel_all_and_flush'):
+                self.camera_manager.camera_stream.cancel_all_and_flush()
+                print("DEBUG: [MainWindow] cancel_all_and_flush called before apply settings")
+        except Exception:
+            pass
+
         # Synchronize settings across all pages before applying
         print("DEBUG: Synchronizing settings across pages...")
         self.settings_manager.sync_settings_across_pages()
@@ -1507,6 +1536,18 @@ class MainWindow(QMainWindow):
             # Get camera stream instance
             if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
                 camera_stream = self.camera_manager.camera_stream
+                # Ensure camera is not running to avoid restart pulses during apply
+                try:
+                    if hasattr(camera_stream, 'is_running') and camera_stream.is_running():
+                        if hasattr(camera_stream, 'cancel_and_stop_live'):
+                            camera_stream.cancel_and_stop_live()
+                        else:
+                            if hasattr(camera_stream, 'cancel_all_and_flush'):
+                                camera_stream.cancel_all_and_flush()
+                            if hasattr(camera_stream, 'stop_live'):
+                                camera_stream.stop_live()
+                except Exception as e:
+                    print(f"DEBUG: Error pre-stopping camera before format apply: {e}")
                 
                 # Xác thực định dạng trước khi áp dụng
                 safe_formats = ["BGR888", "RGB888", "YUV420"]

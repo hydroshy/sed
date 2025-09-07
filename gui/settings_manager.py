@@ -226,6 +226,18 @@ class SettingsManager(QObject):
         # Stop camera if currently running before returning to palette
         if hasattr(self.main_window, 'camera_manager') and self.main_window.camera_manager:
             logging.info("SettingsManager: Stopping camera before returning to palette")
+            # Disable job processing and flush camera pipeline
+            try:
+                if hasattr(self.main_window.camera_manager, 'job_enabled'):
+                    self.main_window.camera_manager.job_enabled = False
+                cs = getattr(self.main_window.camera_manager, 'camera_stream', None)
+                if cs and hasattr(cs, 'set_job_enabled'):
+                    cs.set_job_enabled(False)
+                if cs and hasattr(cs, 'cancel_all_and_flush'):
+                    cs.cancel_all_and_flush()
+            except Exception:
+                pass
+            # Then stop camera safely
             self.main_window.camera_manager.stop_camera_for_apply()
             
         index = self.setting_stacked_widget.indexOf(self.palette_page)
@@ -480,8 +492,8 @@ class SettingsManager(QObject):
             if not self.camera_setting_page:
                 return
             
-            # Collect exposure settings
-            exposure_edit = self.camera_setting_page.findChild(QDoubleSpinBox, "exposureEdit")
+            # Collect exposure settings (new-only)
+            exposure_edit = self.camera_setting_page.findChild(QDoubleSpinBox, "exposureTimeEdit")
             if exposure_edit:
                 self.shared_settings['camera']['exposure'] = exposure_edit.value()
             
@@ -543,9 +555,9 @@ class SettingsManager(QObject):
         try:
             settings = self.shared_settings['camera']
             
-            # Apply exposure
+            # Apply exposure (new-only)
             if 'exposure' in settings:
-                exposure_edit = self.camera_setting_page.findChild(QDoubleSpinBox, "exposureEdit")
+                exposure_edit = self.camera_setting_page.findChild(QDoubleSpinBox, "exposureTimeEdit")
                 if exposure_edit:
                     exposure_edit.setValue(settings['exposure'])
             

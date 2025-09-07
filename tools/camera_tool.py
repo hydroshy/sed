@@ -56,19 +56,22 @@ class CameraTool(BaseTool):
             self.config["gain"] = 1.0
         if "ev" not in self.config:
             self.config["ev"] = 0.0
-        if "is_auto_exposure" not in self.config:
-            self.config["is_auto_exposure"] = True
+        if "auto_exposure" not in self.config:
+            self.config["auto_exposure"] = True
         if "camera_mode" not in self.config:
             self.config["camera_mode"] = "live"  # "live" hoặc "trigger"
         if "enable_external_trigger" not in self.config:
             self.config["enable_external_trigger"] = False
             
         # Log thông tin cấu hình
-        logger.info(f"Camera Tool created with config: rotation_angle={self.config['rotation_angle']}, "
-                   f"exposure={self.config['exposure']}, gain={self.config['gain']}, "
-                   f"auto_exposure={self.config['is_auto_exposure']}, "
-                   f"camera_mode={self.config['camera_mode']}, "
-                   f"enable_external_trigger={self.config['enable_external_trigger']}")
+        logger.info(
+            f"Camera Tool created with config: rotation_angle={self.config['rotation_angle']}, "
+            f"exposure={self.config['exposure']}, gain={self.config['gain']}, "
+            f"auto_exposure={self.config.get('auto_exposure', True)}, "
+            f"auto_white_balance={self.config.get('auto_white_balance', True)}, "
+            f"camera_mode={self.config['camera_mode']}, "
+            f"enable_external_trigger={self.config['enable_external_trigger']}"
+        )
         
         # Don't initialize separate camera instance - this conflicts with main camera stream
         # CameraTool just stores configuration that will be applied to main camera_manager
@@ -92,7 +95,35 @@ class CameraTool(BaseTool):
         
         # Don't start any timers or camera operations
         logger.info("CameraTool created as configuration holder - no separate camera instance")
-        
+
+    # ==== AE/AWB convenience APIs for UI buttons ====
+    def set_auto_ae(self, enabled: bool) -> bool:
+        """Enable/disable Auto-Exposure and apply immediately."""
+        self.config["auto_exposure"] = bool(enabled)
+        if hasattr(self, 'camera_manager') and self.camera_manager:
+            if enabled and hasattr(self.camera_manager, 'set_auto_exposure_mode'):
+                self.camera_manager.set_auto_exposure_mode()
+            elif not enabled and hasattr(self.camera_manager, 'set_manual_exposure_mode'):
+                self.camera_manager.set_manual_exposure_mode()
+        return True
+
+    def set_auto_awb(self, enabled: bool) -> bool:
+        """Enable/disable Auto-White-Balance and apply immediately (async)."""
+        self.config["auto_white_balance"] = bool(enabled)
+        return self._apply_awb_to_camera_manager()
+
+    def set_colour_gains(self, r_gain: float, b_gain: float) -> bool:
+        """Set manual AWB gains (R, B) and apply immediately when AWB is manual."""
+        try:
+            self.config["colour_gain_r"] = float(r_gain)
+            self.config["colour_gain_b"] = float(b_gain)
+            self.config["colour_gains"] = (float(r_gain), float(b_gain))
+        except Exception:
+            pass
+        if not self.config.get("auto_white_balance", True):
+            return self._apply_awb_to_camera_manager()
+        return True
+
     def _check_if_gs_camera(self) -> bool:
         """
         Kiểm tra xem có phải camera global shutter (IMX296) không
@@ -114,8 +145,9 @@ class CameraTool(BaseTool):
         self.config.set_default("format", "BGR888")
         self.config.set_default("exposure_time", 10000)  # in microseconds
         self.config.set_default("frame_rate", 60)
-        self.config.set_default("auto_exposure", False)
-        self.config.set_default("auto_white_balance", False)
+        # Defaults: UI yêu cầu mặc định Auto cho AE và AWB
+        self.config.set_default("auto_exposure", True)
+        self.config.set_default("auto_white_balance", True)
         self.config.set_default("color_temperature", 5500)
         self.config.set_default("analogue_gain", 1.0)
         self.config.set_default("rotation", 0)  # 0, 90, 180, 270
@@ -127,7 +159,11 @@ class CameraTool(BaseTool):
         self.config.set_default("gain", 1.0)        # Default gain
         self.config.set_default("ev", 0.0)          # Default EV
         self.config.set_default("rotation_angle", 0)  # Camera rotation angle
-        self.config.set_default("is_auto_exposure", False)  # Auto exposure mode
+        # Auto exposure mode (new key)
+        self.config.set_default("auto_exposure", True)
+        # AWB manual gains mặc định (khi user chuyển sang manual)
+        self.config.set_default("colour_gain_r", 1.8)
+        self.config.set_default("colour_gain_b", 1.8)
         
         # Trigger mode settings
         self.config.set_default("camera_mode", "live")  # "live" hoặc "trigger"
@@ -258,14 +294,85 @@ class CameraTool(BaseTool):
         if "ev" in self.config and hasattr(self.camera_manager, 'set_ev_value'):
             self.camera_manager.set_ev_value(self.config["ev"])
             
-        # Apply auto exposure mode
-        if "is_auto_exposure" in self.config:
-            if self.config["is_auto_exposure"]:
+        # Apply auto exposure mode (new key only)
+        if "auto_exposure" in self.config:
+            if bool(self.config["auto_exposure"]):
                 if hasattr(self.camera_manager, 'set_auto_exposure_mode'):
                     self.camera_manager.set_auto_exposure_mode()
             else:
                 if hasattr(self.camera_manager, 'set_manual_exposure_mode'):
                     self.camera_manager.set_manual_exposure_mode()
+
+        # Apply AWB settings (auto/manual + gains)
+        try:
+            awb_auto = None
+            if "auto_white_balance" in self.config:
+                awb_auto = bool(self.config.get("auto_white_balance", True))
+            # When switching to manual AWB, also apply current gains
+            if awb_auto is not None or any(k in self.config for k in ("colour_gain_r", "colour_gain_b", "colour_gains", "color_gains")):
+                self._apply_awb_to_camera_manager()
+        except Exception as e:
+            logger.warning(f"Could not apply AWB settings: {e}")
+
+    def _apply_awb_to_camera_manager(self):
+        """Apply AWB (auto/manual + gains) to the active camera via CameraManager.
+
+        Uses CameraStream.picam2.set_controls as a fallback if no higher-level API exists.
+        """
+        if not hasattr(self, 'camera_manager') or not self.camera_manager:
+            return False
+        cs = getattr(self.camera_manager, 'camera_stream', None)
+        if cs is None:
+            return False
+
+        awb_auto = bool(self.config.get("auto_white_balance", True))
+
+        # First try high-level API if present
+        applied = False
+        if hasattr(cs, 'set_awb_enable') and callable(getattr(cs, 'set_awb_enable')):
+            try:
+                cs.set_awb_enable(awb_auto)
+                applied = True
+            except Exception:
+                applied = False
+
+        # Build controls dict for direct Picamera2 access
+        controls = {"AwbEnable": awb_auto}
+        if not awb_auto:
+            # Determine manual gains (R, B)
+            r = self.config.get("colour_gain_r")
+            b = self.config.get("colour_gain_b")
+            cg = self.config.get("colour_gains") or self.config.get("color_gains")
+            try:
+                if (r is None or b is None) and cg and len(cg) >= 2:
+                    r = r if r is not None else float(cg[0])
+                    b = b if b is not None else float(cg[1])
+            except Exception:
+                pass
+            if r is not None and b is not None:
+                # Prefer high-level API if available
+                if hasattr(cs, 'set_colour_gains') and callable(getattr(cs, 'set_colour_gains')):
+                    try:
+                        cs.set_colour_gains(float(r), float(b))
+                        applied = True
+                    except Exception:
+                        pass
+                # Also prepare fallback controls
+                try:
+                    controls["ColourGains"] = (float(r), float(b))
+                except Exception:
+                    pass
+
+        # Fallback to direct controls if Picamera2 is available
+        try:
+            picam2 = getattr(cs, 'picam2', None)
+            if picam2 is not None and hasattr(picam2, 'set_controls'):
+                picam2.set_controls(controls)
+                applied = True
+        except Exception as e:
+            logger.warning(f"AWB control apply failed: {e}")
+
+        return applied
         
     def update_config(self, new_config: Dict[str, Any]) -> bool:
         """
@@ -333,24 +440,24 @@ class CameraTool(BaseTool):
                         self.camera_manager.camera_stream.set_target_fps(fps)
                     except Exception as e:
                         logger.warning(f"Failed to update target FPS: {e}")
-                # Check for parameter changes
-                if "exposure" in new_config:
-                    print(f"DEBUG: [CameraTool] Updating exposure to {new_config['exposure']}")
+                # Check for parameter changes (new keys only)
+                if "exposure_us" in new_config:
+                    print(f"DEBUG: [CameraTool] Updating exposure_us to {new_config['exposure_us']}")
                     if hasattr(self.camera_manager, 'set_exposure_value'):
-                        self.camera_manager.set_exposure_value(new_config['exposure'])
+                        self.camera_manager.set_exposure_value(new_config['exposure_us'])
                 
-                if "gain" in new_config:
-                    print(f"DEBUG: [CameraTool] Updating gain to {new_config['gain']}")
+                if "analogue_gain" in new_config:
+                    print(f"DEBUG: [CameraTool] Updating analogue_gain to {new_config['analogue_gain']}")
                     if hasattr(self.camera_manager, 'set_gain_value'):
-                        self.camera_manager.set_gain_value(new_config['gain'])
+                        self.camera_manager.set_gain_value(new_config['analogue_gain'])
                 
                 if "ev" in new_config:
                     print(f"DEBUG: [CameraTool] Updating EV to {new_config['ev']}")
                     if hasattr(self.camera_manager, 'set_ev_value'):
                         self.camera_manager.set_ev_value(new_config['ev'])
                 
-                if "is_auto_exposure" in new_config:
-                    auto_exp = new_config["is_auto_exposure"]
+                if "auto_exposure" in new_config:
+                    auto_exp = new_config["auto_exposure"]
                     print(f"DEBUG: [CameraTool] Updating auto exposure to {auto_exp}")
                     if auto_exp:
                         if hasattr(self.camera_manager, 'set_auto_exposure_mode'):
@@ -358,6 +465,10 @@ class CameraTool(BaseTool):
                     else:
                         if hasattr(self.camera_manager, 'set_manual_exposure_mode'):
                             self.camera_manager.set_manual_exposure_mode()
+                # AWB: auto/manual toggle + manual gains apply ngay
+                if any(k in new_config for k in ("auto_white_balance", "colour_gain_r", "colour_gain_b", "colour_gains", "color_gains")):
+                    print("DEBUG: [CameraTool] Applying AWB change(s) immediately")
+                    self._apply_awb_to_camera_manager()
         
     def trigger_capture(self) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
