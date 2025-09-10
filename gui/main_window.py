@@ -488,42 +488,68 @@ class MainWindow(QMainWindow):
                 return
                 
             if checked:
-                # Respect current mode (trigger/live) before starting
+                # Start camera respecting current camera mode from CameraTool (if available)
                 try:
                     cm = self.camera_manager
                     mode = None
-                    try:
-                        if hasattr(cm, 'find_camera_tool'):
-                            ct = cm.find_camera_tool()
-                            if ct and hasattr(ct, 'get_camera_mode'):
-                                mode = ct.get_camera_mode()
-                    except Exception:
-                        mode = None
-                    if (mode == 'trigger') or (hasattr(cm, 'current_mode') and cm.current_mode == 'trigger') or \
-                       (hasattr(cm, 'trigger_camera_mode') and cm.trigger_camera_mode and cm.trigger_camera_mode.isChecked()):
+                    # 1) Prefer UI toggle if available
+                    if hasattr(cm, 'trigger_camera_mode') and cm.trigger_camera_mode and cm.trigger_camera_mode.isChecked():
+                        mode = 'trigger'
+                    elif hasattr(cm, 'live_camera_mode') and cm.live_camera_mode and cm.live_camera_mode.isChecked():
+                        mode = 'live'
+                    # 2) Next use stored preference in CameraManager
+                    if not mode and hasattr(cm, 'preferred_mode') and cm.preferred_mode in ('live','trigger'):
+                        mode = cm.preferred_mode
+                    # 3) Then use CameraTool's saved mode if available
+                    if not mode:
+                        try:
+                            if hasattr(cm, 'find_camera_tool'):
+                                ct = cm.find_camera_tool()
+                                if ct and hasattr(ct, 'get_camera_mode'):
+                                    mode = ct.get_camera_mode()
+                        except Exception:
+                            mode = None
+                    # 4) Fallback to CameraManager's current_mode
+                    if not mode and hasattr(cm, 'current_mode') and cm.current_mode in ('live', 'trigger'):
+                        mode = cm.current_mode
+                    # 5) Default
+                    if not mode:
+                        mode = 'live'
+
+                    if mode == 'trigger':
+                        # Reflect UI and route to CameraManager handler (will start trigger)
+                        try:
+                            if hasattr(cm, 'trigger_camera_mode') and cm.trigger_camera_mode:
+                                cm.trigger_camera_mode.blockSignals(True)
+                                cm.trigger_camera_mode.setChecked(True)
+                                cm.trigger_camera_mode.blockSignals(False)
+                            if hasattr(cm, 'live_camera_mode') and cm.live_camera_mode:
+                                cm.live_camera_mode.blockSignals(True)
+                                cm.live_camera_mode.setChecked(False)
+                                cm.live_camera_mode.blockSignals(False)
+                        except Exception:
+                            pass
                         if hasattr(cm, 'live_camera_btn') and cm.live_camera_btn:
                             cm.live_camera_btn.setChecked(True)
                         if hasattr(cm, 'on_live_camera_clicked'):
                             cm.on_live_camera_clicked()
                             return
-                except Exception:
-                    pass
-                # Respect trigger/live mode: delegate to CameraManager when in trigger mode
-                try:
-                    cm = self.camera_manager
-                    if hasattr(cm, 'current_mode') and cm.current_mode == 'trigger':
-                        if hasattr(cm, 'live_camera_btn') and cm.live_camera_btn:
-                            cm.live_camera_btn.setChecked(True)
-                        if hasattr(cm, 'on_live_camera_clicked'):
-                            cm.on_live_camera_clicked()
+                    else:
+                        # LIVE mode: update UI and start live directly
+                        try:
+                            if hasattr(cm, 'trigger_camera_mode') and cm.trigger_camera_mode:
+                                cm.trigger_camera_mode.blockSignals(True)
+                                cm.trigger_camera_mode.setChecked(False)
+                                cm.trigger_camera_mode.blockSignals(False)
+                            if hasattr(cm, 'live_camera_mode') and cm.live_camera_mode:
+                                cm.live_camera_mode.blockSignals(True)
+                                cm.live_camera_mode.setChecked(True)
+                                cm.live_camera_mode.blockSignals(False)
+                        except Exception:
+                            pass
+                        if hasattr(self.camera_manager, 'start_live_camera'):
+                            self.camera_manager.start_live_camera()
                             return
-                except Exception:
-                    pass
-                # Start camera via CameraManager (mode-aware)
-                try:
-                    if hasattr(self.camera_manager, 'start_live_camera'):
-                        self.camera_manager.start_live_camera()
-                        return
                 except Exception as e:
                     logging.warning(f"Fallback to direct start due to: {e}")
                 # Bật camera trực tiếp từ CameraStream (không đi qua start_live_camera)
@@ -544,6 +570,37 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     logging.error(f"Error starting camera stream: {e}")
                     success = False
+
+                # Ensure UI/display behaves like Add Camera Source path
+                if success:
+                    try:
+                        cm = self.camera_manager
+                        # Mark mode as live for consistent UI state
+                        if hasattr(cm, 'current_mode'):
+                            cm.current_mode = 'live'
+                        # Refresh source output combo and default to Camera Source
+                        if hasattr(cm, 'refresh_source_output_combo'):
+                            cm.refresh_source_output_combo()
+                        if hasattr(cm, 'source_output_combo') and cm.source_output_combo:
+                            try:
+                                cm.source_output_combo.setCurrentIndex(0)
+                            except Exception:
+                                pass
+                        # Set CameraView to show raw camera by default and enable overlays
+                        if hasattr(cm, 'camera_view') and cm.camera_view and hasattr(cm.camera_view, 'set_display_mode'):
+                            cm.camera_view.set_display_mode("camera")
+                            try:
+                                if hasattr(cm.camera_view, 'show_detection_overlay'):
+                                    cm.camera_view.show_detection_overlay = True
+                                if hasattr(cm.camera_view, 'update_detection_areas_visibility'):
+                                    cm.camera_view.update_detection_areas_visibility()
+                            except Exception:
+                                pass
+                        # Update camera mode UI if available
+                        if hasattr(cm, 'update_camera_mode_ui'):
+                            cm.update_camera_mode_ui()
+                    except Exception as ui_e:
+                        logging.warning(f"UI refresh after start_live fallback failed: {ui_e}")
 
                 if not success:
                     # Nếu không thành công, đặt lại trạng thái nút
@@ -588,7 +645,7 @@ class MainWindow(QMainWindow):
         
     def _connect_signals(self):
         # Job run button
-        if self.runJob:
+        if hasattr(self, 'runJob') and self.runJob:
             self.runJob.clicked.connect(self.run_current_job)
             logging.info("runJob button connected to run_current_job.")
         """Kết nối các signal với các slot tương ứng"""

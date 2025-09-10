@@ -537,12 +537,26 @@ class CameraStream(QObject):
                 self.camera_error.emit(f"Frame processing error: {str(e)}")
     
     def start_live(self):
-        """Start live view from camera"""
+        """Start live view from camera or stub generator when hardware unavailable"""
         print("DEBUG: [CameraStream] start_live called")
         
+        # Handle stub mode (no picamera2): start test-frame timer instead of failing
         if not self.is_camera_available:
-            print("DEBUG: [CameraStream] Camera not available")
-            return False
+            print("DEBUG: [CameraStream] Camera not available -> starting stub live timer")
+            try:
+                # Ensure a timer exists and is wired to generate frames
+                if not hasattr(self, 'timer'):
+                    self.timer = QTimer()
+                    self.timer.timeout.connect(self._generate_test_frame)
+                # Start timer at target FPS
+                interval = int(1000.0 / max(1.0, float(getattr(self, '_target_fps', 10.0))))
+                if not self.timer.isActive():
+                    self.timer.start(max(1, interval))
+                self.is_live = True
+                return True
+            except Exception as e:
+                print(f"DEBUG: [CameraStream] Error starting stub live: {e}")
+                return False
             
         try:
             # DON'T automatically disable hardware trigger here

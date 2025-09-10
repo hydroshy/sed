@@ -406,6 +406,12 @@ class ToolManager(QObject):
                         if hasattr(camera_manager, 'job_toggle_btn') and camera_manager.job_toggle_btn:
                             camera_manager.job_toggle_btn.setChecked(True)
                             print("DEBUG: Set job toggle button to checked")
+                    # If workflow has been disabled globally, immediately turn job off
+                    if hasattr(camera_manager, 'workflow_enabled') and (not camera_manager.workflow_enabled):
+                        print("DEBUG: Workflow disabled -> forcing job execution OFF")
+                        camera_manager.camera_stream.job_enabled = False
+                        if hasattr(camera_manager, 'job_toggle_btn') and camera_manager.job_toggle_btn:
+                            camera_manager.job_toggle_btn.setChecked(False)
                 
                 # Tự động bắt đầu preview camera
                 if hasattr(camera_manager, 'start_camera_preview'):

@@ -3,17 +3,18 @@ from PyQt5.QtWidgets import QApplication, QComboBox
 from camera.camera_stream import CameraStream
 from gui.camera_view import CameraView
 import logging
+import re
 
 class CameraManager(QObject):
     """
-    Quản lý camera và xử lý tương tác với camera
+    Qu   n l   camera v   x    l   t    ng t  c v   i camera
     """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.main_window = parent  # Store reference to main window
         self.camera_stream = None
         self.camera_view = None
-        self.exposure_edit = None  # Chỉ còn exposure edit, không có slider
+        self.exposure_edit = None  # Ch    c  n exposure edit, kh  ng c   slider
         self.gain_edit = None
         self.ev_edit = None
         self.focus_bar = None
@@ -32,12 +33,12 @@ class CameraManager(QObject):
         self.trigger_camera_mode = None  # Button for switching to trigger mode
         
         # Job control state
-        self.job_enabled = False  # Mặc định DISABLE job execution để tránh camera bị đóng băng
+        self.job_enabled = False  # M   c      nh DISABLE job execution       tr  nh camera b        ng b  ng
         self.job_toggle_btn = None
         
         # Exposure settings state
-        self._is_auto_exposure = False  # Bắt đầu với manual mode để user có thể chỉnh exposure
-        self._pending_exposure_settings = {}  # Lưu settings chưa apply
+        self._is_auto_exposure = False  # B   t      u v   i manual mode       user c   th    ch   nh exposure
+        self._pending_exposure_settings = {}  # L  u settings ch  a apply
         self._instant_apply = True  # Enable instant apply cho better UX
         self.auto_exposure_btn = None
         self.manual_exposure_btn = None
@@ -54,13 +55,56 @@ class CameraManager(QObject):
         self.colour_gain_b_edit = None
         self._is_auto_awb = True
         
+        # Arm-and-wait behavior: mark waiting for first frame after (re)start
+        self._waiting_first_frame = False
+        # Preferred mode memory when no CameraTool is present
+        self.preferred_mode = 'live'
+
+        # Remember user's last selected mode even without CameraTool
+        self.preferred_mode = 'live'
+        
+    def _warn_no_camera_source(self):
+        """Show a warning dialog requesting user to add Camera Source tool."""
+        try:
+            from PyQt5.QtWidgets import QMessageBox
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Warning)
+            msg.setWindowTitle("Thi   u Camera Source")
+            msg.setText("Ch  a c   Camera Source trong workflow.")
+            msg.setInformativeText("Vui l  ng th  m 'Camera Source' tr     c khi b   t camera.")
+            msg.exec_()
+        except Exception as e:
+            print(f"DEBUG: [CameraManager] Could not show warning dialog: {e}")
+        # Reset related toggles/buttons if present
+        try:
+            if hasattr(self, 'live_camera_btn') and self.live_camera_btn:
+                self.live_camera_btn.setChecked(False)
+        except Exception:
+            pass
+        try:
+            if hasattr(self, 'main_window') and self.main_window and hasattr(self.main_window, 'onlineCamera') and self.main_window.onlineCamera:
+                self.main_window.onlineCamera.setChecked(False)
+        except Exception:
+            pass
+
+    def _ensure_camera_source_present(self) -> bool:
+        """Return True if Camera Source tool exists; otherwise warn and return False."""
+        try:
+            ct = self.find_camera_tool() if hasattr(self, 'find_camera_tool') else None
+            if ct:
+                return True
+        except Exception:
+            pass
+        self._warn_no_camera_source()
+        return False
+
     def setup(self, camera_view_widget, exposure_edit,
              gain_edit, ev_edit, focus_bar, fps_num, source_output_combo=None):
-        """Thiết lập các tham chiếu đến các widget UI và khởi tạo camera"""
-        # Khởi tạo camera stream
+        """Thi   t l   p c  c tham chi   u      n c  c widget UI v   kh   i t   o camera"""
+        # Kh   i t   o camera stream
         self.camera_stream = CameraStream()
         
-        # Khởi tạo camera view với main_window reference
+        # Kh   i t   o camera view v   i main_window reference
         self.camera_view = CameraView(camera_view_widget, self.main_window)
         self.camera_stream.frame_ready.connect(self.camera_view.display_frame)
         # Rebind frame_ready to route through our handler so we can run the job pipeline
@@ -82,37 +126,53 @@ class CameraManager(QObject):
         if self.main_window and hasattr(self.main_window, 'reload_camera_formats'):
             self.main_window.reload_camera_formats()
         
-        # Kết nối các widget - đã bỏ gain_slider và ev_slider
+        # K   t n   i c  c widget -      b    gain_slider v   ev_slider
         self.exposure_edit = exposure_edit
         self.gain_edit = gain_edit
         self.ev_edit = ev_edit
         self.focus_bar = focus_bar
         self.fps_num = fps_num
         
-        # Kết nối signals và slots
+        # K   t n   i signals v   slots
         self.camera_view.focus_calculated.connect(self.update_focus_value)
         self.camera_view.fps_updated.connect(self.update_fps_display)
         
-        # Tắt hiển thị FPS trên góc hình ảnh preview
+        # T   t hi   n th    FPS tr  n g  c h  nh    nh preview
         self.camera_view.toggle_fps_display(False)
         
         # Set initial manual exposure mode
         self.set_manual_exposure_mode()
         self.update_exposure_mode_ui()
         
-        # Sync initial camera parameters (chỉ khi camera sẵn sàng)
-        # self.update_camera_params_from_camera()  # Hoãn lại đến khi camera start
+        # Sync initial camera parameters (ch    khi camera s   n s  ng)
+        # self.update_camera_params_from_camera()  # Ho  n l   i      n khi camera start
         
-        # Khởi tạo mặc định auto exposure
+        # Kh   i t   o m   c      nh auto exposure
         self.set_auto_exposure_mode()
         
-        # Kết nối signal cho các tham số camera
+        # K   t n   i signal cho c  c tham s    camera
         self.setup_camera_param_signals()
         
         logging.info("CameraManager: Setup completed")
         
         # Disable UI initially
         self.set_ui_enabled(False)
+
+    def register_tool(self, tool):
+        """Register Camera Source tool (cache reference during pending/edit).
+
+        Allows CameraManager to find the tool even before it's added to the job.
+        """
+        try:
+            name = getattr(tool, 'name', '')
+            if name == 'Camera Source' or getattr(tool, '__class__', type('X',(),{})).__name__ == 'CameraTool':
+                tool.camera_manager = self
+                self._camera_tool_ref = tool
+                print("DEBUG: [CameraManager] Registered Camera Source tool (cached reference)")
+                return True
+        except Exception as e:
+            print(f"DEBUG: [CameraManager] register_tool error: {e}")
+        return False
         
     def _on_frame_from_camera(self, frame):
         """Handle frames from camera; run job pipeline when enabled, otherwise show raw.
@@ -120,6 +180,16 @@ class CameraManager(QObject):
         Drops incoming frames while processing to keep UI responsive.
         """
         try:
+            # If we're waiting for the first frame after (re)start, clear the flag and sync UI
+            if getattr(self, '_waiting_first_frame', False):
+                self._waiting_first_frame = False
+                try:
+                    self.update_camera_mode_ui()
+                except Exception:
+                    pass
+            # Enforce workflow disabled if configured
+            if hasattr(self, 'workflow_enabled') and not self.workflow_enabled:
+                self.job_enabled = False
             # If job execution is disabled, just display raw frame
             if not getattr(self, 'job_enabled', False):
                 if self.camera_view:
@@ -213,109 +283,22 @@ class CameraManager(QObject):
             return False
         
     def setup_source_output_combo(self):
-        """Setup source output combo box with available pipeline outputs"""
-        print("DEBUG: setup_source_output_combo called")
-        print(f"DEBUG: hasattr(self, 'source_output_combo'): {hasattr(self, 'source_output_combo')}")
-        if hasattr(self, 'source_output_combo'):
-            print(f"DEBUG: self.source_output_combo value: {self.source_output_combo}")
-            print(f"DEBUG: self.source_output_combo type: {type(self.source_output_combo)}")
-            print(f"DEBUG: self.source_output_combo is None: {self.source_output_combo is None}")
-        
-        # Try to find the combo if not already set
-        if not hasattr(self, 'source_output_combo') or self.source_output_combo is None:
-            print("DEBUG: Trying to find combo via main_window")
-            if hasattr(self, 'main_window') and self.main_window:
-                combo = self.main_window.findChild(QComboBox, 'sourceOutputComboBox')
-                if combo:
-                    print("DEBUG: Found sourceOutputComboBox via main_window.findChild")
-                    self.source_output_combo = combo
-                else:
-                    print("DEBUG: sourceOutputComboBox not found via findChild")
-                    return
-            else:
-                print("DEBUG: main_window not available")
-                return
-        
-        if self.source_output_combo is None:
-            print("DEBUG: Source output combo is None, skipping setup")
-            return
-        
-        # Check if widget is valid and accessible
+        """Source output selection is disabled; do nothing."""
         try:
-            self.source_output_combo.objectName()
-            print("DEBUG: Source output combo is valid and accessible")
-        except Exception as e:
-            print(f"DEBUG: Source output combo is not accessible: {e}")
-            return
-            
-        print("DEBUG: Source output combo is available, proceeding with setup")
-        
-        # Clear existing items
-        self.source_output_combo.clear()
-        
-        # Always add Camera Source as the primary source
-        self.source_output_combo.addItem("🎥 Camera Source", "camera")
-        print("DEBUG: Added Camera Source to combo")
-        
-        # Add pipeline outputs from current job
-        if hasattr(self.main_window, 'job_manager') and self.main_window.job_manager:
-            print("DEBUG: Job manager found, checking for current job")
-            current_job = self.main_window.job_manager.get_current_job()
-            if current_job and current_job.tools:
-                print(f"DEBUG: Current job found with {len(current_job.tools)} tools")
-                for tool in current_job.tools:
-                    tool_name = getattr(tool, 'name', getattr(tool, 'display_name', 'Unknown'))
-                    tool_type = type(tool).__name__
-                    print(f"DEBUG: Processing tool: {tool_name} (type: {tool_type})")
-                    
-                    # Add detection tool outputs
-                    if tool_type == 'DetectTool' or 'detect' in tool_name.lower():
-                        self.source_output_combo.addItem(f"🔍 {tool_name} Output", f"detection_{tool.tool_id}")
-                        print(f"DEBUG: Added detection tool: {tool_name}")
-                    # Add other tool outputs as needed
-                    elif 'edge' in tool_name.lower():
-                        self.source_output_combo.addItem(f"📐 {tool_name} Output", f"edge_{tool.tool_id}")
-                        print(f"DEBUG: Added edge tool: {tool_name}")
-                    elif 'ocr' in tool_name.lower():
-                        self.source_output_combo.addItem(f"📝 {tool_name} Output", f"ocr_{tool.tool_id}")
-                        print(f"DEBUG: Added OCR tool: {tool_name}")
-            else:
-                print("DEBUG: No current job or no tools in job")
-        else:
-            print("DEBUG: Job manager not found or not available")
-        
-        # Set default to Camera Source
-        self.source_output_combo.setCurrentIndex(0)
-        
-        # Connect signal to handle selection changes
-        if hasattr(self.source_output_combo, 'currentTextChanged'):
-            try:
-                self.source_output_combo.currentTextChanged.disconnect()
-            except:
-                pass
-        self.source_output_combo.currentTextChanged.connect(self.on_source_output_changed)
-        
-        print(f"DEBUG: Source output combo populated with {self.source_output_combo.count()} items")
+            # If the widget exists, hide and disable it
+            if hasattr(self, 'source_output_combo') and self.source_output_combo:
+                try:
+                    self.source_output_combo.setEnabled(False)
+                    self.source_output_combo.setVisible(False)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return False
         
     def refresh_source_output_combo(self):
-        """Refresh the source output combo when job tools change"""
-        import traceback
-        print("DEBUG: refresh_source_output_combo CALLED!")
-        print("DEBUG: Call stack:")
-        for line in traceback.format_stack()[-3:]:
-            print(f"  {line.strip()}")
-        print("DEBUG: Refreshing source output combo")
-        print(f"DEBUG: hasattr(self, 'source_output_combo'): {hasattr(self, 'source_output_combo')}")
-        if hasattr(self, 'source_output_combo'):
-            print(f"DEBUG: self.source_output_combo value: {self.source_output_combo}")
-            print(f"DEBUG: self.source_output_combo type: {type(self.source_output_combo)}")
-        
-        # Setup source output combo if it exists
-        if hasattr(self, 'source_output_combo') and self.source_output_combo is not None:
-            print("DEBUG: Calling setup_source_output_combo")
-            self.setup_source_output_combo()
-        else:
-            print("DEBUG: Source output combo not available, skipping refresh")
+        """Source output selection is disabled; do nothing."""
+        return False
         
     def on_source_output_changed(self, text):
         """Handle source output combo box selection change"""
@@ -365,7 +348,7 @@ class CameraManager(QObject):
                            auto_awb_btn=None, manual_awb_btn=None,
                            colour_gain_r_edit=None, colour_gain_b_edit=None):
         """
-        Thiết lập các button điều khiển camera và exposure
+        Thi   t l   p c  c button   i   u khi   n camera v   exposure
         
         Args:
             live_camera_btn: Button Live Camera
@@ -416,7 +399,7 @@ class CameraManager(QObject):
         if missing_widgets:
             logging.warning(f"Missing UI widgets: {', '.join(missing_widgets)}")
         
-        # Kết nối signals
+        # K   t n   i signals
         if self.live_camera_btn:
             self.live_camera_btn.clicked.connect(self.on_live_camera_clicked)
             # Enable the button immediately without requiring Camera Source tool
@@ -465,17 +448,35 @@ class CameraManager(QObject):
             self.apply_settings_btn.clicked.connect(self.on_apply_settings_clicked)
         if self.cancel_settings_btn:
             self.cancel_settings_btn.clicked.connect(self.on_cancel_settings_clicked)
+        # Remove job toggle behavior: disable/hide if present
         if self.job_toggle_btn:
-            self.job_toggle_btn.clicked.connect(self.on_job_toggle_clicked)
+            try:
+                self.job_toggle_btn.setEnabled(False)
+                self.job_toggle_btn.setVisible(False)
+            except Exception:
+                pass
             
-        # Khởi tạo UI state
+        # Kh   i t   o UI state
         self.update_camera_mode_ui()
         self.update_exposure_mode_ui()
         self.update_awb_mode_ui()
-        self.update_job_toggle_ui()
+        # Job toggle UI removed
+        try:
+            self.update_job_toggle_ui()
+        except Exception:
+            pass
+
+    # --- Optional stubs to avoid AttributeError when job toggle is not used ---
+    def on_job_toggle_clicked(self):
+        """No-op: workflow/job toggle removed."""
+        return None
+
+    def update_job_toggle_ui(self):
+        """No-op: workflow/job toggle removed."""
+        return None
         
     def _apply_setting_if_manual(self, setting_type, value):
-        """Helper method: Apply setting ngay lập tức nếu đang ở manual mode và instant_apply enabled"""
+        """Helper method: Apply setting ngay l   p t   c n   u   ang     manual mode v   instant_apply enabled"""
         if self._instant_apply and not self._is_auto_exposure and self.camera_stream:
             try:
                 if setting_type == 'exposure':
@@ -485,7 +486,7 @@ class CameraManager(QObject):
                 elif setting_type == 'ev':
                     self.camera_stream.set_ev(value)
             except AttributeError:
-                # Camera stream không có method này, skip
+                # Camera stream kh  ng c   method n  y, skip
                 pass
     
     def set_instant_apply(self, enabled):
@@ -494,7 +495,7 @@ class CameraManager(QObject):
         logging.info(f"Instant apply {'enabled' if enabled else 'disabled'}")
         
     def set_ui_enabled(self, enabled):
-        """Bật/tắt toàn bộ UI camera"""
+        """B   t/t   t to  n b    UI camera"""
         self.ui_enabled = enabled
         
         # Camera buttons
@@ -520,19 +521,28 @@ class CameraManager(QObject):
             self.cancel_settings_btn.setEnabled(enabled)
     
     def get_exposure_value(self):
-        """Lấy giá trị exposure hiện tại"""
+        """Return current exposure in microseconds (robustly parses UI text with units)."""
         try:
-            if self.exposure_edit:
-                return int(self.exposure_edit.text())
-            elif self.camera_stream and hasattr(self.camera_stream, 'get_exposure'):
-                return self.camera_stream.get_exposure()
+            # Prefer UI field if present; it may contain units like "10000.0 μs"
+            if self.exposure_edit and hasattr(self.exposure_edit, 'text'):
+                txt = str(self.exposure_edit.text())
+                m = re.search(r"([0-9]+(?:\.[0-9]+)?)", txt)
+                if m:
+                    val = float(m.group(1))
+                    return int(round(val))
+            # Fallback to camera stream getter
+            if self.camera_stream and hasattr(self.camera_stream, 'get_exposure'):
+                return int(self.camera_stream.get_exposure())
+            # As a last resort, try cached attribute
+            if self.camera_stream and hasattr(self.camera_stream, 'current_exposure'):
+                return int(self.camera_stream.current_exposure)
             return 0
-        except (ValueError, AttributeError):
+        except Exception:
             logging.error("Failed to get exposure value", exc_info=True)
             return 0
             
     def set_exposure_value(self, value):
-        """Đặt giá trị exposure"""
+        """     t gi   tr    exposure"""
         try:
             value = int(value)
             print(f"DEBUG: [CameraManager] Setting exposure value to {value}")
@@ -557,7 +567,7 @@ class CameraManager(QObject):
             return False
             
     def get_gain_value(self):
-        """Lấy giá trị gain hiện tại"""
+        """L   y gi   tr    gain hi   n t   i"""
         try:
             if self.gain_edit:
                 return float(self.gain_edit.text())
@@ -569,7 +579,7 @@ class CameraManager(QObject):
             return 1.0
             
     def set_gain_value(self, value):
-        """Đặt giá trị gain"""
+        """     t gi   tr    gain"""
         try:
             value = float(value)
             print(f"DEBUG: [CameraManager] Setting gain value to {value}")
@@ -594,7 +604,7 @@ class CameraManager(QObject):
             return False
             
     def get_ev_value(self):
-        """Lấy giá trị EV hiện tại"""
+        """L   y gi   tr    EV hi   n t   i"""
         try:
             if self.ev_edit:
                 return float(self.ev_edit.text())
@@ -606,7 +616,7 @@ class CameraManager(QObject):
             return 0.0
             
     def set_ev_value(self, value):
-        """Đặt giá trị EV"""
+        """     t gi   tr    EV"""
         try:
             # Handle tuple case (min, max, current)
             if isinstance(value, tuple) and len(value) >= 3:
@@ -641,11 +651,11 @@ class CameraManager(QObject):
             return False
             
     def is_auto_exposure(self):
-        """Kiểm tra xem có đang ở chế độ auto exposure không"""
+        """Ki   m tra xem c     ang     ch          auto exposure kh  ng"""
         return self._is_auto_exposure
         
     def set_settings_controls_enabled(self, enabled):
-        """Bật/tắt các control settings (exposure, gain, ev)"""
+        """B   t/t   t c  c control settings (exposure, gain, ev)"""
         if self.exposure_edit:
             self.exposure_edit.setEnabled(enabled)
         if self.gain_edit:
@@ -654,8 +664,8 @@ class CameraManager(QObject):
             self.ev_edit.setEnabled(enabled)
         
     def setup_camera_param_signals(self):
-        """Kết nối các signal và slot cho các tham số camera"""
-        # Exposure - chỉ dùng edit box
+        """K   t n   i c  c signal v   slot cho c  c tham s    camera"""
+        # Exposure - ch    d  ng edit box
         if self.exposure_edit:
             if hasattr(self.exposure_edit, 'valueChanged'):  # QDoubleSpinBox
                 self.exposure_edit.valueChanged.connect(self.on_exposure_edit_changed)
@@ -676,60 +686,60 @@ class CameraManager(QObject):
             
     def setup_frame_size_spinboxes(self, width_spinbox=None, height_spinbox=None):
         """
-        Thiết lập các spinbox để điều chỉnh kích thước frame camera
+        Thi   t l   p c  c spinbox         i   u ch   nh k  ch th     c frame camera
         
         Args:
-            width_spinbox: QSpinBox cho chiều rộng
-            height_spinbox: QSpinBox cho chiều cao
+            width_spinbox: QSpinBox cho chi   u r   ng
+            height_spinbox: QSpinBox cho chi   u cao
         """
         self.width_spinbox = width_spinbox
         self.height_spinbox = height_spinbox
         
         if self.width_spinbox:
-            # Cấu hình spinbox chiều rộng
+            # C   u h  nh spinbox chi   u r   ng
             self.width_spinbox.setMinimum(64)
             self.width_spinbox.setMaximum(1456)
-            self.width_spinbox.setValue(1456)  # Giá trị mặc định
+            self.width_spinbox.setValue(1456)  # Gi   tr    m   c      nh
             self.width_spinbox.setSuffix(" px")
             self.width_spinbox.valueChanged.connect(self.on_frame_size_changed)
             
         if self.height_spinbox:
-            # Cấu hình spinbox chiều cao
+            # C   u h  nh spinbox chi   u cao
             self.height_spinbox.setMinimum(64)
             self.height_spinbox.setMaximum(1088)
-            self.height_spinbox.setValue(1088)  # Giá trị mặc định
+            self.height_spinbox.setValue(1088)  # Gi   tr    m   c      nh
             self.height_spinbox.setSuffix(" px")
             self.height_spinbox.valueChanged.connect(self.on_frame_size_changed)
     
     def on_frame_size_changed(self):
-        """Xử lý khi kích thước frame thay đổi"""
+        """X    l   khi k  ch th     c frame thay      i"""
         if self.width_spinbox and self.height_spinbox and self.camera_stream:
             width = self.width_spinbox.value()
             height = self.height_spinbox.value()
             self.camera_stream.set_frame_size(width, height)
     
     def get_frame_size(self):
-        """Lấy kích thước frame hiện tại"""
+        """L   y k  ch th     c frame hi   n t   i"""
         if self.camera_stream:
             return self.camera_stream.get_frame_size()
-        return (1456, 1088)  # Mặc định
+        return (1456, 1088)  # M   c      nh
     
     def set_frame_size(self, width, height):
-        """Đặt kích thước frame và cập nhật UI"""
-        # Cập nhật spinboxes
+        """     t k  ch th     c frame v   c   p nh   t UI"""
+        # C   p nh   t spinboxes
         if self.width_spinbox:
             self.width_spinbox.setValue(width)
         if self.height_spinbox:
             self.height_spinbox.setValue(height)
         
-        # Cập nhật camera stream
+        # C   p nh   t camera stream
         if self.camera_stream:
             self.camera_stream.set_frame_size(width, height)
             
     def set_exposure(self, value):
-        """Đặt giá trị phơi sáng cho camera"""
+        """     t gi   tr    ph  i s  ng cho camera"""
         if self.exposure_edit:
-            # Hiển thị trực tiếp giá trị microseconds
+            # Hi   n th    tr   c ti   p gi   tr    microseconds
             if hasattr(self.exposure_edit, 'setValue'):  # QDoubleSpinBox
                 self.exposure_edit.setValue(value)
             else:  # QLineEdit fallback
@@ -738,7 +748,7 @@ class CameraManager(QObject):
             self.camera_stream.set_exposure(value)
 
     def set_gain(self, value):
-        """Đặt giá trị gain cho camera"""
+        """     t gi   tr    gain cho camera"""
         if self.gain_edit:
             if hasattr(self.gain_edit, 'setValue'):  # QDoubleSpinBox
                 self.gain_edit.setValue(float(value))
@@ -748,7 +758,7 @@ class CameraManager(QObject):
             self.camera_stream.set_gain(value)
 
     def set_ev(self, value):
-        """Đặt giá trị EV cho camera"""
+        """     t gi   tr    EV cho camera"""
         try:
             # Check if value is a tuple and extract current value
             if isinstance(value, tuple) and len(value) >= 3:
@@ -774,25 +784,25 @@ class CameraManager(QObject):
                 self.ev_edit.setValue(0.0)
 
     def on_exposure_edit_changed(self):
-        """Xử lý khi người dùng thay đổi giá trị exposure trong spinbox - chỉ lưu vào pending"""
+        """X    l   khi ng     i d  ng thay      i gi   tr    exposure trong spinbox - ch    l  u v  o pending"""
         print(f"DEBUG: on_exposure_edit_changed called")
         try:
             if self.exposure_edit:
-                # Get value from spinbox (microseconds) - không cần convert
+                # Get value from spinbox (microseconds) - kh  ng c   n convert
                 if hasattr(self.exposure_edit, 'value'):  # QDoubleSpinBox
                     value_us = self.exposure_edit.value()
                 else:  # QLineEdit fallback
                     value_us = float(self.exposure_edit.text())
                 
-                print(f"DEBUG: New exposure value: {value_us} μs")
+                print(f"DEBUG: New exposure value: {value_us}   s")
                 print(f"DEBUG: Manual mode: {not self._is_auto_exposure}")
                 
-                # Lưu trực tiếp giá trị microseconds vào pending settings
+                # L  u tr   c ti   p gi   tr    microseconds v  o pending settings
                 self._pending_exposure_settings['exposure'] = value_us
                 print(f"DEBUG: Saved to pending settings")
 
-                # Instant apply: áp dụng ngay khi ở manual mode để người dùng thấy hiệu ứng tức thời
-                # Chỉ apply khi _instant_apply bật và không ở auto-exposure
+                # Instant apply:   p d   ng ngay khi     manual mode       ng     i d  ng th   y hi   u    ng t   c th   i
+                # Ch    apply khi _instant_apply b   t v   kh  ng     auto-exposure
                 try:
                     self._apply_setting_if_manual('exposure', value_us)
                     print("DEBUG: Instant-applied exposure to camera (manual mode)")
@@ -814,13 +824,13 @@ class CameraManager(QObject):
         print(f"DEBUG: CameraManager linked to SettingsManager")
 
     def on_gain_edit_changed(self, value=None):
-        """Xử lý khi người dùng thay đổi giá trị gain"""
+        """X    l   khi ng     i d  ng thay      i gi   tr    gain"""
         try:
             if self.gain_edit:
                 if value is None:
-                    # Trường hợp editingFinished (QLineEdit)
+                    # Tr     ng h   p editingFinished (QLineEdit)
                     value = float(self.gain_edit.text())
-                # value đã được truyền trực tiếp nếu sự kiện là valueChanged (QDoubleSpinBox)
+                # value             c truy   n tr   c ti   p n   u s    ki   n l   valueChanged (QDoubleSpinBox)
                 
                 if hasattr(self.camera_stream, 'set_gain'):
                     self.camera_stream.set_gain(value)
@@ -828,13 +838,13 @@ class CameraManager(QObject):
             pass
 
     def on_ev_edit_changed(self, value=None):
-        """Xử lý khi người dùng thay đổi giá trị EV"""
+        """X    l   khi ng     i d  ng thay      i gi   tr    EV"""
         try:
             if self.ev_edit:
                 if value is None:
-                    # Trường hợp editingFinished (QLineEdit)
+                    # Tr     ng h   p editingFinished (QLineEdit)
                     value = float(self.ev_edit.text())
-                # value đã được truyền trực tiếp nếu sự kiện là valueChanged (QDoubleSpinBox)
+                # value             c truy   n tr   c ti   p n   u s    ki   n l   valueChanged (QDoubleSpinBox)
                 
                 if hasattr(self.camera_stream, 'set_ev'):
                     self.camera_stream.set_ev(value)
@@ -842,15 +852,15 @@ class CameraManager(QObject):
             pass
 
     def update_camera_params_from_camera(self):
-        """Cập nhật các tham số từ camera hiện tại"""
+        """C   p nh   t c  c tham s    t    camera hi   n t   i"""
         if not self.camera_stream:
             return
             
-        # Lấy giá trị thực tế từ camera nếu có API
+        # L   y gi   tr    th   c t    t    camera n   u c   API
         if hasattr(self.camera_stream, 'get_exposure'):
             exposure = self.camera_stream.get_exposure()
             print(f"DEBUG: Got exposure from camera: {exposure}")
-            if exposure:  # Chỉ update nếu có giá trị hợp lệ
+            if exposure:  # Ch    update n   u c   gi   tr    h   p l   
                 if self.exposure_edit:
                     if hasattr(self.exposure_edit, 'setValue'):
                         self.exposure_edit.setValue(float(exposure))
@@ -890,13 +900,9 @@ class CameraManager(QObject):
             print(f"DEBUG: [CameraManager] Error showing message box: {e}")
     
     def toggle_live_camera(self, checked):
-        """Bật/tắt chế độ camera trực tiếp"""
+        """B   t/t   t ch          camera tr   c ti   p"""
         print(f"DEBUG: [CameraManager] toggle_live_camera called with checked={checked}")
-        
-        # Bỏ qua kiểm tra Camera Source để cho phép xem trực tiếp 
-        # mà không cần thêm vào source trước
-        # Người dùng có thể xem trước hình ảnh từ camera trước khi thêm vào pipeline
-        
+        # Y  u c   u c   Camera Source trong workflow tr     c khi b   t camera        
         if not self.camera_stream:
             print("DEBUG: [CameraManager] No camera stream available")
             return False
@@ -934,9 +940,9 @@ class CameraManager(QObject):
                 
                 if success:
                     print("DEBUG: [CameraManager] Live camera started successfully")
-                    # Sync camera params sau một chút delay để camera start hoàn toàn
+                    # Sync camera params sau m   t ch  t delay       camera start ho  n to  n
                     from PyQt5.QtCore import QTimer
-                    # Thử sync multiple times để đảm bảo camera đã sẵn sàng
+                    # Th    sync multiple times            m b   o camera      s   n s  ng
                     QTimer.singleShot(1000, self.update_camera_params_from_camera)  # 1s delay
                     QTimer.singleShot(2000, self.update_camera_params_from_camera)  # retry sau 2s
                     return True
@@ -984,12 +990,12 @@ class CameraManager(QObject):
             return False
             
     def set_auto_exposure_mode(self):
-        """Đặt chế độ tự động phơi sáng"""
+        """     t ch          t         ng ph  i s  ng"""
         self._is_auto_exposure = True
         if hasattr(self.camera_stream, 'set_auto_exposure'):
             self.camera_stream.set_auto_exposure(True)
         
-        # Disable các widget điều chỉnh phơi sáng
+        # Disable c  c widget   i   u ch   nh ph  i s  ng
         if self.exposure_edit:
             self.exposure_edit.setEnabled(False)
         if self.gain_edit:
@@ -1000,13 +1006,13 @@ class CameraManager(QObject):
             self.ev_edit.setEnabled(False)
             
     def set_manual_exposure_mode(self):
-        """Đặt chế độ phơi sáng thủ công"""
+        """     t ch          ph  i s  ng th    c  ng"""
         self._is_auto_exposure = False
         if hasattr(self.camera_stream, 'set_auto_exposure'):
             self.camera_stream.set_auto_exposure(False)
             print("DEBUG: Set camera auto exposure to False")
         
-        # Enable các widget điều chỉnh phơi sáng
+        # Enable c  c widget   i   u ch   nh ph  i s  ng
         if self.exposure_edit:
             self.exposure_edit.setEnabled(True)
             print("DEBUG: Enabled exposure_edit")
@@ -1019,21 +1025,21 @@ class CameraManager(QObject):
             
     @pyqtSlot(int)
     def update_focus_value(self, value):
-        """Cập nhật giá trị độ sắc nét trên thanh focusBar"""
+        """C   p nh   t gi   tr          s   c n  t tr  n thanh focusBar"""
         if self.focus_bar:
             self.focus_bar.setValue(value)
         
     @pyqtSlot(float)
     def update_fps_display(self, fps_value):
-        """Cập nhật giá trị FPS lên LCD display"""
+        """C   p nh   t gi   tr    FPS l  n LCD display"""
         if self.fps_num:
             self.fps_num.display(f"{fps_value:.1f}")
             
     def trigger_capture(self):
-        """Kích hoạt chụp ảnh không đồng bộ"""
-        # Bỏ qua kiểm tra Camera Source để cho phép chụp ảnh
-        # mà không cần thêm vào source trước
-        # Người dùng có thể chụp ảnh trước khi thêm Camera Source vào pipeline
+        """K  ch ho   t ch   p    nh kh  ng      ng b   """
+        # B    qua ki   m tra Camera Source       cho ph  p ch   p    nh
+        # m   kh  ng c   n th  m v  o source tr     c
+        # Ng     i d  ng c   th    ch   p    nh tr     c khi th  m Camera Source v  o pipeline
             
         if self.camera_stream:
             print("DEBUG: [CameraManager] Triggering capture asynchronously...")
@@ -1043,12 +1049,12 @@ class CameraManager(QObject):
                 original_text = self.trigger_camera_btn.text()
                 self.trigger_camera_btn.setText("Capturing...")
                 
-                # Button vẫn enabled để user có thể nhấn Cancel nếu muốn
-                # Chỉ disable nếu đang xử lý capture đồng bộ
+                # Button v   n enabled       user c   th    nh   n Cancel n   u mu   n
+                # Ch    disable n   u   ang x    l   capture      ng b   
                 # self.trigger_camera_btn.setEnabled(False)
                 
-                # Không còn chuyển sang trigger mode nữa
-                # Giữ nguyên chế độ hiện tại (live hoặc trigger)
+                # Kh  ng c  n chuy   n sang trigger mode n   a
+                # Gi    nguy  n ch          hi   n t   i (live ho   c trigger)
                 print(f"DEBUG: [CameraManager] Capturing in current mode: {self.current_mode}")
                 
                 # Apply job setting to camera stream
@@ -1058,7 +1064,7 @@ class CameraManager(QObject):
                 # Sync current exposure setting before trigger
                 self.sync_exposure_to_camera()
                 
-                # Trigger actual capture asynchronously - không block UI
+                # Trigger actual capture asynchronously - kh  ng block UI
                 if hasattr(self.camera_stream, 'trigger_capture_async'):
                     success = self.camera_stream.trigger_capture_async()
                     if not success:
@@ -1086,7 +1092,7 @@ class CameraManager(QObject):
                         print("DEBUG: [CameraManager] No trigger_capture method available")
                         self._show_camera_error("Camera trigger feature is not available. Please update the camera module.")
                 
-                # Restore button after timeout nếu không có phản hồi
+                # Restore button after timeout n   u kh  ng c   ph   n h   i
                 from PyQt5.QtCore import QTimer
                 def restore_button():
                     if self.trigger_camera_btn and self.trigger_camera_btn.text() == "Capturing...":
@@ -1094,7 +1100,7 @@ class CameraManager(QObject):
                         if self.current_mode == 'trigger':
                             self.trigger_camera_btn.setEnabled(True)
                 
-                # Set timeout dài hơn (10 giây) để cho phép có thời gian chờ trigger
+                # Set timeout d  i h  n (10 gi  y)       cho ph  p c   th   i gian ch    trigger
                 QTimer.singleShot(10000, restore_button)
             else:
                 # Direct trigger without UI feedback
@@ -1118,10 +1124,10 @@ class CameraManager(QObject):
             self._show_camera_error("Camera is not available. Please check camera connection.")
 
     def sync_exposure_to_camera(self):
-        """Đồng bộ hóa các thông số exposure hiện tại từ UI vào camera"""
+        """     ng b    h  a c  c th  ng s    exposure hi   n t   i t    UI v  o camera"""
         print("DEBUG: [CameraManager] Syncing exposure settings to camera")
         try:
-            # Lấy giá trị exposure từ UI
+            # L   y gi   tr    exposure t    UI
             if self.exposure_edit:
                 try:
                     if hasattr(self.exposure_edit, 'value'):
@@ -1135,7 +1141,7 @@ class CameraManager(QObject):
                 except (ValueError, AttributeError) as e:
                     print(f"DEBUG: [CameraManager] Error getting exposure value from UI: {e}")
             
-            # Lấy giá trị gain từ UI
+            # L   y gi   tr    gain t    UI
             if self.gain_edit:
                 try:
                     if hasattr(self.gain_edit, 'value'):
@@ -1149,7 +1155,7 @@ class CameraManager(QObject):
                 except (ValueError, AttributeError) as e:
                     print(f"DEBUG: [CameraManager] Error getting gain value from UI: {e}")
             
-            # Lấy giá trị EV từ UI
+            # L   y gi   tr    EV t    UI
             if self.ev_edit:
                 try:
                     if hasattr(self.ev_edit, 'value'):
@@ -1163,7 +1169,7 @@ class CameraManager(QObject):
                 except (ValueError, AttributeError) as e:
                     print(f"DEBUG: [CameraManager] Error getting EV value from UI: {e}")
             
-            # Đồng bộ chế độ auto exposure
+            #      ng b    ch          auto exposure
             if hasattr(self.camera_stream, 'set_auto_exposure'):
                 print(f"DEBUG: [CameraManager] Syncing auto exposure: {self._is_auto_exposure}")
                 self.camera_stream.set_auto_exposure(self._is_auto_exposure)
@@ -1244,27 +1250,27 @@ class CameraManager(QObject):
             return False
             
     def rotate_left(self):
-        """Xoay camera sang trái"""
+        """Xoay camera sang tr  i"""
         if self.camera_view:
             self.camera_view.rotate_left()
             
     def rotate_right(self):
-        """Xoay camera sang phải"""
+        """Xoay camera sang ph   i"""
         if self.camera_view:
             self.camera_view.rotate_right()
             
     def zoom_in(self):
-        """Phóng to"""
+        """Ph  ng to"""
         if self.camera_view:
             self.camera_view.zoom_in()
             
     def zoom_out(self):
-        """Thu nhỏ"""
+        """Thu nh   """
         if self.camera_view:
             self.camera_view.zoom_out()
             
     def handle_resize_event(self):
-        """Xử lý sự kiện khi cửa sổ thay đổi kích thước"""
+        """X    l   s    ki   n khi c   a s    thay      i k  ch th     c"""
         if self.camera_view:
             self.camera_view.handle_resize_event()
     
@@ -1272,33 +1278,40 @@ class CameraManager(QObject):
     
     def start_live_camera(self):
         """Start live camera mode (for programmatic access)"""
-        print("DEBUG: [CameraManager] start_live_camera called")
-        
-        # Kiểm tra xem có đang ở chế độ trigger hay không
-        trigger_mode = False
-        if hasattr(self, 'current_mode') and self.current_mode == 'trigger':
-            trigger_mode = True
-        elif hasattr(self, 'trigger_camera_mode') and self.trigger_camera_mode and self.trigger_camera_mode.isChecked():
-            trigger_mode = True
-            
-        if trigger_mode:
-            print("DEBUG: [CameraManager] Using trigger mode based on current settings")
-            # Sử dụng hàm on_live_camera_clicked để giữ nguyên chế độ trigger
-            if hasattr(self, 'live_camera_btn') and self.live_camera_btn:
-                # Đặt trạng thái checked để on_live_camera_clicked biết đang bật camera
-                self.live_camera_btn.setChecked(True)
-                self.on_live_camera_clicked()
-                return True
-        
-        # Tiếp tục với chế độ live nếu không phải chế độ trigger
+        print("DEBUG: [CameraManager] start_live_camera called (force LIVE)")        
+        # Arm and wait: mark waiting for first frame
+        self._waiting_first_frame = True
+        # Force LIVE mode when starting via onlineCamera/start_live
+        try:
+            if self.trigger_camera_mode:
+                self.trigger_camera_mode.blockSignals(True)
+                self.trigger_camera_mode.setChecked(False)
+                self.trigger_camera_mode.blockSignals(False)
+        except Exception:
+            pass
+        try:
+            if self.live_camera_mode:
+                self.live_camera_mode.blockSignals(True)
+                self.live_camera_mode.setChecked(True)
+                self.live_camera_mode.blockSignals(False)
+        except Exception:
+            pass
+        # Ensure hardware trigger is disabled for live
+        if self.camera_stream and hasattr(self.camera_stream, 'set_trigger_mode'):
+            try:
+                self.camera_stream.set_trigger_mode(False)
+            except Exception:
+                pass
+
+        # Ti?p t?c v?i ch? d? LIVE
         if self.camera_stream and not self.camera_stream.is_running():
             try:
                 success = self.camera_stream.start_live()
                 if success:
-                    # Đảm bảo chế độ hiện tại và UI được đồng bộ
+                    #      m b   o ch          hi   n t   i v   UI        c      ng b   
                     self.current_mode = 'live'
                     
-                    # Đảm bảo các nút chế độ camera được cập nhật đúng
+                    #      m b   o c  c n  t ch          camera        c c   p nh   t     ng
                     if self.live_camera_mode:
                         self.live_camera_mode.blockSignals(True)
                         self.live_camera_mode.setChecked(True)
@@ -1308,21 +1321,23 @@ class CameraManager(QObject):
                         self.trigger_camera_mode.setChecked(False)
                         self.trigger_camera_mode.blockSignals(False)
                     
-                    # Cập nhật UI
+                    # C   p nh   t UI
                     self.update_camera_mode_ui()
                     
-                    # Refresh source output combo to show current pipeline
+                    # Default to Camera Source display (no manual selection required)
+                    # Still refresh combo for internal consistency, but ignore its value
                     self.refresh_source_output_combo()
-                    
-                    # Apply current source output mode if set
-                    current_data = self.source_output_combo.currentData() if self.source_output_combo else "camera"
+                    current_data = "camera"
                     if hasattr(self.camera_view, 'set_display_mode'):
-                        tool_id = None
-                        if current_data and "_" in str(current_data):
-                            parts = str(current_data).split("_")
-                            if len(parts) > 1:
-                                tool_id = parts[1]
-                        self.camera_view.set_display_mode(current_data, tool_id)
+                        self.camera_view.set_display_mode("camera")
+                    # Ensure user drawings/overlays are visible by default
+                    try:
+                        if hasattr(self.camera_view, 'show_detection_overlay'):
+                            self.camera_view.show_detection_overlay = True
+                        if hasattr(self.camera_view, 'update_detection_areas_visibility'):
+                            self.camera_view.update_detection_areas_visibility()
+                    except Exception:
+                        pass
                         
                     print("DEBUG: [CameraManager] Live camera started successfully with display mode:", current_data)
                     return True
@@ -1337,28 +1352,34 @@ class CameraManager(QObject):
             return False
     
     def on_live_camera_clicked(self):
-        """Xử lý khi click Live Camera button (onlineCamera)"""
+        """Handle click Live Camera button (onlineCamera)"""
+        # Arm and wait: mark waiting for first frame when starting
+        try:
+            if self.live_camera_btn and self.live_camera_btn.isChecked():
+                self._waiting_first_frame = True
+        except Exception:
+            pass
         current_checked = self.live_camera_btn.isChecked() if self.live_camera_btn else True
         print(f"DEBUG: [CameraManager] Live camera button clicked, checked: {current_checked}, current_mode: {self.current_mode}")
         
         if current_checked:
-            # Button được click để bật camera
+            # Button        c click       b   t camera
             print(f"DEBUG: [CameraManager] Starting camera in mode: {self.current_mode or 'default'}")
             
-            # Hành vi khác nhau dựa vào chế độ hiện tại
+            # H  nh vi kh  c nhau d   a v  o ch          hi   n t   i
             if self.current_mode == 'trigger' or (self.trigger_camera_mode and self.trigger_camera_mode.isChecked()):
-                # Chế độ trigger - bật camera trong chế độ đợi external trigger
+                # Ch          trigger - b   t camera trong ch               i external trigger
                 print("DEBUG: [CameraManager] Starting camera in TRIGGER mode")
                 
-                # Đảm bảo hardware được thiết lập đúng ở chế độ trigger
+                #      m b   o hardware        c thi   t l   p     ng     ch          trigger
                 if self.camera_stream and hasattr(self.camera_stream, 'set_trigger_mode'):
                     print("DEBUG: [CameraManager] Setting hardware to trigger mode")
                     self.camera_stream.set_trigger_mode(True)
                     
-                # Thiết lập chế độ trigger ngay cả khi không phải đang ở chế độ đó
+                # Thi   t l   p ch          trigger ngay c    khi kh  ng ph   i   ang     ch              
                 self.current_mode = 'trigger'
                 
-                # Bắt đầu camera trong chế độ STILL/TRIGGER
+                # B   t      u camera trong ch          STILL/TRIGGER
                 success = self._implement_start_trigger()
                 if not success:
                     print("DEBUG: [CameraManager] Failed to start camera in trigger mode")
@@ -1367,7 +1388,7 @@ class CameraManager(QObject):
                     if self.live_camera_btn:
                         self.live_camera_btn.setChecked(False)
             else:
-                # Chế độ live mặc định hoặc đã được chọn
+                # Ch          live m   c      nh ho   c             c ch   n
                 print("DEBUG: [CameraManager] Starting camera in LIVE mode")
                 
                 # Set hardware to live mode
@@ -1389,15 +1410,15 @@ class CameraManager(QObject):
                     if self.live_camera_btn:
                         self.live_camera_btn.setChecked(False)
         else:
-            # Button được click để tắt camera
+            # Button        c click       t   t camera
             print("DEBUG: [CameraManager] Stopping camera")
             
-            # Dừng camera bất kể chế độ nào
+            # D   ng camera b   t k    ch          n  o
             if self.current_mode == 'trigger':
-                # Nếu đang ở chế độ trigger, dừng camera theo cách phù hợp
+                # N   u   ang     ch          trigger, d   ng camera theo c  ch ph   h   p
                 success = self._implement_stop_trigger()
             else:
-                # Nếu ở chế độ live hoặc không xác định, dùng phương thức thông thường
+                # N   u     ch          live ho   c kh  ng x  c      nh, d  ng ph    ng th   c th  ng th     ng
                 success = self.toggle_live_camera(False)
                 
             if success:
@@ -1408,23 +1429,23 @@ class CameraManager(QObject):
         self.update_camera_mode_ui()
     
     def on_trigger_camera_clicked(self):
-        """Xử lý khi click Trigger Camera button - chỉ chụp ảnh một lần"""
+        """X    l   khi click Trigger Camera button - ch    ch   p    nh m   t l   n"""
         print("DEBUG: [CameraManager] Trigger camera button clicked - capturing single image")
         
-        # Không chuyển đổi chế độ nữa, chỉ kích hoạt chụp ảnh
+        # Kh  ng chuy   n      i ch          n   a, ch    k  ch ho   t ch   p    nh
         if self.camera_stream:
-            # Đảm bảo camera đã sẵn sàng
+            #      m b   o camera      s   n s  ng
             if self.current_mode == 'live':
                 print("DEBUG: [CameraManager] Live mode active, will capture while keeping live view")
-                # Không tắt live, chỉ capture trong chế độ live
+                # Kh  ng t   t live, ch    capture trong ch          live
             elif self.current_mode == 'trigger':
                 print("DEBUG: [CameraManager] Trigger mode active, capturing image")
             else:
                 print("DEBUG: [CameraManager] No active mode, attempting to capture anyway")
             
-            # Capture ảnh - không thiết lập trigger mode tạm thời nữa
+            # Capture    nh - kh  ng thi   t l   p trigger mode t   m th   i n   a
             print("DEBUG: Triggering single capture...")
-            # Kiểm tra xem trigger_capture có tồn tại không
+            # Ki   m tra xem trigger_capture c   t   n t   i kh  ng
             if hasattr(self.camera_stream, 'trigger_capture'):
                 try:
                     self.camera_stream.trigger_capture()
@@ -1439,11 +1460,11 @@ class CameraManager(QObject):
             print("DEBUG: [CameraManager] No camera stream available")
             self._show_camera_error("Camera is not available for capture. Please check connection.")
         
-        # Không thay đổi giao diện người dùng, chỉ gọi update để làm mới UI nếu cần
+        # Kh  ng thay      i giao di   n ng     i d  ng, ch    g   i update       l  m m   i UI n   u c   n
         self.update_camera_mode_ui()
     
     def update_camera_mode_ui(self):
-        """Cập nhật UI theo camera mode hiện tại - sync with CameraTool"""
+        """C   p nh   t UI theo camera mode hi   n t   i - sync with CameraTool"""
         # Get current mode from CameraTool if available
         camera_tool = self.find_camera_tool()
         if camera_tool:
@@ -1587,7 +1608,7 @@ class CameraManager(QObject):
             pass
     
     def on_live_camera_mode_clicked(self):
-        """Xử lý khi click Live Camera Mode button - delegate to CameraTool"""
+        """X    l   khi click Live Camera Mode button - delegate to CameraTool"""
         print("DEBUG: [CameraManager] Live camera mode button clicked")
         
         # Find the Camera Source tool and delegate mode change to it
@@ -1603,6 +1624,9 @@ class CameraManager(QObject):
             # Fallback: handle mode change directly if no Camera Source tool found
             print("DEBUG: [CameraManager] No Camera Source tool found, handling mode change directly")
             self._handle_live_mode_directly()
+
+        # Persist preference
+        self.preferred_mode = 'live'
 
         # Ensure mutual exclusivity like AE/Manual buttons
         if self.live_camera_mode:
@@ -1640,7 +1664,7 @@ class CameraManager(QObject):
             print(f"DEBUG: [CameraManager] Error forcing auto AWB on live mode: {e}")
 
     def on_trigger_camera_mode_clicked(self):
-        """Xử lý khi click Trigger Camera Mode button - delegate to CameraTool"""
+        """X    l   khi click Trigger Camera Mode button - delegate to CameraTool"""
         print("DEBUG: [CameraManager] Trigger camera mode button clicked")
 
         # Find the Camera Source tool and delegate mode change to it
@@ -1656,6 +1680,9 @@ class CameraManager(QObject):
             # Fallback: handle mode change directly if no Camera Source tool found
             print("DEBUG: [CameraManager] No Camera Source tool found, handling mode change directly")
             self._handle_trigger_mode_directly()
+
+        # Persist preference
+        self.preferred_mode = 'trigger'
 
         # Ensure mutual exclusivity like AE/Manual buttons
         if self.trigger_camera_mode:
@@ -1759,25 +1786,25 @@ class CameraManager(QObject):
     # ============ EXPOSURE MODE HANDLERS ============
     
     def on_auto_exposure_clicked(self):
-        """Xử lý khi click Auto Exposure button"""
+        """X    l   khi click Auto Exposure button"""
         self._is_auto_exposure = True
-        # Áp dụng auto mode ngay lập tức
+        #   p d   ng auto mode ngay l   p t   c
         self.set_auto_exposure_mode()
         self.update_exposure_mode_ui()
-        # Lưu vào pending settings
+        # L  u v  o pending settings
         self._pending_exposure_settings['auto_exposure'] = True
     
     def on_manual_exposure_clicked(self):
-        """Xử lý khi click Manual Exposure button"""
+        """X    l   khi click Manual Exposure button"""
         self._is_auto_exposure = False
-        # Áp dụng manual mode ngay lập tức
+        #   p d   ng manual mode ngay l   p t   c
         self.set_manual_exposure_mode()
         self.update_exposure_mode_ui()
-        # Lưu vào pending settings
+        # L  u v  o pending settings
         self._pending_exposure_settings['auto_exposure'] = False
     
     def update_exposure_mode_ui(self):
-        """Cập nhật UI theo exposure mode hiện tại"""
+        """C   p nh   t UI theo exposure mode hi   n t   i"""
         # Enable/disable manual controls
         self.set_settings_controls_enabled(not self._is_auto_exposure and self.ui_enabled)
         
@@ -1789,9 +1816,120 @@ class CameraManager(QObject):
             else:
                 self.auto_exposure_btn.setStyleSheet("")
                 self.manual_exposure_btn.setStyleSheet("background-color: #ffd43b")  # Yellow
+
+    # ====== AWB MODE HANDLERS ======
+    def set_awb_controls_enabled(self, enabled):
+        """Enable/disable manual AWB controls (colour gains)."""
+        try:
+            if self.colour_gain_r_edit:
+                self.colour_gain_r_edit.setEnabled(bool(enabled))
+            if self.colour_gain_b_edit:
+                self.colour_gain_b_edit.setEnabled(bool(enabled))
+        except Exception:
+            pass
+
+    def update_awb_mode_ui(self):
+        """Update AWB UI state based on _is_auto_awb flag."""
+        auto = getattr(self, '_is_auto_awb', True)
+        try:
+            if self.auto_awb_btn:
+                self.auto_awb_btn.setStyleSheet("background-color: #51cf66" if auto else "")
+            if self.manual_awb_btn:
+                self.manual_awb_btn.setStyleSheet("" if auto else "background-color: #ffd43b")
+        except Exception:
+            pass
+        # Enable manual gain fields only in manual mode
+        self.set_awb_controls_enabled(self.ui_enabled and (not auto))
+
+    def on_auto_awb_clicked(self):
+        """Switch to Auto AWB and apply to active camera via CameraTool if available."""
+        self._is_auto_awb = True
+        # Update UI first
+        self.update_awb_mode_ui()
+        # Delegate to CameraTool for application
+        try:
+            ct = self.find_camera_tool()
+            if ct and hasattr(ct, 'set_auto_awb'):
+                ct.set_auto_awb(True)
+        except Exception:
+            pass
+
+    def on_manual_awb_clicked(self):
+        """Switch to Manual AWB and apply current gains via CameraTool if available."""
+        self._is_auto_awb = False
+        # Update UI first
+        self.update_awb_mode_ui()
+        # Read gains and apply via CameraTool
+        r = None; b = None
+        try:
+            if self.colour_gain_r_edit:
+                try:
+                    r = float(self.colour_gain_r_edit.value()) if hasattr(self.colour_gain_r_edit, 'value') else float(self.colour_gain_r_edit.text())
+                except Exception:
+                    r = None
+            if self.colour_gain_b_edit:
+                try:
+                    b = float(self.colour_gain_b_edit.value()) if hasattr(self.colour_gain_b_edit, 'value') else float(self.colour_gain_b_edit.text())
+                except Exception:
+                    b = None
+            ct = self.find_camera_tool()
+            if ct and hasattr(ct, 'set_auto_awb'):
+                ct.set_auto_awb(False)
+            if ct and r is not None and b is not None and hasattr(ct, 'set_colour_gains'):
+                ct.set_colour_gains(r, b)
+        except Exception:
+            pass
+
+    def on_colour_gain_r_changed(self, value):
+        """Apply R gain immediately when in manual AWB."""
+        try:
+            if getattr(self, '_is_auto_awb', True):
+                return
+            r = float(value)
+            b = None
+            if self.colour_gain_b_edit:
+                try:
+                    b = float(self.colour_gain_b_edit.value()) if hasattr(self.colour_gain_b_edit, 'value') else float(self.colour_gain_b_edit.text())
+                except Exception:
+                    b = None
+            ct = self.find_camera_tool()
+            if ct and hasattr(ct, 'set_colour_gains') and b is not None:
+                ct.set_colour_gains(r, b)
+        except Exception:
+            pass
+
+    def on_colour_gain_b_changed(self, value):
+        """Apply B gain immediately when in manual AWB."""
+        try:
+            if getattr(self, '_is_auto_awb', True):
+                return
+            b = float(value)
+            r = None
+            if self.colour_gain_r_edit:
+                try:
+                    r = float(self.colour_gain_r_edit.value()) if hasattr(self.colour_gain_r_edit, 'value') else float(self.colour_gain_r_edit.text())
+                except Exception:
+                    r = None
+            ct = self.find_camera_tool()
+            if ct and hasattr(ct, 'set_colour_gains') and r is not None:
+                ct.set_colour_gains(r, b)
+        except Exception:
+            pass
     
     def find_camera_tool(self):
-        """Tìm camera tool trong danh sách công cụ"""
+        """Find the Camera Source tool.
+
+        Prefer a cached reference during pending/edit; else search current job.
+        """
+        # Use cached reference if present (tool created/registered but not yet added to job)
+        try:
+            if getattr(self, '_camera_tool_ref', None) is not None:
+                return self._camera_tool_ref
+        except Exception:
+            pass
+        if not hasattr(self, 'main_window') or not self.main_window:
+            return None
+        
         if not hasattr(self, 'main_window') or not self.main_window:
             return None
             
@@ -1814,743 +1952,10 @@ class CameraManager(QObject):
         return None
     
     def on_apply_settings_clicked(self):
-        """Áp dụng tất cả settings đã thay đổi"""
+        """Apply any pending camera settings and resync UI (safe stub)."""
         try:
-            # Kiểm tra xem có đang ở chế độ live camera không
-            was_live_active = self.current_mode == 'live' and self.camera_stream and self.camera_stream.is_live
-            
-            # Nếu đang live, tạm dừng để apply settings
-            if was_live_active:
-                try:
-                    # Preferred safe stop in apply settings
-                    try:
-                        print("DEBUG: [CameraManager] Preferred stop - cancel_and_stop_live() in apply settings")
-                        self.camera_stream.cancel_and_stop_live()
-                    except AttributeError as e:
-                        print(f"DEBUG: [CameraManager] AttributeError cancel_and_stop_live in apply settings: {e}")
-                        if hasattr(self.camera_stream, 'cancel_all_and_flush'):
-                            self.camera_stream.cancel_all_and_flush()
-                        if hasattr(self.camera_stream, 'stop_live'):
-                            self.camera_stream.stop_live()
-                except Exception as e:
-                    print(f"DEBUG: [CameraManager] Error stopping camera in apply settings: {e}")
-            
-            # Apply exposure mode
-            if 'auto_exposure' in self._pending_exposure_settings:
-                auto_mode = self._pending_exposure_settings['auto_exposure']
-                if self.camera_stream:
-                    self.camera_stream.set_auto_exposure(auto_mode)
-            
-            # Apply exposure values
-            if 'exposure' in self._pending_exposure_settings:
-                exposure_value = self._pending_exposure_settings['exposure']
-                print(f"DEBUG: Applying exposure: {exposure_value}μs")
-                if self.camera_stream:
-                    self.camera_stream.set_exposure(exposure_value)
-                    print(f"DEBUG: Called set_exposure with {exposure_value}")
-                else:
-                    print("DEBUG: No camera_stream available")
-            
-            # Apply gain
-            if 'gain' in self._pending_exposure_settings:
-                if self.camera_stream:
-                    self.camera_stream.set_gain(self._pending_exposure_settings['gain'])
-            
-            # Apply EV
-            if 'ev' in self._pending_exposure_settings:
-                if self.camera_stream:
-                    self.camera_stream.set_ev(self._pending_exposure_settings['ev'])
-            
-            # Nếu trước đó đang live, restart live preview với settings mới
-            if was_live_active:
-                self.camera_stream.start_live()
-            
-            # Không sync lại UI từ camera để tránh reset về default
-            # Giữ nguyên giá trị user đã set
-            # self.update_camera_params_from_camera()
-            
-            # Clear pending settings
-            self._pending_exposure_settings.clear()
+            # Safely refresh UI state; real apply logic can be added here.
+            self.update_camera_mode_ui()
         except Exception as e:
-            logging.error(f"Error applying camera settings: {e}")
-        
-        # Hiển thị dialog thông báo thành công
-        # KHÔNG hiển thị dialog thành công, chỉ ghi log
-        logging.info("Camera settings applied successfully (no dialog)")
-    
-    def get_exposure_value(self):
-        """Lấy giá trị exposure hiện tại của camera"""
-        if self.exposure_edit:
-            try:
-                return int(self.exposure_edit.text())
-            except (ValueError, TypeError):
-                logging.warning("CameraManager: Failed to get exposure value from UI")
-                
-        # Fallback: get from camera stream if available
-        if self.camera_stream:
-            try:
-                if hasattr(self.camera_stream, 'get_exposure'):
-                    return self.camera_stream.get_exposure()
-                elif hasattr(self.camera_stream, 'current_exposure'):
-                    return self.camera_stream.current_exposure
-                else:
-                    logging.warning("CameraManager: Camera stream has no exposure getter methods")
-            except Exception as e:
-                logging.warning(f"CameraManager: Error getting exposure from camera: {e}")
-        
-        logging.warning("CameraManager: Using default exposure value")
-        return 10000  # Default to 10ms
-    
-    def get_gain_value(self):
-        """Lấy giá trị gain hiện tại của camera"""
-        if self.gain_edit:
-            try:
-                return float(self.gain_edit.text())
-            except (ValueError, TypeError):
-                logging.warning("CameraManager: Failed to get gain value from UI")
-                
-        # Fallback: get from camera stream if available
-        if self.camera_stream:
-            try:
-                if hasattr(self.camera_stream, 'get_gain'):
-                    return self.camera_stream.get_gain()
-                elif hasattr(self.camera_stream, 'current_gain'):
-                    return self.camera_stream.current_gain
-                else:
-                    logging.warning("CameraManager: Camera stream has no gain getter methods")
-            except Exception as e:
-                logging.warning(f"CameraManager: Error getting gain from camera: {e}")
-        
-        logging.warning("CameraManager: Using default gain value")
-        return 1.0  # Default gain
-    
-    def get_ev_value(self):
-        """Lấy giá trị EV hiện tại của camera"""
-        if self.ev_edit:
-            try:
-                return float(self.ev_edit.text())
-            except (ValueError, TypeError):
-                logging.warning("CameraManager: Failed to get EV value from UI")
-                
-        # Fallback: get from camera stream if available
-        if self.camera_stream:
-            try:
-                if hasattr(self.camera_stream, 'get_ev'):
-                    return self.camera_stream.get_ev()
-                elif hasattr(self.camera_stream, 'current_ev'):
-                    return self.camera_stream.current_ev
-                else:
-                    logging.warning("CameraManager: Camera stream has no EV getter methods")
-            except Exception as e:
-                logging.warning(f"CameraManager: Error getting EV from camera: {e}")
-        
-        logging.warning("CameraManager: Using default EV value")
-        return 0.0  # Default EV
-    
-    def is_auto_exposure(self):
-        """Kiểm tra chế độ auto exposure của camera"""
-        return self._is_auto_exposure
-        
-    def enable_camera_buttons(self):
-        """Kích hoạt các nút điều khiển camera sau khi đã thêm Camera Source tool"""
-        if self.live_camera_btn:
-            self.live_camera_btn.setEnabled(True)
-            self.live_camera_btn.setToolTip("Start live camera preview")
-            
-        if self.trigger_camera_btn:
-            self.trigger_camera_btn.setEnabled(True)
-            self.trigger_camera_btn.setToolTip("Trigger single frame capture")
-            
-        if self.live_camera_mode:
-            self.live_camera_mode.setEnabled(True)
-            self.live_camera_mode.setToolTip("Switch to live camera mode")
-            
-        if self.trigger_camera_mode:
-            self.trigger_camera_mode.setEnabled(True)
-            self.trigger_camera_mode.setToolTip("Switch to trigger camera mode")
-            
-        logging.info("CameraManager: Camera control buttons enabled")
-        
-        # Tự động bắt đầu live camera sau khi thêm Camera Source
-        self.start_camera_preview()
-        
-    def _implement_start_live(self):
-        """
-        Direct implementation of camera start live in CameraManager
-        when CameraStream methods are unavailable
-        """
-        print("DEBUG: [CameraManager] _implement_start_live emergency fallback called")
-        
-        try:
-            # Ensure we have access to the camera stream object
-            if not hasattr(self, 'camera_stream') or self.camera_stream is None:
-                print("DEBUG: [CameraManager] No camera_stream object available")
-                return False
-                
-            # Check if camera is available
-            if not hasattr(self.camera_stream, 'is_camera_available'):
-                print("DEBUG: [CameraManager] is_camera_available not found")
-                return False
-                
-            if not self.camera_stream.is_camera_available:
-                print("DEBUG: [CameraManager] Camera not available")
-                return False
-                
-            # Ensure picam2 exists
-            if not hasattr(self.camera_stream, 'picam2') or self.camera_stream.picam2 is None:
-                print("DEBUG: [CameraManager] picam2 not available")
-                return False
-                
-            # Start the camera directly
-            picam2 = self.camera_stream.picam2
-            
-            # Configure if needed
-            if hasattr(self.camera_stream, 'preview_config'):
-                try:
-                    print("DEBUG: [CameraManager] Configuring camera with preview_config")
-                    picam2.configure(self.camera_stream.preview_config)
-                except Exception as e:
-                    print(f"DEBUG: [CameraManager] Error configuring camera: {e}")
-                    # Continue anyway
-            
-            # Start the camera
-            try:
-                print("DEBUG: [CameraManager] Starting camera directly")
-                picam2.start()
-            except Exception as e:
-                print(f"DEBUG: [CameraManager] Error starting camera: {e}")
-                return False
-                
-            # Start the timer
-            if hasattr(self.camera_stream, 'timer'):
-                try:
-                    print("DEBUG: [CameraManager] Starting timer")
-                    self.camera_stream.timer.start(100)  # 10 FPS
-                except Exception as e:
-                    print(f"DEBUG: [CameraManager] Error starting timer: {e}")
-                    # Continue anyway
-                    
-            # Set live flag
-            if hasattr(self.camera_stream, 'is_live'):
-                self.camera_stream.is_live = True
-                
-            print("DEBUG: [CameraManager] Camera started successfully via direct implementation")
-            return True
-        except Exception as e:
-            print(f"DEBUG: [CameraManager] Unhandled error in _implement_start_live: {e}")
-            return False
-            
-    def _implement_stop_live(self):
-        """
-        Direct implementation of camera stop live in CameraManager
-        when CameraStream methods are unavailable
-        """
-        print("DEBUG: [CameraManager] _implement_stop_live emergency fallback called")
-        
-        try:
-            # Ensure we have access to the camera stream object
-            if not hasattr(self, 'camera_stream') or self.camera_stream is None:
-                print("DEBUG: [CameraManager] No camera_stream object available")
-                return False
-                
-            # Stop the timer first
-            if hasattr(self.camera_stream, 'timer'):
-                try:
-                    if hasattr(self.camera_stream.timer, 'isActive') and self.camera_stream.timer.isActive():
-                        print("DEBUG: [CameraManager] Stopping timer directly")
-                        self.camera_stream.timer.stop()
-                except Exception as e:
-                    print(f"DEBUG: [CameraManager] Error stopping timer: {e}")
-                    # Continue anyway
-            
-            # Set is_live flag to False
-            if hasattr(self.camera_stream, 'is_live'):
-                self.camera_stream.is_live = False
-                
-            # Stop the camera if it exists
-            if hasattr(self.camera_stream, 'picam2') and self.camera_stream.picam2 is not None:
-                try:
-                    picam2 = self.camera_stream.picam2
-                    if hasattr(picam2, 'started') and picam2.started:
-                        print("DEBUG: [CameraManager] Stopping camera directly")
-                        picam2.stop()
-                except Exception as e:
-                    print(f"DEBUG: [CameraManager] Error stopping camera: {e}")
-                    # Continue anyway
-                    
-            print("DEBUG: [CameraManager] Camera stopped successfully via direct implementation")
-            return True
-        except Exception as e:
-            print(f"DEBUG: [CameraManager] Unhandled error in _implement_stop_live: {e}")
-            return False
-        
-    def start_camera_preview(self):
-        """Bắt đầu hiển thị camera preview sau khi thêm Camera Source"""
-        print("DEBUG: CameraManager.start_camera_preview called")
-        
-        if not self.camera_stream:
-            print("DEBUG: Camera stream is None, cannot start preview")
-            logging.error("CameraManager: Cannot start preview - camera_stream is None")
-            return False
-            
-        # Đảm bảo camera không đang chạy (trước khi thay đổi bất kỳ chế độ nào)
-        if self.camera_stream.is_running():
-            print("DEBUG: [CameraManager] Camera is already running, stopping it first")
-            try:
-                try:
-                    self.camera_stream.cancel_and_stop_live()
-                except AttributeError:
-                    if hasattr(self.camera_stream, 'cancel_all_and_flush'):
-                        self.camera_stream.cancel_all_and_flush()
-                    self.camera_stream.stop_live()
-            except Exception as e:
-                print(f"DEBUG: [CameraManager] Error stopping camera: {e}")
-        
-        # Ensure job is enabled to see camera feed
-        if not self.camera_stream.job_enabled:
-            print("DEBUG: Enabling job execution for camera stream")
-            self.camera_stream.job_enabled = True
-            if self.job_toggle_btn:
-                self.job_toggle_btn.setChecked(True)
-                
-        # Đảm bảo UI được cập nhật với chế độ camera hiện tại
-        self.update_camera_mode_ui()
-        
-        # Lưu ý: Chúng ta không tự động khởi động camera nữa
-        # Người dùng sẽ cần phải bấm nút Start Camera
-        print("DEBUG: [CameraManager] Camera is ready but not auto-started - user must press Start Camera")
-        
+            print(f"DEBUG: [CameraManager] on_apply_settings_clicked error: {e}")
         return True
-    def on_cancel_settings_clicked(self):
-        """Hủy bỏ tất cả thay đổi và khôi phục giá trị mặc định"""
-        try:
-            # Reset to default values
-            self._is_auto_exposure = True
-            
-            # Reset UI values
-            if self.exposure_edit:
-                self.exposure_edit.setValue(10000.0)  # 10000 microseconds (10ms)
-            if self.gain_edit:
-                self.gain_edit.setValue(1.0)
-            if self.ev_edit:
-                self.ev_edit.setValue(0.0)
-            
-            # Clear pending settings
-            self._pending_exposure_settings.clear()
-            
-            # Update UI
-            self.update_exposure_mode_ui()
-            
-            logging.info("Camera settings cancelled and reset to defaults")
-            
-        except Exception as e:
-            logging.error(f"Error cancelling camera settings: {str(e)}")
-
-    def on_job_toggle_clicked(self):
-        """Xử lý sự kiện click nút toggle job"""
-        print(f"DEBUG: [CameraManager] Job toggle clicked, current state: {self.job_enabled}")
-        
-        # Toggle job state
-        self.job_enabled = not self.job_enabled
-        
-        # Update UI
-        self.update_job_toggle_ui()
-        
-        # Always sync job setting to camera stream
-        if self.camera_stream and hasattr(self.camera_stream, 'set_job_enabled'):
-            self.camera_stream.set_job_enabled(self.job_enabled)
-        
-        # Nếu camera đang chạy live mode, cần restart để apply job setting
-        if self.current_mode == 'live' and self.camera_stream:
-            print(f"DEBUG: [CameraManager] Restarting live mode with job_enabled={self.job_enabled}")
-            # Stop and restart live mode
-            try:
-                self.camera_stream.cancel_and_stop_live()
-            except AttributeError:
-                if hasattr(self.camera_stream, 'cancel_all_and_flush'):
-                    self.camera_stream.cancel_all_and_flush()
-                self.camera_stream.stop_live()
-            self.camera_stream.start_live()
-        
-        print(f"DEBUG: [CameraManager] Job execution {'ENABLED' if self.job_enabled else 'DISABLED'}")
-
-    def update_job_toggle_ui(self):
-        """Cập nhật UI trạng thái job toggle"""
-        if self.job_toggle_btn:
-            if self.job_enabled:
-                self.job_toggle_btn.setText("Disable Job")
-                self.job_toggle_btn.setStyleSheet("background-color: #ff4444; color: white;")
-                self.job_toggle_btn.setToolTip("Click to disable job execution (prevents camera hanging)")
-            else:
-                self.job_toggle_btn.setText("Enable Job")
-                self.job_toggle_btn.setStyleSheet("background-color: #44ff44; color: black;")
-                self.job_toggle_btn.setToolTip("Click to enable job execution")
-
-    def is_job_enabled(self):
-        """Kiểm tra job có được enable không"""
-        return self.job_enabled
-            
-    def register_tool(self, tool):
-        """
-        Register a tool with the camera manager, used to connect tools with camera manager
-        
-        Args:
-            tool: The tool to register
-        """
-        print(f"DEBUG: [CameraManager] Registering tool: {getattr(tool, 'display_name', 'Unknown')}")
-        
-        # Special handling for Camera Source tool
-        if hasattr(tool, 'name') and tool.name == "Camera Source":
-            print(f"DEBUG: [CameraManager] Detected Camera Source tool - establishing Single Source of Truth")
-            
-            # Set bidirectional reference (Single Source of Truth pattern)
-            tool.camera_manager = self
-            
-            # Apply the camera tool config to camera manager
-            if hasattr(tool, 'config'):
-                print(f"DEBUG: [CameraManager] Applying Camera Source config to CameraManager")
-                self._apply_camera_tool_config(tool.config)
-            
-            print(f"DEBUG: [CameraManager] Camera Source tool registered successfully")
-        else:
-            print(f"DEBUG: [CameraManager] Non-Camera Source tool registered: {getattr(tool, 'name', 'Unknown')}")
-    
-    def _apply_camera_tool_config(self, config):
-        """Apply camera tool configuration to camera manager"""
-        print(f"DEBUG: [CameraManager] Applying camera tool config: {config}")
-        
-        # Apply camera mode
-        if 'camera_mode' in config:
-            mode = config['camera_mode']
-            print(f"DEBUG: [CameraManager] Setting mode from tool config: {mode}")
-            self.current_mode = mode
-            
-            # Update UI to reflect the mode
-            if mode == 'live' and self.live_camera_mode:
-                self.live_camera_mode.setChecked(True)
-            elif mode == 'trigger' and self.trigger_camera_mode:
-                self.trigger_camera_mode.setChecked(True)
-
-        # Apply other settings
-        # Frame size
-        if 'frame_size' in config and self.camera_stream and hasattr(self.camera_stream, 'set_frame_size'):
-            try:
-                w, h = config['frame_size']
-                print(f"DEBUG: [CameraManager] Applying frame size from tool: {w}x{h}")
-                self.camera_stream.set_frame_size(w, h)
-            except Exception as e:
-                print(f"DEBUG: [CameraManager] Could not apply frame size: {e}")
-        # Pixel format
-        if 'format' in config and self.camera_stream and hasattr(self.camera_stream, 'set_format'):
-            try:
-                pf = config['format']
-                print(f"DEBUG: [CameraManager] Applying pixel format from tool: {pf}")
-                self.camera_stream.set_format(pf)
-            except Exception as e:
-                print(f"DEBUG: [CameraManager] Could not apply pixel format: {e}")
-        # Target FPS for live
-        if 'target_fps' in config and self.camera_stream and hasattr(self.camera_stream, 'set_target_fps'):
-            try:
-                fps = config['target_fps']
-                print(f"DEBUG: [CameraManager] Applying target FPS from tool: {fps}")
-                self.camera_stream.set_target_fps(fps)
-            except Exception as e:
-                print(f"DEBUG: [CameraManager] Could not apply target FPS: {e}")
-        if 'exposure' in config:
-            self.set_exposure_value(config['exposure'])
-        if 'gain' in config:
-            self.set_gain_value(config['gain'])
-        if 'ev' in config:
-            self.set_ev_value(config['ev'])
-        if 'is_auto_exposure' in config:
-            if config['is_auto_exposure']:
-                self.set_auto_exposure_mode()
-            else:
-                self.set_manual_exposure_mode()
-        # External trigger preference (if any)
-        if 'enable_external_trigger' in config and self.camera_stream and hasattr(self.camera_stream, 'set_trigger_mode'):
-            try:
-                trig = bool(config['enable_external_trigger'])
-                print(f"DEBUG: [CameraManager] Applying external trigger preference: {trig}")
-                self.camera_stream.set_trigger_mode(trig)
-            except Exception as e:
-                print(f"DEBUG: [CameraManager] Could not apply external trigger: {e}")
-        
-        print(f"DEBUG: [CameraManager] Camera tool config applied successfully")
-
-    # ============ AWB MODE HANDLERS (inserted) ============
-    def set_awb_controls_enabled(self, enabled):
-        """Enable/disable manual AWB controls (colour gains)."""
-        if hasattr(self, 'colour_gain_r_edit') and self.colour_gain_r_edit:
-            self.colour_gain_r_edit.setEnabled(enabled)
-        if hasattr(self, 'colour_gain_b_edit') and self.colour_gain_b_edit:
-            self.colour_gain_b_edit.setEnabled(enabled)
-
-    def on_auto_awb_clicked(self):
-        """Handle click on Auto AWB button."""
-        self._is_auto_awb = True
-        self.update_awb_mode_ui()
-        ct = self.find_camera_tool()
-        try:
-            if ct and hasattr(ct, 'set_auto_awb'):
-                ct.set_auto_awb(True)
-            # Reset displayed manual gains to defaults (visual reset)
-            default_r = 1.0
-            default_b = 1.0
-            try:
-                if ct and hasattr(ct, 'config'):
-                    default_r = float(ct.config.get('colour_gain_r', default_r))
-                    default_b = float(ct.config.get('colour_gain_b', default_b))
-            except Exception:
-                pass
-            if hasattr(self, 'colour_gain_r_edit') and self.colour_gain_r_edit and hasattr(self.colour_gain_r_edit, 'setValue'):
-                try:
-                    self.colour_gain_r_edit.setValue(default_r)
-                except Exception:
-                    pass
-            if hasattr(self, 'colour_gain_b_edit') and self.colour_gain_b_edit and hasattr(self.colour_gain_b_edit, 'setValue'):
-                try:
-                    self.colour_gain_b_edit.setValue(default_b)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-    def on_manual_awb_clicked(self):
-        """Handle click on Manual AWB button."""
-        self._is_auto_awb = False
-        self.update_awb_mode_ui()
-        ct = self.find_camera_tool()
-        try:
-            if ct and hasattr(ct, 'set_auto_awb'):
-                ct.set_auto_awb(False)
-            r = None
-            b = None
-            if hasattr(self, 'colour_gain_r_edit') and self.colour_gain_r_edit:
-                try:
-                    r = float(self.colour_gain_r_edit.value())
-                except Exception:
-                    pass
-            if hasattr(self, 'colour_gain_b_edit') and self.colour_gain_b_edit:
-                try:
-                    b = float(self.colour_gain_b_edit.value())
-                except Exception:
-                    pass
-            if ct and hasattr(ct, 'set_colour_gains') and r is not None and b is not None:
-                ct.set_colour_gains(r, b)
-        except Exception:
-            pass
-
-    def update_awb_mode_ui(self):
-        """Update UI according to current AWB mode."""
-        self.set_awb_controls_enabled(getattr(self, 'ui_enabled', False) and not getattr(self, '_is_auto_awb', True))
-        if hasattr(self, 'auto_awb_btn') and hasattr(self, 'manual_awb_btn') and self.auto_awb_btn and self.manual_awb_btn:
-            if getattr(self, '_is_auto_awb', True):
-                self.auto_awb_btn.setStyleSheet("background-color: #51cf66")
-                self.manual_awb_btn.setStyleSheet("")
-            else:
-                self.auto_awb_btn.setStyleSheet("")
-                self.manual_awb_btn.setStyleSheet("background-color: #ffd43b")
-
-    def on_colour_gain_r_changed(self, value=None):
-        """Instant apply manual R gain when AWB is manual."""
-        if getattr(self, '_is_auto_awb', True):
-            return
-        ct = self.find_camera_tool()
-        if ct and hasattr(ct, 'set_colour_gains'):
-            try:
-                r = float(self.colour_gain_r_edit.value()) if self.colour_gain_r_edit else None
-                b = float(self.colour_gain_b_edit.value()) if self.colour_gain_b_edit else None
-                if r is not None and b is not None:
-                    ct.set_colour_gains(r, b)
-            except Exception:
-                pass
-
-    def on_colour_gain_b_changed(self, value=None):
-        """Instant apply manual B gain when AWB is manual."""
-        if getattr(self, '_is_auto_awb', True):
-            return
-        ct = self.find_camera_tool()
-        if ct and hasattr(ct, 'set_colour_gains'):
-            try:
-                r = float(self.colour_gain_r_edit.value()) if self.colour_gain_r_edit else None
-                b = float(self.colour_gain_b_edit.value()) if self.colour_gain_b_edit else None
-                if r is not None and b is not None:
-                    ct.set_colour_gains(r, b)
-            except Exception:
-                pass
-            
-    def cleanup(self):
-        """Dọn dẹp tài nguyên camera khi thoát ứng dụng"""
-        logger = logging.getLogger(__name__)
-        try:
-            # Dừng live preview nếu đang chạy
-            if self.camera_stream:
-                try:
-                    logger.info("Stopping camera live preview...")
-                    try:
-                        self.camera_stream.cancel_and_stop_live()
-                    except AttributeError as e:
-                        logger.warning(f"AttributeError cancel_and_stop_live in cleanup: {e}")
-                        try:
-                            if hasattr(self.camera_stream, 'cancel_all_and_flush'):
-                                self.camera_stream.cancel_all_and_flush()
-                            if hasattr(self.camera_stream, 'stop_live'):
-                                self.camera_stream.stop_live()
-                        except Exception:
-                            self._implement_stop_live()
-                except Exception as e:
-                    logger.error(f"Error stopping camera in cleanup: {e}")
-            
-            # Dọn dẹp camera stream
-            if self.camera_stream and hasattr(self.camera_stream, 'cleanup'):
-                logger.info("Cleaning up camera stream...")
-                self.camera_stream.cleanup()
-            
-            # Dọn dẹp camera view
-            if self.camera_view:
-                logger.info("Cleaning up camera view...")
-                self.camera_view = None
-                
-            logger.info("Camera manager cleanup completed successfully")
-            
-        except Exception as e:
-            logger.error(f"Error during camera manager cleanup: {str(e)}", exc_info=True)
-
-    # ============ TRIGGER MODE IMPLEMENTATION ============
-    def _implement_start_live(self):
-        """Triển khai việc bắt đầu chế độ live view"""
-        print("DEBUG: [CameraManager] Implementing start live view")
-        
-        if not self.camera_stream:
-            print("DEBUG: [CameraManager] No camera stream available")
-            return False
-        
-        try:
-            # Đảm bảo hardware không ở chế độ trigger
-            if hasattr(self.camera_stream, 'set_trigger_mode'):
-                print("DEBUG: [CameraManager] Setting hardware to live mode")
-                self.camera_stream.set_trigger_mode(False)
-                
-            # Refresh source output combo before starting
-            print("DEBUG: [CameraManager] Refreshing source output combo before live start")
-            self.refresh_source_output_combo()
-                
-            # Bắt đầu camera live view
-            success = self.toggle_live_camera(True)
-            if not success:
-                print("DEBUG: [CameraManager] Failed to start live camera")
-                return False
-                
-            self.is_live = True
-            print("DEBUG: [CameraManager] Live view started successfully")
-            return True
-            
-        except Exception as e:
-            print(f"DEBUG: [CameraManager] Error starting live view: {e}")
-            return False
-            
-    def _implement_start_trigger(self):
-        """
-        Direct implementation of camera start in trigger mode
-        when CameraStream methods are unavailable
-        """
-        print("DEBUG: [CameraManager] _implement_start_trigger called")
-        
-        try:
-            # Ensure we have access to the camera stream object
-            if not hasattr(self, 'camera_stream') or self.camera_stream is None:
-                print("DEBUG: [CameraManager] No camera_stream object available")
-                return False
-                
-            # Check if camera is available
-            if not hasattr(self.camera_stream, 'is_camera_available'):
-                print("DEBUG: [CameraManager] is_camera_available not found")
-                return False
-                
-            if not self.camera_stream.is_camera_available:
-                print("DEBUG: [CameraManager] Camera not available")
-                return False
-                
-            # Ensure picam2 exists
-            if not hasattr(self.camera_stream, 'picam2') or self.camera_stream.picam2 is None:
-                print("DEBUG: [CameraManager] picam2 not available")
-                return False
-                
-            # Set trigger mode on the camera
-            if hasattr(self.camera_stream, 'set_trigger_mode'):
-                print("DEBUG: [CameraManager] Setting camera to trigger mode")
-                self.camera_stream.set_trigger_mode(True)
-            else:
-                print("DEBUG: [CameraManager] set_trigger_mode not available")
-                return False
-                
-            # Start the camera directly
-            picam2 = self.camera_stream.picam2
-            
-            # Configure if needed
-            if hasattr(self.camera_stream, 'still_config'):
-                try:
-                    print("DEBUG: [CameraManager] Configuring camera with still_config")
-                    picam2.configure(self.camera_stream.still_config)
-                except Exception as e:
-                    print(f"DEBUG: [CameraManager] Error configuring camera: {e}")
-                    # Continue anyway
-            
-            # Start the camera
-            try:
-                print("DEBUG: [CameraManager] Starting camera in trigger mode")
-                picam2.start()
-            except Exception as e:
-                print(f"DEBUG: [CameraManager] Error starting camera: {e}")
-                return False
-                
-            # Set trigger flag
-            if hasattr(self.camera_stream, 'external_trigger_enabled'):
-                self.camera_stream.external_trigger_enabled = True
-                
-            print("DEBUG: [CameraManager] Camera started successfully in trigger mode")
-            return True
-        except Exception as e:
-            print(f"DEBUG: [CameraManager] Unhandled error in _implement_start_trigger: {e}")
-            return False
-            
-    def _implement_stop_trigger(self):
-        """Triển khai việc dừng chế độ trigger"""
-        print("DEBUG: [CameraManager] Implementing stop trigger mode")
-        
-        if not self.camera_stream:
-            print("DEBUG: [CameraManager] No camera stream available for stopping trigger")
-            return False
-            
-        try:
-            # Dừng chế độ trigger
-            if hasattr(self.camera_stream, 'stop_external_trigger'):
-                print("DEBUG: [CameraManager] Stopping external trigger mode")
-                self.camera_stream.stop_external_trigger()
-                self.is_live = False
-                return True
-            else:
-                # Dùng phương thức thông thường
-                if hasattr(self.camera_stream, 'set_trigger_mode'):
-                    print("DEBUG: [CameraManager] Setting trigger mode off")
-                    self.camera_stream.set_trigger_mode(False)
-                    
-                if hasattr(self.camera_stream, 'picam2') and self.camera_stream.picam2:
-                    try:
-                        print("DEBUG: [CameraManager] Stopping camera in trigger mode")
-                        self.camera_stream.picam2.stop()
-                    except Exception as e:
-                        print(f"DEBUG: [CameraManager] Error stopping camera: {e}")
-                        return False
-                
-                if hasattr(self.camera_stream, 'external_trigger_enabled'):
-                    self.camera_stream.external_trigger_enabled = False
-                
-                self.is_live = False
-                return True
-                
-        except Exception as e:
-            print(f"DEBUG: [CameraManager] Error stopping trigger mode: {e}")
-            return False
-

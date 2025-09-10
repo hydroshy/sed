@@ -86,6 +86,8 @@ class CameraView(QObject):
         self.processed_frames = {}  # Store processed frames from tools: {tool_id: frame}
         self.current_raw_frame = None  # Store current raw camera frame
         self.current_editing_tool_id = None  # Tool ID currently being edited
+        # Track first draw to control auto-centering
+        self._has_drawn_once = False
         
         # Khởi tạo scene và cấu hình graphics view
         self.scene = QGraphicsScene()
@@ -238,9 +240,6 @@ class CameraView(QObject):
                 return
 
         self.current_frame = frame  # Lưu frame hiện tại
-        
-        # Run job manager processing if available
-        self._run_job_processing(frame)
         
         self._show_frame_with_zoom()
         self._calculate_fps()
@@ -507,8 +506,8 @@ class CameraView(QObject):
                 painter.drawText(10, 30, f"FPS: {self.fps:.1f}")
                 painter.end()
             
-            # Vẽ detection boxes nếu có và display mode là detection
-            if self.show_detection_overlay and self.detection_results and self.display_mode == "detection":
+            # Vẽ detection boxes nếu có (hiện overlay cả ở chế độ camera)
+            if self.show_detection_overlay and self.detection_results:
                 self._draw_detection_boxes_on_pixmap(pixmap)
 
             # Quản lý pixmap_item
@@ -543,35 +542,31 @@ class CameraView(QObject):
             
             self.scene.setSceneRect(scene_rect)
 
-            # Căn giữa view
             pixmap_center = self.pixmap_item.boundingRect().center()
-            self.graphics_view.centerOn(pixmap_center)
-
-            # Đảm bảo căn chỉnh ở giữa
+            if (not self._has_drawn_once) or self.fit_on_next_frame or (self.zoom_level <= 1.0):
+                self.graphics_view.centerOn(pixmap_center)
+            self.graphics_view.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
             self.graphics_view.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
 
-            # Điều chỉnh con trỏ và chế độ kéo dựa trên mức zoom
-            # Chỉ thay đổi drag mode nếu không ở draw mode
             if not self.draw_mode:
                 if self.zoom_level > 1.0:
                     self.graphics_view.setDragMode(QGraphicsView.ScrollHandDrag)
                     self.graphics_view.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
                 else:
-                    # Sử dụng RubberBandDrag để vẫn cho phép tương tác với items
                     self.graphics_view.setDragMode(QGraphicsView.RubberBandDrag)
                     self.graphics_view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
 
-            # Fit view nếu cần
             if self.fit_on_next_frame:
                 self.graphics_view.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
                 self.zoom_level = 1.0
                 self.fit_on_next_frame = False
             else:
-                self.graphics_view.resetTransform()
-                self.graphics_view.scale(self.zoom_level, self.zoom_level)
+                # Preserve current transform to keep user panning when zoomed
+                pass
 
             logging.debug("Frame displayed with zoom level: %f and rotation angle: %d", 
                         self.zoom_level, self.rotation_angle)
+            self._has_drawn_once = True
         except Exception as e:
             logging.error("Error displaying frame: %s", e)
 
