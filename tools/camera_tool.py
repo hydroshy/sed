@@ -21,6 +21,7 @@ except ImportError:
     logger.warning("PiCamera2 không khả dụng. Sẽ sử dụng camera mô phỏng.")
 
 class CameraTool(BaseTool):
+    SUPPORTED_FORMATS = ["RGB888", "BGR888", "XRGB8888", "YUV420", "NV12"]
     """
     Công cụ quản lý camera, cung cấp hình ảnh đầu vào cho pipeline
     """
@@ -81,7 +82,7 @@ class CameraTool(BaseTool):
         
         # Camera configuration (stored for reference)
         self.current_exposure = self.config.get("exposure", 10000)
-        self.current_format = self.config.get("format", "BGR888")
+        self.current_format = self.config.get("format", "RGB888")
         self.frame_size = self.config.get("frame_size", (1440, 1080))
         self.target_fps = self.config.get("target_fps", 10.0)
         
@@ -142,7 +143,11 @@ class CameraTool(BaseTool):
         """Thiết lập cấu hình mặc định cho Camera Tool"""
         # Camera settings
         self.config.set_default("frame_size", (1440, 1080))
-        self.config.set_default("format", "BGR888")
+        self.config.set_default("format", "RGB888")
+        try:
+            self.config.set_validator("format", lambda v: str(v) in CameraTool.SUPPORTED_FORMATS)
+        except Exception:
+            pass
         self.config.set_default("exposure_time", 10000)  # in microseconds
         self.config.set_default("frame_rate", 60)
         # Defaults: UI yêu cầu mặc định Auto cho AE và AWB
@@ -272,7 +277,16 @@ class CameraTool(BaseTool):
         if "format" in self.config and hasattr(self.camera_manager, 'camera_stream') \
            and self.camera_manager.camera_stream and hasattr(self.camera_manager.camera_stream, 'set_format'):
             try:
-                self.camera_manager.camera_stream.set_format(self.config["format"])
+                fmt = str(self.config["format"]) if "format" in self.config else "RGB888"
+                if fmt not in CameraTool.SUPPORTED_FORMATS:
+                    logger.warning(f"Unsupported pixel format '{fmt}', falling back to 'RGB888'")
+                    fmt = "RGB888"
+                    try:
+                        self.config.set("format", fmt)
+                    except Exception:
+                        pass
+                self.current_format = fmt
+                self.camera_manager.camera_stream.set_format(fmt)
             except Exception as e:
                 logger.warning(f"Could not apply pixel format: {e}")
         if "target_fps" in self.config and hasattr(self.camera_manager, 'camera_stream') \
@@ -427,9 +441,13 @@ class CameraTool(BaseTool):
                 if "format" in new_config and hasattr(self.camera_manager, 'camera_stream') and \
                    self.camera_manager.camera_stream and hasattr(self.camera_manager.camera_stream, 'set_format'):
                     try:
-                        pf = new_config['format']
-                        print(f"DEBUG: [CameraTool] Updating pixel format to {pf}")
-                        self.camera_manager.camera_stream.set_format(pf)
+                        pf = str(new_config['format'])
+                        if pf not in CameraTool.SUPPORTED_FORMATS:
+                            logger.warning(f"Requested unsupported pixel format '{pf}', ignoring")
+                        else:
+                            print(f"DEBUG: [CameraTool] Updating pixel format to {pf}")
+                            self.current_format = pf
+                            self.camera_manager.camera_stream.set_format(pf)
                     except Exception as e:
                         logger.warning(f"Failed to update pixel format: {e}")
                 if "target_fps" in new_config and hasattr(self.camera_manager, 'camera_stream') and \
@@ -641,3 +659,6 @@ def create_camera_tool(config: Optional[Dict[str, Any]] = None) -> CameraTool:
         config["enable_external_trigger"] = False
     
     return CameraTool("Camera Source", config)
+
+
+

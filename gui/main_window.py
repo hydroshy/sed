@@ -1645,16 +1645,16 @@ class MainWindow(QMainWindow):
                     print(f"DEBUG: Error pre-stopping camera before format apply: {e}")
                 
                 # Xác thực định dạng trước khi áp dụng
-                safe_formats = ["BGR888", "RGB888", "YUV420"]
+                safe_formats = ["RGB888", "BGR888", "XRGB8888", "YUV420", "NV12"]
                 if selected_format not in safe_formats:
                     from PyQt5.QtWidgets import QMessageBox
                     QMessageBox.warning(
                         self, 
                         "Định dạng không được hỗ trợ",
                         f"Định dạng {selected_format} có thể không được hỗ trợ trên thiết bị này.\n"
-                        f"Sẽ sử dụng BGR888 để tránh crash ứng dụng."
+                        f"S? d?ng RGB888."
                     )
-                    selected_format = "BGR888"
+                    selected_format = "RGB888"
                     # Cập nhật lại combo box để hiển thị định dạng thực tế
                     index = self.formatCameraComboBox.findText(selected_format)
                     if index >= 0:
@@ -1720,35 +1720,24 @@ class MainWindow(QMainWindow):
         if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
             camera_stream = self.camera_manager.camera_stream
             print("DEBUG: Got camera stream instance")
-            
-            # Get available formats from camera
-            available_formats = camera_stream.get_available_formats()
-            print(f"DEBUG: Available formats: {available_formats}")
-            
-            if available_formats:
-                # Add formats to combo box
-                for fmt in available_formats:
-                    combo_widget.addItem(fmt)
-                    print(f"DEBUG: Added format: {fmt}")
-            else:
-                # Add safe formats as fallback
-                safe_formats = ["BGR888", "RGB888", "YUV420"]
-                for fmt in safe_formats:
-                    combo_widget.addItem(fmt)
-                    print(f"DEBUG: Added fallback format: {fmt}")
+            # Always show all supported formats in the combo box
+            supported = ["RGB888", "BGR888", "XRGB8888", "YUV420", "NV12"]
+            for fmt in supported:
+                combo_widget.addItem(fmt)
+                print(f"DEBUG: Added supported format: {fmt}")
                     
-            # Set current format as selected
-            current_format = getattr(camera_stream, 'current_format', 'BGR888')
-            index = combo_widget.findText(current_format)
-            if index >= 0:
-                combo_widget.setCurrentIndex(index)
-                print(f"DEBUG: Set current format to: {current_format}")
+            # Set default/current selection to RGB888 if available
+            preferred_format = 'RGB888'
+            idx = combo_widget.findText(preferred_format)
+            if idx >= 0:
+                combo_widget.setCurrentIndex(idx)
+                print(f"DEBUG: Set current format to: {preferred_format}")
             
             print(f"DEBUG: ComboBox now has {combo_widget.count()} items")
         else:
             print("DEBUG: Camera stream not available, adding fallback formats")
-            # Add fallback formats when camera not available
-            safe_formats = ["BGR888", "RGB888", "YUV420"]
+            # Add fallback formats when camera not available (all supported)
+            safe_formats = ["RGB888", "BGR888", "XRGB8888", "YUV420", "NV12"]
             for fmt in safe_formats:
                 combo_widget.addItem(fmt)
                 print(f"DEBUG: Added fallback format: {fmt}")
@@ -1782,3 +1771,33 @@ class MainWindow(QMainWindow):
             logger.error(f"Error during window close cleanup: {str(e)}")
             # Vẫn chấp nhận sự kiện để thoát ứng dụng
             event.accept()
+
+
+
+
+
+    def _on_format_changed(self, text):
+        """Apply camera pixel format immediately when user selects a new one."""
+        try:
+            supported = ["RGB888", "BGR888", "XRGB8888", "YUV420", "NV12"]
+            fmt = str(text)
+            if fmt not in supported:
+                print(f"DEBUG: Ignoring unsupported format selection: {fmt}")
+                return
+            if hasattr(self, 'camera_manager') and self.camera_manager and \
+               hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
+                cs = self.camera_manager.camera_stream
+                try:
+                    ok = cs.set_format(fmt)
+                    print(f"DEBUG: set_format({fmt}) returned {ok}")
+                except Exception as e:
+                    print(f"DEBUG: Error applying format {fmt}: {e}")
+            # Also persist into CameraTool config if available
+            try:
+                ct = self.camera_manager.find_camera_tool() if hasattr(self.camera_manager, 'find_camera_tool') else None
+                if ct and hasattr(ct, 'update_config'):
+                    ct.update_config({'format': fmt})
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"DEBUG: _on_format_changed error: {e}")
