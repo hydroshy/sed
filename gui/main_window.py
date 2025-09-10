@@ -706,6 +706,33 @@ class MainWindow(QMainWindow):
             
         if self.rotateRight:
             self.rotateRight.clicked.connect(self.camera_manager.rotate_right)
+
+        # Camera pixel format combo box: apply immediately when selection changes
+        try:
+            if getattr(self, 'formatCameraComboBox', None):
+                # Prefer text-changed signal for immediate update
+                try:
+                    self.formatCameraComboBox.currentTextChanged.connect(self._on_format_changed)
+                    logging.info("formatCameraComboBox connected to _on_format_changed (currentTextChanged)")
+                except Exception:
+                    pass
+                # Fallbacks for environments where currentTextChanged may not emit
+                try:
+                    # activated[str] passes the selected text directly
+                    self.formatCameraComboBox.activated[str].connect(self._on_format_changed)
+                    logging.info("formatCameraComboBox connected to _on_format_changed (activated[str])")
+                except Exception:
+                    pass
+                try:
+                    # As a last resort, map index change to current text
+                    self.formatCameraComboBox.currentIndexChanged.connect(
+                        lambda idx: self._on_format_changed(self.formatCameraComboBox.itemText(idx))
+                    )
+                    logging.info("formatCameraComboBox connected to _on_format_changed (currentIndexChanged)")
+                except Exception:
+                    pass
+        except Exception as e:
+            logging.error(f"Failed to connect formatCameraComboBox signals: {e}")
             
         if self.manualExposure:
             self.manualExposure.clicked.connect(self.camera_manager.set_manual_exposure_mode)
@@ -1645,7 +1672,7 @@ class MainWindow(QMainWindow):
                     print(f"DEBUG: Error pre-stopping camera before format apply: {e}")
                 
                 # Xác thực định dạng trước khi áp dụng
-                safe_formats = ["RGB888", "BGR888", "XRGB8888", "YUV420", "NV12"]
+                safe_formats = ["RGB888", "BGR888", "XRGB8888"]
                 if selected_format not in safe_formats:
                     from PyQt5.QtWidgets import QMessageBox
                     QMessageBox.warning(
@@ -1720,8 +1747,8 @@ class MainWindow(QMainWindow):
         if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
             camera_stream = self.camera_manager.camera_stream
             print("DEBUG: Got camera stream instance")
-            # Always show all supported formats in the combo box
-            supported = ["RGB888", "BGR888", "XRGB8888", "YUV420", "NV12"]
+            # Always show supported formats in the combo box (hide NV12, YUV420)
+            supported = ["RGB888", "BGR888", "XRGB8888"]
             for fmt in supported:
                 combo_widget.addItem(fmt)
                 print(f"DEBUG: Added supported format: {fmt}")
@@ -1736,8 +1763,8 @@ class MainWindow(QMainWindow):
             print(f"DEBUG: ComboBox now has {combo_widget.count()} items")
         else:
             print("DEBUG: Camera stream not available, adding fallback formats")
-            # Add fallback formats when camera not available (all supported)
-            safe_formats = ["RGB888", "BGR888", "XRGB8888", "YUV420", "NV12"]
+            # Add fallback formats when camera not available (hide NV12, YUV420)
+            safe_formats = ["RGB888", "BGR888", "XRGB8888"]
             for fmt in safe_formats:
                 combo_widget.addItem(fmt)
                 print(f"DEBUG: Added fallback format: {fmt}")
@@ -1790,6 +1817,12 @@ class MainWindow(QMainWindow):
                 try:
                     ok = cs.set_format(fmt)
                     print(f"DEBUG: set_format({fmt}) returned {ok}")
+                    # For stub backend (no Picamera2), push a fresh frame to reflect the change immediately
+                    try:
+                        if not getattr(cs, 'is_camera_available', False) and hasattr(cs, '_generate_test_frame'):
+                            cs._generate_test_frame()
+                    except Exception:
+                        pass
                 except Exception as e:
                     print(f"DEBUG: Error applying format {fmt}: {e}")
             # Also persist into CameraTool config if available
@@ -1799,5 +1832,13 @@ class MainWindow(QMainWindow):
                     ct.update_config({'format': fmt})
             except Exception:
                 pass
+            # Force immediate re-render using the latest raw frame to reflect new format
+            try:
+                if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                    cv = self.camera_manager.camera_view
+                    if getattr(cv, 'current_raw_frame', None) is not None:
+                        cv.display_frame(cv.current_raw_frame)
+            except Exception as e:
+                print(f"DEBUG: Could not force re-render after format change: {e}")
         except Exception as e:
             print(f"DEBUG: _on_format_changed error: {e}")

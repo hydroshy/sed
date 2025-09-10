@@ -100,6 +100,8 @@ class CameraStream(QObject):
         super().__init__(parent)
         
         self.is_camera_available = has_picamera2
+        # Track current pixel format selection for preview/display
+        self._pixel_format = 'RGB888'
         self.current_exposure = 5000  # Default 5ms exposure
         self.current_gain = 1.0       # Default analogue gain
         self.current_ev = 0.0         # Default EV (UI only)
@@ -386,11 +388,24 @@ class CameraStream(QObject):
         
     def _generate_test_frame(self):
         """Generate a test frame for testing without a real camera"""
-        # Create a gradient test pattern
-        frame = np.zeros((480, 640, 3), dtype=np.uint8)
-        frame[:, :, 0] = np.linspace(0, 255, 640, dtype=np.uint8)
-        frame[:, :, 1] = np.linspace(0, 255, 480, dtype=np.uint8)[:, np.newaxis]
-        frame[:, :, 2] = np.full((480, 640), int(time.time() % 255), dtype=np.uint8)
+        h, w = 480, 640
+        # Create base gradients for channels
+        r = np.tile(np.linspace(0, 255, w, dtype=np.uint8), (h, 1))
+        g = np.tile(np.linspace(0, 255, h, dtype=np.uint8).reshape(h, 1), (1, w))
+        b = np.full((h, w), int(time.time() * 10) % 255, dtype=np.uint8)
+
+        pf = getattr(self, '_pixel_format', 'RGB888')
+        if pf == 'BGR888':
+            frame = np.dstack((b, g, r))
+        elif pf == 'RGB888':
+            frame = np.dstack((r, g, b))
+        elif pf == 'XRGB8888':
+            # Assemble RGBA with opaque alpha; viewer will convert to RGB
+            a = np.full((h, w), 255, dtype=np.uint8)
+            frame = np.dstack((r, g, b, a))
+        else:
+            # For YUV-like formats in stub, just provide BGR-like visualization
+            frame = np.dstack((b, g, r))
         
         # Store and emit the test frame
         self.latest_frame = frame
@@ -886,9 +901,12 @@ class CameraStream(QObject):
     def set_format(self, pixel_format):
         """Set preview pixel format (e.g., 'RGB888', 'BGR888')."""
         try:
+            # Persist selection regardless of backend availability
+            self._pixel_format = str(pixel_format)
             if not self.is_camera_available or not hasattr(self, 'picam2') or self.picam2 is None:
-                print("DEBUG: [CameraStream] Camera not available for set_format")
-                return False
+                # Stub path: just ack success; test frames will reflect selection
+                print(f"DEBUG: [CameraStream] (stub) set_format -> {self._pixel_format}")
+                return True
             if not hasattr(self, 'preview_config') or self.preview_config is None:
                 try:
                     self.preview_config = self.picam2.create_preview_configuration(main={"format": str(pixel_format)})
@@ -909,6 +927,14 @@ class CameraStream(QObject):
         except Exception as e:
             print(f"DEBUG: [CameraStream] Error setting format: {e}")
             return False
+
+    # --- Query helpers ---
+    def get_pixel_format(self) -> str:
+        """Return current preview pixel format string (e.g., 'RGB888')."""
+        try:
+            return str(self._pixel_format)
+        except Exception:
+            return 'RGB888'
 
     def set_target_fps(self, fps):
         """Set target FPS for live streaming (threaded or timer)."""

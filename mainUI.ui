@@ -300,7 +300,7 @@
             <item>
              <widget class="QStackedWidget" name="settingStackedWidget">
               <property name="currentIndex">
-               <number>0</number>
+               <number>1</number>
               </property>
               <widget class="QWidget" name="palettePage">
                <widget class="QFrame" name="paletteFrame">

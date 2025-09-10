@@ -492,7 +492,27 @@ class CameraView(QObject):
             # Chuyển đổi frame thành QPixmap
             h, w, ch = self.current_frame.shape
             bytes_per_line = ch * w
-            rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+            pixel_format = 'BGR888'
+            try:
+                mw = getattr(self, 'main_window', None)
+                cm = getattr(mw, 'camera_manager', None) if mw else None
+                cs = getattr(cm, 'camera_stream', None) if cm else None
+                if cs is not None and hasattr(cs, 'get_pixel_format'):
+                    pixel_format = cs.get_pixel_format()
+            except Exception:
+                pixel_format = 'BGR888'
+            if ch == 3:
+                if str(pixel_format) == 'RGB888':
+                    rgb_image = self.current_frame
+                else:
+                    rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+            elif ch == 4:
+                rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_RGBA2RGB)
+            else:
+                try:
+                    rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+                except Exception:
+                    rgb_image = self.current_frame
             qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
             pixmap = QPixmap.fromImage(qt_image)
             
