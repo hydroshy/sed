@@ -245,6 +245,8 @@ class CameraManager(QObject):
 
             self._processing_frame = True
             try:
+                # Add force_save context to ensure SaveImageTool will save images
+                initial_context = {"force_save": True}
                 processed_image, _ = job_manager.run_current_job(frame)
                 if self.camera_view:
                     self.camera_view.display_frame(processed_image if processed_image is not None else frame)
@@ -1389,6 +1391,12 @@ class CameraManager(QObject):
                     # C   p nh   t UI
                     self.update_camera_mode_ui()
                     
+                    # Enable job execution when camera is started
+                    logging.info("Enabling job execution in start_live_camera")
+                    self.job_enabled = True
+                    if hasattr(self.camera_stream, 'set_job_enabled'):
+                        self.camera_stream.set_job_enabled(True)
+                    
                     # Default to Camera Source display (no manual selection required)
                     # Still refresh combo for internal consistency, but ignore its value
                     self.refresh_source_output_combo()
@@ -1826,6 +1834,12 @@ class CameraManager(QObject):
         # Set internal state
         self.current_mode = 'live'
         
+        # Enable job execution when entering live mode
+        logging.info("Enabling job execution in live mode")
+        self.job_enabled = True
+        if hasattr(self.camera_stream, 'set_job_enabled'):
+            self.camera_stream.set_job_enabled(True)
+        
         # Apply hardware changes - explicitly disable trigger mode for live
         print("DEBUG: [CameraManager] Setting trigger mode to FALSE for live mode")
         self.set_trigger_mode(False)
@@ -1843,6 +1857,12 @@ class CameraManager(QObject):
         
         # Set internal state
         self.current_mode = 'trigger'
+        
+        # Enable job execution when entering trigger mode
+        logging.info("Enabling job execution in trigger mode")
+        self.job_enabled = True
+        if hasattr(self.camera_stream, 'set_job_enabled'):
+            self.camera_stream.set_job_enabled(True)
         
         # Apply hardware changes - explicitly enable trigger mode
         print("DEBUG: [CameraManager] Setting trigger mode to TRUE for trigger mode")

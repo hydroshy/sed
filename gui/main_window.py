@@ -599,6 +599,15 @@ class MainWindow(QMainWindow):
                         # Update camera mode UI if available
                         if hasattr(cm, 'update_camera_mode_ui'):
                             cm.update_camera_mode_ui()
+                            
+                        # Explicitly enable job execution when camera is activated
+                        logging.info("Enabling job execution for onlineCamera mode")
+                        if hasattr(cm, 'job_enabled'):
+                            cm.job_enabled = True
+                        if hasattr(cm, 'camera_stream') and cm.camera_stream:
+                            if hasattr(cm.camera_stream, 'set_job_enabled'):
+                                cm.camera_stream.set_job_enabled(True)
+                                logging.info("Job execution enabled on camera stream")
                     except Exception as ui_e:
                         logging.warning(f"UI refresh after start_live fallback failed: {ui_e}")
 
@@ -1629,8 +1638,9 @@ class MainWindow(QMainWindow):
                         logging.warning("No frame available, using test image")
                         frame = np.zeros((480, 640, 3), dtype=np.uint8)
                 
-                # Chạy job
-                processed_image, results = current_job.run(frame)
+                # Chạy job with force_save enabled
+                initial_context = {"force_save": True}
+                processed_image, results = current_job.run(frame, initial_context)
                 
                 # Hiển thị kết quả
                 if 'error' not in results:
