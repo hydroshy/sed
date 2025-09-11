@@ -21,7 +21,7 @@ except ImportError:
     logger.warning("PiCamera2 không khả dụng. Sẽ sử dụng camera mô phỏng.")
 
 class CameraTool(BaseTool):
-    SUPPORTED_FORMATS = ["RGB888", "BGR888", "XRGB8888", "YUV420", "NV12"]
+    SUPPORTED_FORMATS = ["BGR888", "RGB888", "XRGB8888", "YUV420", "NV12"]
     """
     Công cụ quản lý camera, cung cấp hình ảnh đầu vào cho pipeline
     """
@@ -82,7 +82,7 @@ class CameraTool(BaseTool):
         
         # Camera configuration (stored for reference)
         self.current_exposure = self.config.get("exposure", 10000)
-        self.current_format = self.config.get("format", "RGB888")
+        self.current_format = self.config.get("format", "BGR888")
         self.frame_size = self.config.get("frame_size", (1440, 1080))
         self.target_fps = self.config.get("target_fps", 10.0)
         
@@ -143,7 +143,7 @@ class CameraTool(BaseTool):
         """Thiết lập cấu hình mặc định cho Camera Tool"""
         # Camera settings
         self.config.set_default("frame_size", (1440, 1080))
-        self.config.set_default("format", "RGB888")
+        self.config.set_default("format", "BGR888")
         try:
             self.config.set_validator("format", lambda v: str(v) in CameraTool.SUPPORTED_FORMATS)
         except Exception:
@@ -202,14 +202,11 @@ class CameraTool(BaseTool):
         # Auto-enable external trigger for IMX296 when switching to trigger mode
         if mode == "trigger" and self.is_gs_camera:
             self.config["enable_external_trigger"] = True
-            print(f"DEBUG: [CameraTool] Auto-enabled external trigger for IMX296 in trigger mode")
         elif mode == "live":
             self.config["enable_external_trigger"] = False
-            print(f"DEBUG: [CameraTool] Disabled external trigger for live mode")
         
         # Delegate to CameraManager for hardware control ONLY
         if hasattr(self, 'camera_manager') and self.camera_manager:
-            print(f"DEBUG: [CameraTool] Delegating hardware control to CameraManager")
             
             # Update CameraManager's current_mode to stay in sync
             self.camera_manager.current_mode = mode
@@ -229,7 +226,6 @@ class CameraTool(BaseTool):
             
             return success
         else:
-            print(f"DEBUG: [CameraTool] No camera_manager reference, config stored only")
             return True
     
     def get_camera_mode(self) -> str:
@@ -263,8 +259,6 @@ class CameraTool(BaseTool):
         """Apply current config to camera manager"""
         if not hasattr(self, 'camera_manager') or not self.camera_manager:
             return
-            
-        print(f"DEBUG: [CameraTool] Applying config to camera_manager")
         
         # Apply frame size and format first to avoid reconfigure flicker
         if "frame_size" in self.config and hasattr(self.camera_manager, 'camera_stream') \
@@ -274,19 +268,18 @@ class CameraTool(BaseTool):
                 self.camera_manager.camera_stream.set_frame_size(w, h)
             except Exception as e:
                 logger.warning(f"Could not apply frame size: {e}")
-        if "format" in self.config and hasattr(self.camera_manager, 'camera_stream') \
-           and self.camera_manager.camera_stream and hasattr(self.camera_manager.camera_stream, 'set_format'):
+        if "format" in self.config and hasattr(self.camera_manager, 'set_format_async'):
             try:
-                fmt = str(self.config["format"]) if "format" in self.config else "RGB888"
+                fmt = str(self.config["format"]) if "format" in self.config else "BGR888"
                 if fmt not in CameraTool.SUPPORTED_FORMATS:
-                    logger.warning(f"Unsupported pixel format '{fmt}', falling back to 'RGB888'")
-                    fmt = "RGB888"
+                    logger.warning(f"Unsupported pixel format '{fmt}', falling back to 'BGR888'")
+                    fmt = "BGR888"
                     try:
                         self.config.set("format", fmt)
                     except Exception:
                         pass
                 self.current_format = fmt
-                self.camera_manager.camera_stream.set_format(fmt)
+                self.camera_manager.set_format_async(fmt)
             except Exception as e:
                 logger.warning(f"Could not apply pixel format: {e}")
         if "target_fps" in self.config and hasattr(self.camera_manager, 'camera_stream') \
@@ -402,7 +395,6 @@ class CameraTool(BaseTool):
         camera_mode_changed = False
         if "camera_mode" in new_config and new_config["camera_mode"] != self.config.get("camera_mode", "live"):
             camera_mode_changed = True
-            print(f"DEBUG: [CameraTool] Camera mode changing from {self.config.get('camera_mode', 'live')} to {new_config['camera_mode']}")
         
         # Cập nhật config
         result = super().update_config(new_config)
@@ -411,19 +403,15 @@ class CameraTool(BaseTool):
         if result:
             # Xử lý thay đổi chế độ camera - delegate to CameraManager
             if camera_mode_changed:
-                print(f"DEBUG: [CameraTool] Setting camera mode to {self.config['camera_mode']}")
-                
                 # Nếu chuyển sang chế độ trigger, đảm bảo external_trigger được bật
                 if self.config["camera_mode"] == "trigger" and self.is_gs_camera:
                     self.config["enable_external_trigger"] = True
-                    print(f"DEBUG: [CameraTool] Setting enable_external_trigger=True for trigger mode")
                 
                 # Delegate to CameraManager
                 self.set_camera_mode(self.config["camera_mode"])
                 
                 # Ensure camera is visible (regardless of whether Camera Source is added to the pipeline)
                 if hasattr(self, 'camera_manager') and self.camera_manager:
-                    print(f"DEBUG: [CameraTool] Ensuring camera preview is active")
                     if hasattr(self.camera_manager, 'toggle_live_camera'):
                         self.camera_manager.toggle_live_camera(True)
             
@@ -434,49 +422,41 @@ class CameraTool(BaseTool):
                    self.camera_manager.camera_stream and hasattr(self.camera_manager.camera_stream, 'set_frame_size'):
                     try:
                         w, h = new_config['frame_size']
-                        print(f"DEBUG: [CameraTool] Updating frame size to {w}x{h}")
                         self.camera_manager.camera_stream.set_frame_size(w, h)
                     except Exception as e:
                         logger.warning(f"Failed to update frame size: {e}")
-                if "format" in new_config and hasattr(self.camera_manager, 'camera_stream') and \
-                   self.camera_manager.camera_stream and hasattr(self.camera_manager.camera_stream, 'set_format'):
+                if "format" in new_config and hasattr(self.camera_manager, 'set_format_async'):
                     try:
                         pf = str(new_config['format'])
                         if pf not in CameraTool.SUPPORTED_FORMATS:
                             logger.warning(f"Requested unsupported pixel format '{pf}', ignoring")
                         else:
-                            print(f"DEBUG: [CameraTool] Updating pixel format to {pf}")
                             self.current_format = pf
-                            self.camera_manager.camera_stream.set_format(pf)
+                            self.camera_manager.set_format_async(pf)
                     except Exception as e:
                         logger.warning(f"Failed to update pixel format: {e}")
                 if "target_fps" in new_config and hasattr(self.camera_manager, 'camera_stream') and \
                    self.camera_manager.camera_stream and hasattr(self.camera_manager.camera_stream, 'set_target_fps'):
                     try:
                         fps = new_config['target_fps']
-                        print(f"DEBUG: [CameraTool] Updating target FPS to {fps}")
                         self.camera_manager.camera_stream.set_target_fps(fps)
                     except Exception as e:
                         logger.warning(f"Failed to update target FPS: {e}")
                 # Check for parameter changes (new keys only)
                 if "exposure_us" in new_config:
-                    print(f"DEBUG: [CameraTool] Updating exposure_us to {new_config['exposure_us']}")
                     if hasattr(self.camera_manager, 'set_exposure_value'):
                         self.camera_manager.set_exposure_value(new_config['exposure_us'])
                 
                 if "analogue_gain" in new_config:
-                    print(f"DEBUG: [CameraTool] Updating analogue_gain to {new_config['analogue_gain']}")
                     if hasattr(self.camera_manager, 'set_gain_value'):
                         self.camera_manager.set_gain_value(new_config['analogue_gain'])
                 
                 if "ev" in new_config:
-                    print(f"DEBUG: [CameraTool] Updating EV to {new_config['ev']}")
                     if hasattr(self.camera_manager, 'set_ev_value'):
                         self.camera_manager.set_ev_value(new_config['ev'])
                 
                 if "auto_exposure" in new_config:
                     auto_exp = new_config["auto_exposure"]
-                    print(f"DEBUG: [CameraTool] Updating auto exposure to {auto_exp}")
                     if auto_exp:
                         if hasattr(self.camera_manager, 'set_auto_exposure_mode'):
                             self.camera_manager.set_auto_exposure_mode()
@@ -485,7 +465,6 @@ class CameraTool(BaseTool):
                             self.camera_manager.set_manual_exposure_mode()
                 # AWB: auto/manual toggle + manual gains apply ngay
                 if any(k in new_config for k in ("auto_white_balance", "colour_gain_r", "colour_gain_b", "colour_gains", "color_gains")):
-                    print("DEBUG: [CameraTool] Applying AWB change(s) immediately")
                     self._apply_awb_to_camera_manager()
         
     def trigger_capture(self) -> Tuple[np.ndarray, Dict[str, Any]]:

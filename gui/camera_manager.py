@@ -1,9 +1,32 @@
-from PyQt5.QtCore import QObject, pyqtSlot
+from PyQt5.QtCore import QObject, pyqtSlot, QThread, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QComboBox
 from camera.camera_stream import CameraStream
 from gui.camera_view import CameraView
 import logging
 import re
+
+class CameraOperationThread(QThread):
+    """Thread for non-blocking camera operations"""
+    operation_completed = pyqtSignal(bool, str)  # success, message
+    
+    def __init__(self, camera_stream, operation, *args):
+        super().__init__()
+        self.camera_stream = camera_stream
+        self.operation = operation
+        self.args = args
+        
+    def run(self):
+        try:
+            if self.operation == 'set_trigger_mode':
+                success = self.camera_stream.set_trigger_mode(self.args[0])
+                message = f"Trigger mode {'enabled' if self.args[0] else 'disabled'}"
+                self.operation_completed.emit(success, message)
+            elif self.operation == 'set_format':
+                success = self.camera_stream.set_format(self.args[0])
+                message = f"Format changed to {self.args[0]}"
+                self.operation_completed.emit(success, message)
+        except Exception as e:
+            self.operation_completed.emit(False, f"Operation failed: {str(e)}")
 
 class CameraManager(QObject):
     """
@@ -48,6 +71,22 @@ class CameraManager(QObject):
         # UI state
         self.ui_enabled = False
         
+        # Thread management for non-blocking operations
+        self.operation_thread = None
+    
+    def cleanup(self):
+        """Clean up camera manager resources including threads"""
+        # Wait for any running operations to complete
+        if self.operation_thread and self.operation_thread.isRunning():
+            self.operation_thread.wait(5000)  # Wait up to 5 seconds
+        
+        # Clean up camera stream
+        if self.camera_stream:
+            try:
+                self.camera_stream.cleanup()
+            except Exception as e:
+                logging.warning(f"Error cleaning up camera stream: {e}")
+        
         # AWB controls
         self.auto_awb_btn = None
         self.manual_awb_btn = None
@@ -74,7 +113,7 @@ class CameraManager(QObject):
             msg.setInformativeText("Vui l  ng th  m 'Camera Source' tr     c khi b   t camera.")
             msg.exec_()
         except Exception as e:
-            print(f"DEBUG: [CameraManager] Could not show warning dialog: {e}")
+            logging.warning(f"Could not show warning dialog: {e}")
         # Reset related toggles/buttons if present
         try:
             if hasattr(self, 'live_camera_btn') and self.live_camera_btn:
@@ -117,10 +156,7 @@ class CameraManager(QObject):
         # Setup source output combo box
         self.source_output_combo = source_output_combo
         if self.source_output_combo:
-            print("DEBUG: sourceOutputComboBox found during setup")
             self.setup_source_output_combo()
-        else:
-            print("DEBUG: sourceOutputComboBox NOT found during setup")
         
         # Reload camera formats after camera stream is initialized
         if self.main_window and hasattr(self.main_window, 'reload_camera_formats'):
@@ -168,10 +204,9 @@ class CameraManager(QObject):
             if name == 'Camera Source' or getattr(tool, '__class__', type('X',(),{})).__name__ == 'CameraTool':
                 tool.camera_manager = self
                 self._camera_tool_ref = tool
-                print("DEBUG: [CameraManager] Registered Camera Source tool (cached reference)")
                 return True
         except Exception as e:
-            print(f"DEBUG: [CameraManager] register_tool error: {e}")
+            logging.warning(f"Error registering tool: {e}")
         return False
         
     def _on_frame_from_camera(self, frame):
@@ -229,24 +264,20 @@ class CameraManager(QObject):
 
     def stop_camera_for_apply(self):
         """Stop camera before applying Camera Source tool to prevent conflicts"""
-        print("DEBUG: CameraManager.stop_camera_for_apply called")
         logging.info("CameraManager: Stopping camera before applying Camera Source tool")
         
         if self.camera_stream and self.camera_stream.is_running():
-            print("DEBUG: Stopping camera stream for apply")
             try:
                 # Preferred safe stop: cancel pending and stop live
                 try:
-                    print("DEBUG: [CameraManager] Preferred stop - cancel_and_stop_live()")
                     self.camera_stream.cancel_and_stop_live()
-                except AttributeError as e:
-                    print(f"DEBUG: [CameraManager] AttributeError cancel_and_stop_live: {e}")
+                except AttributeError:
                     if hasattr(self.camera_stream, 'cancel_all_and_flush'):
                         self.camera_stream.cancel_all_and_flush()
                     if hasattr(self.camera_stream, 'stop_live'):
                         self.camera_stream.stop_live()
             except Exception as e:
-                print(f"DEBUG: [CameraManager] Error stopping camera: {e}")
+                logging.warning(f"Error stopping camera: {e}")
             
             # Reset camera mode buttons
             if self.live_camera_btn:
@@ -272,12 +303,9 @@ class CameraManager(QObject):
             # Refresh source output combo to show updated pipeline
             self.refresh_source_output_combo()
                 
-            print("DEBUG: Camera stopped for apply - user can now choose source output")
             logging.info("CameraManager: Camera stopped for apply - source output combo refreshed")
-            
             return True
         else:
-            print("DEBUG: Camera was not running")
             # Still refresh the combo even if camera wasn't running
             self.refresh_source_output_combo()
             return False
@@ -302,42 +330,34 @@ class CameraManager(QObject):
         
     def on_source_output_changed(self, text):
         """Handle source output combo box selection change"""
-        print(f"DEBUG: Source output changed to: {text}")
-        
         if not self.source_output_combo:
             return
             
         # Get the data associated with the selection
         current_data = self.source_output_combo.currentData()
-        print(f"DEBUG: Source output data: {current_data}")
         
         # Handle different pipeline outputs
         if current_data == "camera":
             # Show raw camera feed
-            print("DEBUG: Switching to camera source display")
             if hasattr(self.camera_view, 'set_display_mode'):
                 self.camera_view.set_display_mode("camera")
         elif current_data and current_data.startswith("detection_"):
             # Show detection results overlay
-            print("DEBUG: Switching to detection output display")
             tool_id = current_data.split("_")[1]
             if hasattr(self.camera_view, 'set_display_mode'):
                 self.camera_view.set_display_mode("detection", tool_id=tool_id)
         elif current_data and current_data.startswith("edge_"):
             # Show edge detection results
-            print("DEBUG: Switching to edge detection display")
             tool_id = current_data.split("_")[1]
             if hasattr(self.camera_view, 'set_display_mode'):
                 self.camera_view.set_display_mode("edge", tool_id=tool_id)
         elif current_data and current_data.startswith("ocr_"):
             # Show OCR results overlay
-            print("DEBUG: Switching to OCR output display")
             tool_id = current_data.split("_")[1]
             if hasattr(self.camera_view, 'set_display_mode'):
                 self.camera_view.set_display_mode("ocr", tool_id=tool_id)
         else:
             # Default to camera source
-            print("DEBUG: Unknown source output, defaulting to camera")
             if hasattr(self.camera_view, 'set_display_mode'):
                 self.camera_view.set_display_mode("camera")
         
@@ -542,28 +562,23 @@ class CameraManager(QObject):
             return 0
             
     def set_exposure_value(self, value):
-        """     t gi   tr    exposure"""
+        """Set exposure value"""
         try:
             value = int(value)
-            print(f"DEBUG: [CameraManager] Setting exposure value to {value}")
             # Update UI
             if self.exposure_edit:
                 self.exposure_edit.setText(str(value))
             
             # Update camera
             if self.camera_stream and hasattr(self.camera_stream, 'set_exposure'):
-                # Try to apply to camera if it's available
                 try:
-                    success = self.camera_stream.set_exposure(value)
-                    if not success:
-                        print(f"DEBUG: [CameraManager] Failed to set exposure on camera stream")
+                    self.camera_stream.set_exposure(value)
                 except Exception as e:
-                    print(f"DEBUG: [CameraManager] Error setting exposure: {e}")
+                    logging.warning(f"Error setting exposure: {e}")
             
             return True
         except (ValueError, AttributeError) as e:
-            print(f"DEBUG: [CameraManager] Error setting exposure value: {e}")
-            logging.error(f"Failed to set exposure value: {e}", exc_info=True)
+            logging.error(f"Failed to set exposure value: {e}")
             return False
             
     def get_gain_value(self):
@@ -1181,73 +1196,105 @@ class CameraManager(QObject):
 
     def set_trigger_mode(self, enabled):
         """
-        Set trigger mode in camera
+        Set trigger mode in camera using async thread to prevent UI blocking
         
         Args:
             enabled: True to enable trigger mode, False to disable
         
         Returns:
-            True if successful, False otherwise
+            True if operation started successfully, False otherwise
         """
-        print(f"DEBUG: [CameraManager] set_trigger_mode called with enabled={enabled}")
         try:
             # Sync current exposure setting to camera before changing trigger mode
             if self.camera_stream and self.exposure_edit:
                 try:
                     exposure_value = self.get_exposure_value()
-                    print(f"DEBUG: [CameraManager] Syncing exposure {exposure_value} before setting trigger mode")
                     self.camera_stream.set_exposure(exposure_value)
-                except Exception as e:
-                    print(f"DEBUG: [CameraManager] Error syncing exposure: {e}")
+                except Exception:
+                    pass  # Continue with mode change even if exposure sync fails
             
-            # Update UI first
+            # Update UI first for immediate feedback
             if enabled:
-                # Update mode tracking
                 self.current_mode = 'trigger'
-                
-                # Update UI buttons
                 if self.trigger_camera_btn:
                     self.trigger_camera_btn.setChecked(True)
                 if self.live_camera_btn:
                     self.live_camera_btn.setChecked(False)
-                    
-                # Update mode buttons
                 if self.trigger_camera_mode:
                     self.trigger_camera_mode.setChecked(True)
                 if self.live_camera_mode:
                     self.live_camera_mode.setChecked(False)
             else:
-                # Update mode tracking
                 self.current_mode = 'live'
-                
-                # Update UI buttons
                 if self.trigger_camera_btn:
                     self.trigger_camera_btn.setChecked(False)
                 if self.live_camera_btn:
                     self.live_camera_btn.setChecked(True)
-                    
-                # Update mode buttons
                 if self.trigger_camera_mode:
                     self.trigger_camera_mode.setChecked(False)
                 if self.live_camera_mode:
                     self.live_camera_mode.setChecked(True)
             
-            # Update camera hardware
+            # Update camera hardware in background thread to prevent UI blocking
             if self.camera_stream and hasattr(self.camera_stream, 'set_trigger_mode'):
-                print(f"DEBUG: [CameraManager] Setting camera hardware trigger mode to {enabled}")
-                success = self.camera_stream.set_trigger_mode(enabled)
-                if not success:
-                    print(f"DEBUG: [CameraManager] Failed to set trigger mode")
-                    return False
-            
-            # Do not auto-start camera; only enforce hardware mode
-            # (Startup should set mode without starting preview)
+                # Stop previous operation thread if running
+                if self.operation_thread and self.operation_thread.isRunning():
+                    self.operation_thread.wait()
                 
+                # Start new operation thread
+                self.operation_thread = CameraOperationThread(
+                    self.camera_stream, 'set_trigger_mode', enabled
+                )
+                self.operation_thread.operation_completed.connect(self._on_trigger_mode_completed)
+                self.operation_thread.start()
+            
             self.update_camera_mode_ui()
             return True
         except Exception as e:
-            print(f"DEBUG: [CameraManager] Error in set_trigger_mode: {e}")
+            logging.error(f"Error in set_trigger_mode: {e}")
             return False
+    
+    def _on_trigger_mode_completed(self, success, message):
+        """Handle completion of trigger mode change operation"""
+        if not success:
+            logging.warning(f"Trigger mode operation failed: {message}")
+        # UI is already updated, no additional action needed
+    
+    def set_format_async(self, pixel_format):
+        """
+        Set camera format using async thread to prevent UI blocking
+        
+        Args:
+            pixel_format: Format string (e.g., 'RGB888', 'BGR888')
+        
+        Returns:
+            True if operation started successfully, False otherwise
+        """
+        try:
+            if self.camera_stream and hasattr(self.camera_stream, 'set_format'):
+                # Stop previous operation thread if running
+                if self.operation_thread and self.operation_thread.isRunning():
+                    self.operation_thread.wait()
+                
+                # Start new operation thread
+                self.operation_thread = CameraOperationThread(
+                    self.camera_stream, 'set_format', pixel_format
+                )
+                self.operation_thread.operation_completed.connect(self._on_format_completed)
+                self.operation_thread.start()
+                return True
+            return False
+        except Exception as e:
+            logging.error(f"Error in set_format_async: {e}")
+            return False
+    
+    def _on_format_completed(self, success, message):
+        """Handle completion of format change operation"""
+        if not success:
+            logging.warning(f"Format operation failed: {message}")
+        # Refresh display after format change
+        if self.camera_view and hasattr(self.camera_view, 'refresh_display_with_new_format'):
+            self.camera_view.refresh_display_with_new_format()
             
     def rotate_left(self):
         """Xoay camera sang tr  i"""
@@ -1276,50 +1323,68 @@ class CameraManager(QObject):
     
     # ============ CAMERA MODE HANDLERS ============
     
-    def start_live_camera(self):
-        """Start live camera mode (for programmatic access)"""
-        print("DEBUG: [CameraManager] start_live_camera called (force LIVE)")        
+    def start_live_camera(self, force_mode_change=True):
+        """Start live camera mode (for programmatic access)
+        
+        Args:
+            force_mode_change: If False, preserve current camera mode and stream state
+        """
+        # Check if camera is already running and we shouldn't force mode change
+        if self.camera_stream and self.camera_stream.is_running() and not force_mode_change:
+            # Camera is already running, just update UI without changing stream
+            logging.info("CameraManager: Camera already running, preserving current mode and stream")
+            self.update_camera_mode_ui()
+            # Refresh display mode
+            if hasattr(self.camera_view, 'set_display_mode'):
+                self.camera_view.set_display_mode("camera")
+            return True
+            
         # Arm and wait: mark waiting for first frame
         self._waiting_first_frame = True
-        # Force LIVE mode when starting via onlineCamera/start_live
-        try:
-            if self.trigger_camera_mode:
-                self.trigger_camera_mode.blockSignals(True)
-                self.trigger_camera_mode.setChecked(False)
-                self.trigger_camera_mode.blockSignals(False)
-        except Exception:
-            pass
-        try:
-            if self.live_camera_mode:
-                self.live_camera_mode.blockSignals(True)
-                self.live_camera_mode.setChecked(True)
-                self.live_camera_mode.blockSignals(False)
-        except Exception:
-            pass
-        # Ensure hardware trigger is disabled for live
-        if self.camera_stream and hasattr(self.camera_stream, 'set_trigger_mode'):
+        
+        # Only force LIVE mode if explicitly requested
+        if force_mode_change:
+            # Force LIVE mode when starting via onlineCamera/start_live
             try:
-                self.camera_stream.set_trigger_mode(False)
+                if self.trigger_camera_mode:
+                    self.trigger_camera_mode.blockSignals(True)
+                    self.trigger_camera_mode.setChecked(False)
+                    self.trigger_camera_mode.blockSignals(False)
             except Exception:
                 pass
+            try:
+                if self.live_camera_mode:
+                    self.live_camera_mode.blockSignals(True)
+                    self.live_camera_mode.setChecked(True)
+                    self.live_camera_mode.blockSignals(False)
+            except Exception:
+                pass
+            # Ensure hardware trigger is disabled for live
+            if self.camera_stream and hasattr(self.camera_stream, 'set_trigger_mode'):
+                try:
+                    self.camera_stream.set_trigger_mode(False)
+                except Exception:
+                    pass
 
-        # Ti?p t?c v?i ch? d? LIVE
+        # Start camera only if not running
         if self.camera_stream and not self.camera_stream.is_running():
             try:
                 success = self.camera_stream.start_live()
                 if success:
-                    #      m b   o ch          hi   n t   i v   UI        c      ng b   
-                    self.current_mode = 'live'
-                    
-                    #      m b   o c  c n  t ch          camera        c c   p nh   t     ng
-                    if self.live_camera_mode:
-                        self.live_camera_mode.blockSignals(True)
-                        self.live_camera_mode.setChecked(True)
-                        self.live_camera_mode.blockSignals(False)
-                    if self.trigger_camera_mode:
-                        self.trigger_camera_mode.blockSignals(True)
-                        self.trigger_camera_mode.setChecked(False)
-                        self.trigger_camera_mode.blockSignals(False)
+                    # Only update mode if force_mode_change is True
+                    if force_mode_change:
+                        #      m b   o ch          hi   n t   i v   UI        c      ng b   
+                        self.current_mode = 'live'
+                        
+                        #      m b   o c  c n  t ch          camera        c c   p nh   t     ng
+                        if self.live_camera_mode:
+                            self.live_camera_mode.blockSignals(True)
+                            self.live_camera_mode.setChecked(True)
+                            self.live_camera_mode.blockSignals(False)
+                        if self.trigger_camera_mode:
+                            self.trigger_camera_mode.blockSignals(True)
+                            self.trigger_camera_mode.setChecked(False)
+                            self.trigger_camera_mode.blockSignals(False)
                     
                     # C   p nh   t UI
                     self.update_camera_mode_ui()
@@ -1348,7 +1413,8 @@ class CameraManager(QObject):
                 print(f"DEBUG: [CameraManager] Exception starting live camera: {e}")
                 return False
         else:
-            print("DEBUG: [CameraManager] Camera stream not available or already running")
+            # Camera stream not available
+            logging.warning("CameraManager: Camera stream not available")
             return False
     
     def on_live_camera_clicked(self):

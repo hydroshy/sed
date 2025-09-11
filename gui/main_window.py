@@ -1747,24 +1747,29 @@ class MainWindow(QMainWindow):
         if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
             camera_stream = self.camera_manager.camera_stream
             print("DEBUG: Got camera stream instance")
-            # Always show supported formats in the combo box (hide NV12, YUV420)
-            supported = ["RGB888", "BGR888", "XRGB8888"]
+            # Always show supported formats in the combo box (BGR888 first as it's PiCamera2's default)
+            supported = ["BGR888", "RGB888", "XRGB8888"]
             for fmt in supported:
                 combo_widget.addItem(fmt)
                 print(f"DEBUG: Added supported format: {fmt}")
                     
-            # Set default/current selection to RGB888 if available
-            preferred_format = 'RGB888'
+            # Set default/current selection to BGR888 to match PiCamera2's natural output
+            preferred_format = 'BGR888'
             idx = combo_widget.findText(preferred_format)
             if idx >= 0:
                 combo_widget.setCurrentIndex(idx)
                 print(f"DEBUG: Set current format to: {preferred_format}")
+            else:
+                # Fallback to first available format if BGR888 not found
+                if combo_widget.count() > 0:
+                    combo_widget.setCurrentIndex(0)
+                    print(f"DEBUG: BGR888 not found, using first format: {combo_widget.itemText(0)}")
             
             print(f"DEBUG: ComboBox now has {combo_widget.count()} items")
         else:
             print("DEBUG: Camera stream not available, adding fallback formats")
-            # Add fallback formats when camera not available (hide NV12, YUV420)
-            safe_formats = ["RGB888", "BGR888", "XRGB8888"]
+            # Add fallback formats when camera not available (BGR888 first as default)
+            safe_formats = ["BGR888", "RGB888", "XRGB8888"]
             for fmt in safe_formats:
                 combo_widget.addItem(fmt)
                 print(f"DEBUG: Added fallback format: {fmt}")
@@ -1806,39 +1811,77 @@ class MainWindow(QMainWindow):
     def _on_format_changed(self, text):
         """Apply camera pixel format immediately when user selects a new one."""
         try:
-            supported = ["RGB888", "BGR888", "XRGB8888", "YUV420", "NV12"]
+            # Only support RGB variants now (removed YUV420/NV12 as they cause issues)
+            supported = ["BGR888", "RGB888", "XRGB8888"]
             fmt = str(text)
+            
+            print(f"DEBUG: [MainWindow] Format changed to: {fmt}")
+            
             if fmt not in supported:
-                print(f"DEBUG: Ignoring unsupported format selection: {fmt}")
+                print(f"DEBUG: [MainWindow] Ignoring unsupported format selection: {fmt}")
                 return
-            if hasattr(self, 'camera_manager') and self.camera_manager and \
-               hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
-                cs = self.camera_manager.camera_stream
-                try:
-                    ok = cs.set_format(fmt)
-                    print(f"DEBUG: set_format({fmt}) returned {ok}")
-                    # For stub backend (no Picamera2), push a fresh frame to reflect the change immediately
-                    try:
-                        if not getattr(cs, 'is_camera_available', False) and hasattr(cs, '_generate_test_frame'):
-                            cs._generate_test_frame()
-                    except Exception:
-                        pass
-                except Exception as e:
-                    print(f"DEBUG: Error applying format {fmt}: {e}")
-            # Also persist into CameraTool config if available
+            
+            # Use QTimer to defer processing and avoid blocking UI
+            from PyQt5.QtCore import QTimer
+            QTimer.singleShot(0, lambda: self._process_format_change(fmt))
+                
+        except Exception as e:
+            print(f"DEBUG: [MainWindow] _on_format_changed error: {e}")
+    
+    def _process_format_change(self, fmt):
+        """Process format change in a non-blocking way"""
+        try:
+            if not hasattr(self, 'camera_manager') or not self.camera_manager:
+                print(f"DEBUG: [MainWindow] No camera_manager available")
+                return
+            
+            if not hasattr(self.camera_manager, 'camera_stream') or not self.camera_manager.camera_stream:
+                print(f"DEBUG: [MainWindow] No camera_stream available")
+                return
+                
+            cs = self.camera_manager.camera_stream
+            
+            # Get current format for comparison
+            old_format = cs.get_pixel_format() if hasattr(cs, 'get_pixel_format') else 'Unknown'
+            print(f"DEBUG: [MainWindow] Processing format change from {old_format} to {fmt}")
+            
+            if old_format == fmt:
+                print(f"DEBUG: [MainWindow] Format already set to {fmt}, just refreshing display")
+                # Still refresh display in case UI is out of sync
+                if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                    cv = self.camera_manager.camera_view
+                    if hasattr(cv, 'refresh_display_with_new_format'):
+                        cv.refresh_display_with_new_format()
+                return
+            
+            # Update format (should be fast)
+            try:
+                ok = cs.set_format(fmt)
+                print(f"DEBUG: [MainWindow] set_format({fmt}) returned {ok}")
+            except Exception as e:
+                print(f"DEBUG: [MainWindow] Error setting format: {e}")
+                return
+            
+            # For stub backend, generate test frame
+            if not getattr(cs, 'is_camera_available', False) and hasattr(cs, '_generate_test_frame'):
+                print(f"DEBUG: [MainWindow] Generating new test frame with format {fmt}")
+                cs._generate_test_frame()
+            
+            # Simple re-render attempt
+            if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                cv = self.camera_manager.camera_view
+                if hasattr(cv, 'refresh_display_with_new_format'):
+                    success = cv.refresh_display_with_new_format()
+                    print(f"DEBUG: [MainWindow] Refresh display result: {success}")
+            
+            # Update CameraTool config
             try:
                 ct = self.camera_manager.find_camera_tool() if hasattr(self.camera_manager, 'find_camera_tool') else None
                 if ct and hasattr(ct, 'update_config'):
                     ct.update_config({'format': fmt})
-            except Exception:
-                pass
-            # Force immediate re-render using the latest raw frame to reflect new format
-            try:
-                if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
-                    cv = self.camera_manager.camera_view
-                    if getattr(cv, 'current_raw_frame', None) is not None:
-                        cv.display_frame(cv.current_raw_frame)
+                    print(f"DEBUG: [MainWindow] Updated CameraTool config with format {fmt}")
             except Exception as e:
-                print(f"DEBUG: Could not force re-render after format change: {e}")
+                print(f"DEBUG: [MainWindow] Could not update CameraTool config: {e}")
+                
         except Exception as e:
-            print(f"DEBUG: _on_format_changed error: {e}")
+            print(f"DEBUG: [MainWindow] Error in _process_format_change: {e}")

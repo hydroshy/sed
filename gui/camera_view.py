@@ -174,6 +174,22 @@ class CameraView(QObject):
             # Default to raw camera frame
             return self.current_raw_frame
 
+    def refresh_display_with_new_format(self):
+        """Force refresh the current display with new pixel format settings"""
+        if hasattr(self, 'current_raw_frame') and self.current_raw_frame is not None:
+            print("DEBUG: [CameraView] Refreshing display with new format using raw frame")
+            # Re-process the raw frame with new format settings
+            self.display_frame(self.current_raw_frame)
+            return True
+        elif hasattr(self, 'current_frame') and self.current_frame is not None:
+            print("DEBUG: [CameraView] Refreshing display using current_frame")
+            # Force re-render of current processed frame
+            self._show_frame_with_zoom()
+            return True
+        else:
+            print("DEBUG: [CameraView] No frame available for format refresh")
+            return False
+
     def display_frame(self, frame):
         """
         Hiển thị frame từ camera
@@ -239,7 +255,8 @@ class CameraView(QObject):
                 logging.error("Fallback frame processing failed: %s", fallback_error)
                 return
 
-        self.current_frame = frame  # Lưu frame hiện tại
+        self.current_frame = frame  # Lưu frame hiện tại sau khi xử lý format
+        # current_raw_frame đã được lưu ở đầu hàm
         
         self._show_frame_with_zoom()
         self._calculate_fps()
@@ -492,25 +509,66 @@ class CameraView(QObject):
             # Chuyển đổi frame thành QPixmap
             h, w, ch = self.current_frame.shape
             bytes_per_line = ch * w
-            pixel_format = 'BGR888'
+            pixel_format = 'BGR888'  # Default fallback (matches PiCamera2's natural output)
             try:
                 mw = getattr(self, 'main_window', None)
                 cm = getattr(mw, 'camera_manager', None) if mw else None
                 cs = getattr(cm, 'camera_stream', None) if cm else None
                 if cs is not None and hasattr(cs, 'get_pixel_format'):
                     pixel_format = cs.get_pixel_format()
-            except Exception:
-                pixel_format = 'BGR888'
-            if ch == 3:
-                if str(pixel_format) == 'RGB888':
-                    rgb_image = self.current_frame
+                    print(f"DEBUG: [CameraView] Got pixel format from stream: {pixel_format}")
                 else:
+                    print(f"DEBUG: [CameraView] Could not get pixel format from stream, using default: {pixel_format}")
+            except Exception as e:
+                print(f"DEBUG: [CameraView] Exception getting pixel format: {e}")
+                pixel_format = 'BGR888'
+            # Convert frame to RGB - PiCamera2 ALWAYS returns BGR regardless of config
+            # Only trust format for test frames (when camera not available)
+            is_test_frame = False
+            try:
+                mw = getattr(self, 'main_window', None)
+                cm = getattr(mw, 'camera_manager', None) if mw else None
+                cs = getattr(cm, 'camera_stream', None) if cm else None
+                if cs is not None:
+                    is_test_frame = not getattr(cs, 'is_camera_available', False)
+            except Exception:
+                pass
+                
+            if ch == 3:
+                if is_test_frame:
+                    # For test frames, trust the pixel format
+                    if str(pixel_format) == 'RGB888':
+                        # Test frame is already RGB, use directly
+                        print(f"DEBUG: [CameraView] Test frame RGB888, using directly")
+                        rgb_image = self.current_frame
+                    elif str(pixel_format) == 'BGR888':
+                        # Test frame is BGR, convert to RGB
+                        print(f"DEBUG: [CameraView] Test frame BGR888, converting to RGB")
+                        rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+                    else:
+                        # Unknown test frame format, assume BGR
+                        print(f"DEBUG: [CameraView] Test frame {pixel_format}, assuming BGR and converting")
+                        rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+                else:
+                    # For real camera frames, PiCamera2 ALWAYS returns BGR regardless of config
+                    print(f"DEBUG: [CameraView] Real camera frame (format={pixel_format}), always converting BGR->RGB")
                     rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
             elif ch == 4:
-                rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_RGBA2RGB)
+                if is_test_frame and str(pixel_format) == 'XRGB8888':
+                    # Test frame RGBA format, convert to RGB
+                    print(f"DEBUG: [CameraView] Test frame XRGB8888, converting RGBA->RGB")
+                    rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_RGBA2RGB)
+                else:
+                    # Real camera or unknown 4-channel format, assume BGRA and convert
+                    print(f"DEBUG: [CameraView] 4-channel frame (format={pixel_format}), converting BGRA->RGB")
+                    rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGRA2RGB)
             else:
+                # Fallback for other channel counts
                 try:
-                    rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+                    if str(pixel_format) == 'RGB888':
+                        rgb_image = self.current_frame
+                    else:
+                        rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
                 except Exception:
                     rgb_image = self.current_frame
             qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)

@@ -200,8 +200,9 @@ class SettingsManager(QObject):
                         except Exception:
                             pass
                         # Auto-start preview (existing behavior)
+                        # Don't force mode change - preserve current camera mode and stream
                         try:
-                            self.main_window.camera_manager.start_live_camera()
+                            self.main_window.camera_manager.start_live_camera(force_mode_change=False)
                             logging.info("SettingsManager: Camera started for settings preview")
                         except Exception as e:
                             logging.warning(f"SettingsManager: Failed to auto-start camera: {e}")
