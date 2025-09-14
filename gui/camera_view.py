@@ -550,9 +550,25 @@ class CameraView(QObject):
                         print(f"DEBUG: [CameraView] Test frame {pixel_format}, assuming BGR and converting")
                         rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
                 else:
-                    # For real camera frames, PiCamera2 ALWAYS returns BGR regardless of config
-                    print(f"DEBUG: [CameraView] Real camera frame (format={pixel_format}), always converting BGR->RGB")
+                    # For real camera frames: PiCamera2 ALWAYS returns BGR data regardless of format setting
+                    # This is PiCamera2's internal behavior - it converts all formats to BGR internally
+                    print(f"DEBUG: [CameraView] Real camera processing: format={pixel_format}")
+                    print(f"DEBUG: [CameraView] Original frame shape: {self.current_frame.shape}")
+                    print(f"DEBUG: [CameraView] PiCamera2 always returns BGR data, converting to RGB for PyQt")
+                    
+                    # Always convert BGR->RGB for 3-channel real camera frames
+                    # PiCamera2 internally provides BGR regardless of format setting
                     rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+                    
+                    print(f"DEBUG: [CameraView] Converted frame shape: {rgb_image.shape}")
+                    
+                    # Debug: Check pixel values 
+                    if h > 100 and w > 100:
+                        sample_pixel = self.current_frame[50, 50]  # Sample a pixel from original
+                        display_sample = rgb_image[50, 50]  # Sample from display data
+                        print(f"DEBUG: [CameraView] Original pixel at (50,50): {sample_pixel} (BGR from PiCamera2)")
+                        print(f"DEBUG: [CameraView] Display pixel at (50,50): {display_sample} (RGB for PyQt)")
+                        print(f"DEBUG: [CameraView] Color analysis - R:{display_sample[0]}, G:{display_sample[1]}, B:{display_sample[2]}")
             elif ch == 4:
                 if is_test_frame and str(pixel_format) == 'XRGB8888':
                     # Test frame RGBA format, convert to RGB

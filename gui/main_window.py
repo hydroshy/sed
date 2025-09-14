@@ -11,6 +11,7 @@ from gui.tool_manager import ToolManager
 from gui.settings_manager import SettingsManager
 from gui.camera_manager import CameraManager
 from gui.detect_tool_manager import DetectToolManager
+from gui.classification_tool_manager import ClassificationToolManager
 from gui.workflow_view import WorkflowWidget
 
 # Configure logging
@@ -61,6 +62,7 @@ class MainWindow(QMainWindow):
         self.camera_manager = CameraManager(self)
         self.job_manager = JobManager()
         self.detect_tool_manager = DetectToolManager(self)
+        self.classification_tool_manager = ClassificationToolManager(self)
         
         # Load UI từ file .ui
         ui_path = os.path.join(os.path.dirname(__file__), '..', 'mainUI.ui')
@@ -172,6 +174,9 @@ class MainWindow(QMainWindow):
                         return True
                 else:
                     logging.warning("JobView parent is not a QWidget")
+            elif tool_name == "Classification Tool":
+                if self.settings_manager.switch_to_tool_setting_page("Classification Tool"):
+                    self.refresh_classification_tool_manager()
             else:
                 logging.warning("JobView not found or not a QTreeView")
                 
@@ -445,6 +450,94 @@ class MainWindow(QMainWindow):
             )
         else:
             logging.error("DetectToolManager not initialized!")
+
+        # Setup ClassificationToolManager (bind to classificationSettingPage widgets)
+        try:
+            from PyQt5.QtWidgets import QWidget, QComboBox, QFrame
+            
+            logging.info("Setting up ClassificationToolManager...")
+            
+            # First, try to find the classification page
+            classification_page = None
+            if hasattr(self, 'settingStackedWidget') and self.settingStackedWidget:
+                classification_page = self.settingStackedWidget.findChild(QWidget, 'classificationSettingPage')
+                logging.info(f"Classification page from stackedWidget: {classification_page is not None}")
+            
+            if not classification_page:
+                classification_page = self.findChild(QWidget, 'classificationSettingPage')
+                logging.info(f"Classification page from main window: {classification_page is not None}")
+            
+            # Debug: List all pages in stacked widget
+            if hasattr(self, 'settingStackedWidget') and self.settingStackedWidget:
+                page_count = self.settingStackedWidget.count()
+                logging.info(f"StackedWidget has {page_count} pages:")
+                for i in range(page_count):
+                    page = self.settingStackedWidget.widget(i)
+                    logging.info(f"  Page {i}: {page.__class__.__name__} '{page.objectName()}'")
+            
+            # Try to find combo boxes in various ways
+            model_combo = None
+            class_combo = None
+            
+            # Method 1: Look in frame within page
+            if classification_page:
+                frame = classification_page.findChild(QFrame, 'classificationSettingFrame')
+                logging.info(f"Classification frame found: {frame is not None}")
+                if frame:
+                    model_combo = frame.findChild(QComboBox, 'modelComboBox')
+                    class_combo = frame.findChild(QComboBox, 'classComboBox')
+                    logging.info(f"Classification setup: frame method -> model_combo: {model_combo is not None}, class_combo: {class_combo is not None}")
+                
+                # Method 2: Look directly in page
+                if not model_combo or not class_combo:
+                    if not model_combo:
+                        model_combo = classification_page.findChild(QComboBox, 'modelComboBox')
+                    if not class_combo:
+                        class_combo = classification_page.findChild(QComboBox, 'classComboBox')
+                    logging.info(f"Classification setup: page method -> model_combo: {model_combo is not None}, class_combo: {class_combo is not None}")
+            
+            # Method 3: Global search as fallback
+            if not model_combo or not class_combo:
+                if not model_combo:
+                    model_combo = self.findChild(QComboBox, 'modelComboBox')
+                if not class_combo:
+                    class_combo = self.findChild(QComboBox, 'classComboBox')
+                logging.info(f"Classification setup: global method -> model_combo: {model_combo is not None}, class_combo: {class_combo is not None}")
+                
+                # Debug: List all combo boxes
+                all_combos = self.findChildren(QComboBox)
+                logging.info(f"All combo boxes in main window ({len(all_combos)}):")
+                for combo in all_combos:
+                    logging.info(f"  ComboBox: '{combo.objectName()}'")
+            
+            # Log what we found
+            if model_combo:
+                logging.info(f"Found modelComboBox: {model_combo.objectName()} at {hex(id(model_combo))}")
+            if class_combo:
+                logging.info(f"Found classComboBox: {class_combo.objectName()} at {hex(id(class_combo))}")
+            
+            # Setup if we have both combo boxes
+            if model_combo is not None and class_combo is not None and hasattr(self, 'classification_tool_manager'):
+                logging.info("Setting up ClassificationToolManager with found combo boxes")
+                self.classification_tool_manager.setup_ui_components(model_combo, class_combo)
+                logging.info("ClassificationToolManager UI components setup completed")
+                
+                # Store references for later access
+                self.class_modelComboBox = model_combo
+                self.class_classComboBox = class_combo
+            else:
+                missing_items = []
+                if model_combo is None:
+                    missing_items.append("modelComboBox")
+                if class_combo is None:
+                    missing_items.append("classComboBox")
+                if not hasattr(self, 'classification_tool_manager'):
+                    missing_items.append("classification_tool_manager")
+                logging.warning(f"ClassificationToolManager setup failed - missing: {missing_items}")
+        except Exception as e:
+            logging.error(f"Failed to setup ClassificationToolManager: {e}")
+            import traceback
+            traceback.print_exc()
         
         # Enable UI after setup is complete
         self.camera_manager.set_ui_enabled(True)
@@ -473,166 +566,314 @@ class MainWindow(QMainWindow):
         #     self.workflow_widget.build_workflow_from_job(current_job)
         #     logging.info("Đã cập nhật workflow view")
         pass
+
+    def refresh_classification_tool_manager(self):
+        """Refresh ClassificationToolManager connections and reload models/classes"""
+        try:
+            if hasattr(self, 'classification_tool_manager') and self.classification_tool_manager:
+                logging.info("Refreshing ClassificationToolManager connections...")
+                
+                ctm = self.classification_tool_manager
+                
+                # Always search for combo boxes fresh (don't trust cached references)
+                logging.info("Searching for combo boxes...")
+                
+                # Use the same robust search logic as in _setup_managers
+                from PyQt5.QtWidgets import QWidget, QComboBox, QFrame
+                
+                # Find classification page
+                classification_page = None
+                if hasattr(self, 'settingStackedWidget') and self.settingStackedWidget:
+                    classification_page = self.settingStackedWidget.findChild(QWidget, 'classificationSettingPage')
+                    logging.info(f"Classification page from stackedWidget: {classification_page is not None}")
+                if not classification_page:
+                    classification_page = self.findChild(QWidget, 'classificationSettingPage')
+                    logging.info(f"Classification page from main window: {classification_page is not None}")
+                
+                # Find combo boxes with simpler, clearer logic
+                model_combo = None
+                class_combo = None
+                
+                # Step 1: Try frame search
+                if classification_page:
+                    frame = classification_page.findChild(QFrame, 'classificationSettingFrame')
+                    logging.info(f"Classification frame found: {frame is not None}")
+                    if frame:
+                        model_combo = frame.findChild(QComboBox, 'modelComboBox')
+                        class_combo = frame.findChild(QComboBox, 'classComboBox')
+                        logging.info(f"Frame search -> model_combo: {model_combo is not None}, class_combo: {class_combo is not None}")
+                        
+                        if model_combo is not None and class_combo is not None:
+                            logging.info("✅ Found both combo boxes in frame - stopping search")
+                        else:
+                            logging.warning("❌ Frame search incomplete - continuing...")
+                    else:
+                        logging.warning("❌ Frame not found - continuing to page search...")
+                
+                # Step 2: Try page search (only if needed)
+                if (model_combo is None or class_combo is None) and classification_page:
+                    logging.info("Trying direct page search...")
+                    if model_combo is None:
+                        model_combo = classification_page.findChild(QComboBox, 'modelComboBox')
+                        logging.info(f"Page search for modelComboBox: {model_combo is not None}")
+                    if class_combo is None:
+                        class_combo = classification_page.findChild(QComboBox, 'classComboBox')
+                        logging.info(f"Page search for classComboBox: {class_combo is not None}")
+                    
+                    if model_combo is not None and class_combo is not None:
+                        logging.info("✅ Found both combo boxes in page - stopping search")
+                
+                # Step 3: Global search (only if still needed)
+                if model_combo is None or class_combo is None:
+                    logging.info("Trying global search...")
+                    if model_combo is None:
+                        model_combo = self.findChild(QComboBox, 'modelComboBox')
+                        logging.info(f"Global search for modelComboBox: {model_combo is not None}")
+                    if class_combo is None:
+                        class_combo = self.findChild(QComboBox, 'classComboBox')
+                        logging.info(f"Global search for classComboBox: {class_combo is not None}")
+                
+                # Final status
+                logging.info(f"🔍 Search complete: model_combo={model_combo is not None}, class_combo={class_combo is not None}")
+                
+                # Setup if found
+                logging.info(f"Final check before setup: model_combo={model_combo is not None}, class_combo={class_combo is not None}")
+                if model_combo:
+                    logging.info(f"model_combo details: {type(model_combo)} '{model_combo.objectName()}'")
+                if class_combo:
+                    logging.info(f"class_combo details: {type(class_combo)} '{class_combo.objectName()}'")
+                
+                if model_combo is not None and class_combo is not None:
+                    try:
+                        logging.info("Both combo boxes found, setting up ClassificationToolManager...")
+                        ctm.setup_ui_components(model_combo, class_combo)
+                        logging.info("ClassificationToolManager: UI components bound on refresh")
+                        # Store references
+                        self.class_modelComboBox = model_combo
+                        self.class_classComboBox = class_combo
+                    except Exception as setup_error:
+                        logging.error(f"Error in setup_ui_components: {setup_error}")
+                        import traceback
+                        traceback.print_exc()
+                        return
+                else:
+                    # This should never happen based on our logs, but let's check why
+                    logging.warning(f"ClassificationToolManager: Logic error - model_combo: {model_combo is not None}, class_combo: {class_combo is not None}")
+                    if model_combo is not None:
+                        logging.warning(f"model_combo bool value: {bool(model_combo)}")
+                        logging.warning(f"model_combo type: {type(model_combo)}")
+                        logging.warning(f"model_combo objectName: {model_combo.objectName()}")
+                    if class_combo is not None:
+                        logging.warning(f"class_combo bool value: {bool(class_combo)}")
+                        logging.warning(f"class_combo type: {type(class_combo)}")
+                        logging.warning(f"class_combo objectName: {class_combo.objectName()}")
+                    return
+                
+                # Force refresh connections and reload models
+                if hasattr(ctm, '_force_refresh_connections'):
+                    ctm._force_refresh_connections()
+                
+                # Reload models immediately instead of using QTimer
+                try:
+                    logging.info("ClassificationToolManager: loading models immediately")
+                    ctm.load_available_models()
+                    logging.info("ClassificationToolManager: models loaded immediately")
+                except Exception as load_error:
+                    logging.error(f"ClassificationToolManager: immediate load error: {load_error}")
+                    import traceback
+                    traceback.print_exc()
+                    # Fallback to QTimer
+                    try:
+                        from PyQt5.QtCore import QTimer
+                        QTimer.singleShot(100, ctm.load_available_models)
+                        logging.info("ClassificationToolManager: scheduled model loading as fallback")
+                    except Exception:
+                        logging.error("ClassificationToolManager: even QTimer fallback failed")
+                    
+        except Exception as e:
+            logging.error(f"Failed to refresh ClassificationToolManager: {e}")
+            import traceback
+            traceback.print_exc()
         
     def _toggle_camera(self, checked):
-        """Xử lý khi người dùng nhấn nút onlineCamera để bật/tắt camera
+        """Đơn giản: bật/tắt camera stream để hiển thị frame lên cameraView
         
         Args:
-            checked: Boolean, True nếu nút được chọn, False nếu nút được bỏ chọn
+            checked: Boolean, True = bật camera, False = tắt camera
         """
         try:
-            logging.info(f"Toggle camera button clicked: {checked}")
+            logging.info(f"Simple camera toggle: {checked}")
             
             if not hasattr(self, 'camera_manager') or not self.camera_manager:
                 logging.error("Camera manager not available")
                 return
+            
+            # Check if Camera Source exists in job before allowing camera operation
+            if checked and not self._has_camera_source_in_job():
+                logging.warning("Cannot start camera: No Camera Source tool in job")
+                self.onlineCamera.setChecked(False)
+                return
                 
             if checked:
-                # Start camera respecting current camera mode from CameraTool (if available)
-                try:
-                    cm = self.camera_manager
-                    mode = None
-                    # 1) Prefer UI toggle if available
-                    if hasattr(cm, 'trigger_camera_mode') and cm.trigger_camera_mode and cm.trigger_camera_mode.isChecked():
-                        mode = 'trigger'
-                    elif hasattr(cm, 'live_camera_mode') and cm.live_camera_mode and cm.live_camera_mode.isChecked():
-                        mode = 'live'
-                    # 2) Next use stored preference in CameraManager
-                    if not mode and hasattr(cm, 'preferred_mode') and cm.preferred_mode in ('live','trigger'):
-                        mode = cm.preferred_mode
-                    # 3) Then use CameraTool's saved mode if available
-                    if not mode:
-                        try:
-                            if hasattr(cm, 'find_camera_tool'):
-                                ct = cm.find_camera_tool()
-                                if ct and hasattr(ct, 'get_camera_mode'):
-                                    mode = ct.get_camera_mode()
-                        except Exception:
-                            mode = None
-                    # 4) Fallback to CameraManager's current_mode
-                    if not mode and hasattr(cm, 'current_mode') and cm.current_mode in ('live', 'trigger'):
-                        mode = cm.current_mode
-                    # 5) Default
-                    if not mode:
-                        mode = 'live'
-
-                    if mode == 'trigger':
-                        # Reflect UI and route to CameraManager handler (will start trigger)
-                        try:
-                            if hasattr(cm, 'trigger_camera_mode') and cm.trigger_camera_mode:
-                                cm.trigger_camera_mode.blockSignals(True)
-                                cm.trigger_camera_mode.setChecked(True)
-                                cm.trigger_camera_mode.blockSignals(False)
-                            if hasattr(cm, 'live_camera_mode') and cm.live_camera_mode:
-                                cm.live_camera_mode.blockSignals(True)
-                                cm.live_camera_mode.setChecked(False)
-                                cm.live_camera_mode.blockSignals(False)
-                        except Exception:
-                            pass
-                        if hasattr(cm, 'live_camera_btn') and cm.live_camera_btn:
-                            cm.live_camera_btn.setChecked(True)
-                        if hasattr(cm, 'on_live_camera_clicked'):
-                            cm.on_live_camera_clicked()
-                            return
-                    else:
-                        # LIVE mode: update UI and start live directly
-                        try:
-                            if hasattr(cm, 'trigger_camera_mode') and cm.trigger_camera_mode:
-                                cm.trigger_camera_mode.blockSignals(True)
-                                cm.trigger_camera_mode.setChecked(False)
-                                cm.trigger_camera_mode.blockSignals(False)
-                            if hasattr(cm, 'live_camera_mode') and cm.live_camera_mode:
-                                cm.live_camera_mode.blockSignals(True)
-                                cm.live_camera_mode.setChecked(True)
-                                cm.live_camera_mode.blockSignals(False)
-                        except Exception:
-                            pass
-                        if hasattr(self.camera_manager, 'start_live_camera'):
-                            self.camera_manager.start_live_camera()
-                            return
-                except Exception as e:
-                    logging.warning(f"Fallback to direct start due to: {e}")
-                # Bật camera trực tiếp từ CameraStream (không đi qua start_live_camera)
-                logging.info("Starting camera (direct CameraStream.start_live)")
+                # Bật camera stream đơn giản
+                logging.info("Starting camera stream...")
                 success = False
-                try:
-                    if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
-                        # Ưu tiên gọi trực tiếp start_live() để bật stream
-                        if hasattr(self.camera_manager.camera_stream, 'start_live'):
-                            success = self.camera_manager.camera_stream.start_live()
-                        else:
-                            # Fallback an toàn nếu API không có
-                            logging.warning("CameraStream.start_live not found, trying CameraManager toggle")
-                            if hasattr(self.camera_manager, 'toggle_live_camera'):
-                                success = self.camera_manager.toggle_live_camera(True)
-                    else:
-                        logging.error("Camera stream is not initialized")
-                except Exception as e:
-                    logging.error(f"Error starting camera stream: {e}")
-                    success = False
-
-                # Ensure UI/display behaves like Add Camera Source path
-                if success:
-                    try:
-                        cm = self.camera_manager
-                        # Mark mode as live for consistent UI state
-                        if hasattr(cm, 'current_mode'):
-                            cm.current_mode = 'live'
-                        # Refresh source output combo and default to Camera Source
-                        if hasattr(cm, 'refresh_source_output_combo'):
-                            cm.refresh_source_output_combo()
-                        if hasattr(cm, 'source_output_combo') and cm.source_output_combo:
-                            try:
-                                cm.source_output_combo.setCurrentIndex(0)
-                            except Exception:
-                                pass
-                        # Set CameraView to show raw camera by default and enable overlays
-                        if hasattr(cm, 'camera_view') and cm.camera_view and hasattr(cm.camera_view, 'set_display_mode'):
-                            cm.camera_view.set_display_mode("camera")
-                            try:
-                                if hasattr(cm.camera_view, 'show_detection_overlay'):
-                                    cm.camera_view.show_detection_overlay = True
-                                if hasattr(cm.camera_view, 'update_detection_areas_visibility'):
-                                    cm.camera_view.update_detection_areas_visibility()
-                            except Exception:
-                                pass
-                        # Update camera mode UI if available
-                        if hasattr(cm, 'update_camera_mode_ui'):
-                            cm.update_camera_mode_ui()
-                            
-                        # Explicitly enable job execution when camera is activated
-                        logging.info("Enabling job execution for onlineCamera mode")
-                        if hasattr(cm, 'job_enabled'):
-                            cm.job_enabled = True
-                        if hasattr(cm, 'camera_stream') and cm.camera_stream:
-                            if hasattr(cm.camera_stream, 'set_job_enabled'):
-                                cm.camera_stream.set_job_enabled(True)
-                                logging.info("Job execution enabled on camera stream")
-                    except Exception as ui_e:
-                        logging.warning(f"UI refresh after start_live fallback failed: {ui_e}")
-
-                if not success:
-                    # Nếu không thành công, đặt lại trạng thái nút
-                    logging.error("Failed to start camera")
-                    self.onlineCamera.setChecked(False)
-            else:
-                # Tắt camera
-                logging.info("Stopping camera")
+                
                 if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
-                    if hasattr(self.camera_manager.camera_stream, 'stop_live'):
+                    try:
+                        # Gọi start_live() để bắt đầu stream frame
+                        success = self.camera_manager.camera_stream.start_live()
+                        if success:
+                            logging.info("Camera stream started successfully")
+                            # Enable job execution để có thể chạy classification
+                            if hasattr(self.camera_manager.camera_stream, 'set_job_enabled'):
+                                self.camera_manager.camera_stream.set_job_enabled(True)
+                                logging.info("Job execution enabled on camera stream")
+                            # Also enable job execution in camera manager
+                            if hasattr(self.camera_manager, 'job_enabled'):
+                                self.camera_manager.job_enabled = True
+                                logging.info("Job execution enabled in camera manager")
+                            # Set button style to green when active
+                            self.onlineCamera.setStyleSheet("""
+                                QPushButton {
+                                    background-color: #4CAF50;  /* Green */
+                                    color: white;
+                                    border: 2px solid #45a049;
+                                    border-radius: 4px;
+                                    font-weight: bold;
+                                }
+                                QPushButton:hover {
+                                    background-color: #45a049;
+                                }
+                            """)
+                        else:
+                            logging.error("Camera stream failed to start")
+                    except Exception as e:
+                        logging.error(f"Error starting camera stream: {e}")
+                        success = False
+                else:
+                    logging.error("Camera stream not initialized")
+                
+                if not success:
+                    # Nếu thất bại, bỏ check nút và set màu đỏ
+                    self.onlineCamera.setChecked(False)
+                    self._set_camera_button_off_style()
+                    
+            else:
+                # Tắt camera stream đơn giản
+                logging.info("Stopping camera stream...")
+                
+                if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
+                    try:
+                        # Disable job execution when stopping camera
+                        if hasattr(self.camera_manager.camera_stream, 'set_job_enabled'):
+                            self.camera_manager.camera_stream.set_job_enabled(False)
+                            logging.info("Job execution disabled on camera stream")
+                        if hasattr(self.camera_manager, 'job_enabled'):
+                            self.camera_manager.job_enabled = False
+                            logging.info("Job execution disabled in camera manager")
+                        
                         self.camera_manager.camera_stream.stop_live()
-                    elif hasattr(self.camera_manager, '_implement_stop_live'):
-                        self.camera_manager._implement_stop_live()
-                    logging.info("Camera stopped")
+                        logging.info("Camera stream stopped")
+                    except Exception as e:
+                        logging.error(f"Error stopping camera stream: {e}")
                 else:
                     logging.warning("Camera stream not available")
+                
+                # Set button style to red when inactive
+                self._set_camera_button_off_style()
                     
         except Exception as e:
-            logging.error(f"Error in _toggle_camera: {e}")
+            logging.error(f"Error in simple camera toggle: {e}")
             import traceback
             traceback.print_exc()
-            # Đặt lại trạng thái nút nếu có lỗi
+            # Reset button state and style on error
             self.onlineCamera.setChecked(False)
+            self._set_camera_button_off_style()
+            
+    def _set_camera_button_off_style(self):
+        """Set camera button style to red (off state)"""
+        self.onlineCamera.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;  /* Red */
+                color: white;
+                border: 2px solid #da190b;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #da190b;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+                border: 2px solid #999999;
+            }
+        """)
+        
+    def _update_camera_button_state(self):
+        """Update camera button state based on whether Camera Source exists in job"""
+        try:
+            has_camera_source = self._has_camera_source_in_job()
+            
+            logging.info(f"_update_camera_button_state called: has_camera_source={has_camera_source}")
+            
+            if has_camera_source:
+                # Enable button and set red style (off state)
+                self.onlineCamera.setEnabled(True)
+                self._set_camera_button_off_style()
+                logging.info("Camera button enabled (has Camera Source in job)")
+            else:
+                # Disable button and set gray style
+                self.onlineCamera.setEnabled(False)
+                self.onlineCamera.setChecked(False)
+                self.onlineCamera.setStyleSheet("""
+                    QPushButton {
+                        background-color: #cccccc;  /* Gray */
+                        color: #666666;
+                        border: 2px solid #999999;
+                        border-radius: 4px;
+                        font-weight: bold;
+                    }
+                """)
+                logging.info("Camera button disabled (no Camera Source in job)")
+                
+        except Exception as e:
+            logging.error(f"Error updating camera button state: {e}")
+            
+    def _has_camera_source_in_job(self):
+        """Check if current job has a Camera Source tool"""
+        try:
+            if not hasattr(self, 'job_manager') or not self.job_manager:
+                logging.info("_has_camera_source_in_job: No job_manager")
+                return False
+                
+            current_job = self.job_manager.get_current_job()
+            if not current_job:
+                logging.info("_has_camera_source_in_job: No current job")
+                return False
+                
+            logging.info(f"_has_camera_source_in_job: Checking {len(current_job.tools)} tools")
+            
+            # Check if job has any tools with Camera Source type
+            for i, tool in enumerate(current_job.tools):
+                tool_type = getattr(tool, 'tool_type', 'Unknown')
+                display_name = getattr(tool, 'display_name', 'Unknown')
+                logging.info(f"  Tool {i}: tool_type='{tool_type}', display_name='{display_name}'")
+                
+                if hasattr(tool, 'tool_type') and tool.tool_type == "Camera Source":
+                    logging.info("_has_camera_source_in_job: Found Camera Source by tool_type")
+                    return True
+                elif hasattr(tool, 'display_name') and tool.display_name == "Camera Source":
+                    logging.info("_has_camera_source_in_job: Found Camera Source by display_name")
+                    return True
+                    
+            logging.info("_has_camera_source_in_job: No Camera Source found")
+            return False
+            
+        except Exception as e:
+            logging.error(f"Error checking for Camera Source in job: {e}")
+            return False
         
     def refresh_detect_tool_manager(self):
         """Refresh DetectToolManager connections when switching to detect page"""
@@ -699,6 +940,8 @@ class MainWindow(QMainWindow):
         if self.onlineCamera:  # Thêm kết nối cho nút onlineCamera dạng toggle
             self.onlineCamera.setCheckable(True)  # Làm cho nút có thể chọn
             self.onlineCamera.clicked.connect(self._toggle_camera)
+            # Set initial state based on job (gray if no Camera Source, red if has Camera Source but off)
+            self._update_camera_button_state()
             logging.info("onlineCamera button connected to _toggle_camera.")
             
         if self.triggerCamera:
@@ -778,13 +1021,13 @@ class MainWindow(QMainWindow):
         self._add_camera_source_to_combo_box()
     
     def _add_camera_source_to_combo_box(self):
-        """Add Camera Source to the tool combo box if not already present"""
+        """Ensure common tools exist in the tool combo box"""
         if self.toolComboBox:
-            camera_source_text = "Camera Source"
             items = [self.toolComboBox.itemText(i) for i in range(self.toolComboBox.count())]
-            if camera_source_text not in items:
-                self.toolComboBox.addItem(camera_source_text)
-                logging.info(f"MainWindow: Added {camera_source_text} to tool combo box")
+            for text in ["Camera Source", "Classification Tool"]:
+                if text and text not in items:
+                    self.toolComboBox.addItem(text)
+                    logging.info(f"MainWindow: Added {text} to tool combo box")
     
     def _on_tab_changed(self, index):
         """Xử lý khi người dùng chuyển tab"""
@@ -818,11 +1061,17 @@ class MainWindow(QMainWindow):
             if tool_name == "Save Image":
                 if self.settings_manager.switch_to_tool_setting_page("Save Image"):
                     self.setup_save_image_tool_logic()
+            elif tool_name == "Classification Tool":
+                if self.settings_manager.switch_to_tool_setting_page("Classification Tool"):
+                    self.refresh_classification_tool_manager()
             else:
                 self.settings_manager.switch_to_tool_setting_page(tool_name)
                 self._clear_tool_config_ui()
                 # Cập nhật workflow view
                 self._update_workflow_view()
+            
+            # Update camera button state when tool is added
+            self._update_camera_button_state()
     
     def setup_save_image_tool_logic(self):
         """Thiết lập logic cho Save Image Tool từ giao diện saveImagePage"""
@@ -889,6 +1138,43 @@ class MainWindow(QMainWindow):
         else:
             logging.info("No directory selected or directoryPlace widget not found")
 
+    def setup_classification_tool_logic(self):
+        """Thiết lập logic cho Classification Tool trên trang classificationSettingPage"""
+        logging.info("Setting up Classification Tool Logic")
+
+        # Find widgets on classificationSettingPage
+        from PyQt5.QtWidgets import QWidget, QComboBox, QCheckBox
+        page = None
+        if hasattr(self.settings_manager, 'classification_setting_page'):
+            page = self.settings_manager.classification_setting_page
+        if not page and hasattr(self, 'settingStackedWidget'):
+            page = self.settingStackedWidget.findChild(QWidget, 'classificationSettingPage')
+
+        if not page:
+            page = self.findChild(QWidget, 'classificationSettingPage')
+
+        if not page:
+            logging.error("Classification Setting Page not found")
+            return
+
+        # Resolve widgets
+        self.class_modelComboBox = page.findChild(QComboBox, 'modelComboBox')
+        self.class_classComboBox = page.findChild(QComboBox, 'classComboBox')
+        self.class_resultDisplayCheckBox = page.findChild(QCheckBox, 'resultDisplayCheckBox')
+
+        logging.info(f"Found modelComboBox: {self.class_modelComboBox is not None}")
+        logging.info(f"Found classComboBox: {self.class_classComboBox is not None}")
+        logging.info(f"Found resultDisplayCheckBox: {self.class_resultDisplayCheckBox is not None}")
+
+        # Note: Model loading is now handled by ClassificationToolManager
+        # The ClassificationToolManager will populate modelComboBox and classComboBox
+        logging.info("Classification UI setup - models will be loaded by ClassificationToolManager")
+        
+        # Ensure ClassificationToolManager is properly connected and refreshed
+        if hasattr(self, 'classification_tool_manager') and self.classification_tool_manager:
+            logging.info("Refreshing ClassificationToolManager after UI setup")
+            self.refresh_classification_tool_manager()
+
     def _apply_save_image_settings(self):
         """Apply SaveImage tool settings and add tool to job"""
         logging.info("Applying SaveImage tool settings")
@@ -952,6 +1238,13 @@ class MainWindow(QMainWindow):
             self._editing_tool = selected_tool
             self.tool_manager._pending_tool = None
             
+            # Auto-stop camera if editing Camera Source
+            if selected_tool.display_name == "Camera Source" or selected_tool.name == "Camera Source":
+                self._auto_stop_camera_for_edit()
+            
+            # DO NOT disable camera button during edit - let it depend only on Camera Source presence
+            # The camera button state should only depend on whether Camera Source exists in job
+            
             # Set current editing tool ID BEFORE any overlay operations
             if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                 self.camera_manager.camera_view.current_editing_tool_id = selected_tool.tool_id
@@ -972,6 +1265,13 @@ class MainWindow(QMainWindow):
             self._load_tool_config_to_ui(selected_tool)
         else:
             print("DEBUG: No tool selected for editing")
+            
+    def _auto_stop_camera_for_edit(self):
+        """Automatically stop camera when editing Camera Source"""
+        if self.onlineCamera and self.onlineCamera.isChecked():
+            logging.info("Auto-stopping camera for Camera Source edit")
+            self.onlineCamera.setChecked(False)
+            self._toggle_camera(False)  # Force stop camera
     
     def _on_remove_tool(self):
         """Xử lý khi người dùng nhấn nút Remove Tool"""
@@ -985,6 +1285,9 @@ class MainWindow(QMainWindow):
             # Remove tool from job
             self.tool_manager.remove_tool_from_job(selected_tool)
             print(f"DEBUG: Removed tool #{selected_tool.tool_id}")
+            
+            # Update camera button state when tool is removed
+            self._update_camera_button_state()
             
             # Cập nhật workflow view
             self._update_workflow_view()
@@ -1030,6 +1333,8 @@ class MainWindow(QMainWindow):
                     print(f"DEBUG: Camera Source tool added successfully with ID: {added_tool.tool_id}")
                     # Update job view to show the new tool
                     self.tool_manager._update_job_view()
+                    # Update camera button state when Camera Source is added
+                    self._update_camera_button_state()
                     
                     # Don't automatically start camera - user must choose manually
                     print("DEBUG: Camera Source tool added - user must manually start camera using Live/Trigger buttons")
@@ -1089,6 +1394,23 @@ class MainWindow(QMainWindow):
                 # Cập nhật workflow view
                 self._update_workflow_view()
                 return
+        # Handle classification settings page (simple apply -> add tool)
+        if current_page == "classification":
+            try:
+                added_tool = self.tool_manager.on_apply_setting()
+                if hasattr(self.tool_manager, '_update_job_view'):
+                    self.tool_manager._update_job_view()
+                self.settings_manager.return_to_palette_page()
+                # Disable overlays edit mode (consistency)
+                if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                    camera_view = self.camera_manager.camera_view
+                    if hasattr(camera_view, 'overlays'):
+                        for overlay in camera_view.overlays.values():
+                            overlay.set_edit_mode(False)
+                    camera_view.set_overlay_edit_mode(False)
+                return
+            except Exception as e:
+                logging.error(f"Error applying Classification Tool settings: {e}")
             # Nếu không phải chế độ edit, xử lý như cũ (thêm mới tool)
             print(f"DEBUG: Detection page - _pending_tool: {getattr(self.tool_manager, '_pending_tool', 'None')}")
             print(f"DEBUG: Detection page - _editing_tool: {self._editing_tool}")
@@ -1229,6 +1551,9 @@ class MainWindow(QMainWindow):
             # Quay lại trang palette (không phải trang camera)
             self.settings_manager.return_to_palette_page()
         
+        # Re-enable camera button when leaving edit mode
+        self._enable_camera_button_after_edit()
+        
         # Clear pending changes after successful apply
         self.settings_manager.clear_pending_changes()
         # --- Tắt edit mode cho overlays như cancelSetting ---
@@ -1243,10 +1568,19 @@ class MainWindow(QMainWindow):
                 camera_view.current_overlay = None
             camera_view.set_overlay_edit_mode(False)
             print("DEBUG: Disabled overlay edit mode on apply")
+        
+        # Update camera button state based on Camera Source presence (not just enable)
+        self._update_camera_button_state()
+        self._editing_tool = None  # Clear editing state
+        
         print("DEBUG: Settings applied and synchronized successfully")
     
     def _on_cancel_setting(self):
         """Xử lý khi người dùng nhấn nút Cancel trong trang cài đặt"""
+        # Update camera button state based on Camera Source presence (not just enable)
+        self._update_camera_button_state()
+        self._editing_tool = None  # Clear editing state
+        
         # Disable overlay edit mode when canceling
         if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
             camera_view = self.camera_manager.camera_view
@@ -1265,6 +1599,10 @@ class MainWindow(QMainWindow):
         
         # Quay lại trang palette (không phải camera setting)
         self.settings_manager.return_to_palette_page()
+        
+    def _enable_camera_button_after_edit(self):
+        """Update camera button state when leaving edit mode based on Camera Source presence"""
+        self._update_camera_button_state()
     
     def _on_edit_job(self):
         """Xử lý khi người dùng nhấn nút Edit Job"""
@@ -1540,6 +1878,8 @@ class MainWindow(QMainWindow):
                 if job:
                     # Cập nhật UI
                     self.tool_manager._update_job_view()
+                    # Update camera button state when job is loaded
+                    self._update_camera_button_state()
                     # Cập nhật workflow view
                     self._update_workflow_view()
                     logging.info(f"Job loaded successfully from {file_path}")
@@ -1565,6 +1905,8 @@ class MainWindow(QMainWindow):
             if ok and job_name:
                 new_job = self.job_manager.create_default_job(job_name)
                 self.tool_manager._update_job_view()
+                # Update camera button state when new job is created
+                self._update_camera_button_state()
                 # Cập nhật workflow view
                 self._update_workflow_view()
                 logging.info(f"New job '{job_name}' created")
@@ -1713,6 +2055,9 @@ class MainWindow(QMainWindow):
             else:
                 print("DEBUG: Camera stream not available for format change")
         
+        # Update camera button state after applying camera settings
+        self._update_camera_button_state()
+        
         print("DEBUG: Camera settings applied successfully")
     
     def _load_camera_formats(self):
@@ -1757,13 +2102,13 @@ class MainWindow(QMainWindow):
         if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
             camera_stream = self.camera_manager.camera_stream
             print("DEBUG: Got camera stream instance")
-            # Always show supported formats in the combo box (BGR888 first as it's PiCamera2's default)
+            # Always show supported formats in the combo box (BGR888 first as PyQt expects BGR data)
             supported = ["BGR888", "RGB888", "XRGB8888"]
             for fmt in supported:
                 combo_widget.addItem(fmt)
                 print(f"DEBUG: Added supported format: {fmt}")
                     
-            # Set default/current selection to BGR888 to match PiCamera2's natural output
+            # Set default/current selection to BGR888 (PyQt Format_RGB888 expects BGR data)
             preferred_format = 'BGR888'
             idx = combo_widget.findText(preferred_format)
             if idx >= 0:
@@ -1895,3 +2240,26 @@ class MainWindow(QMainWindow):
                 
         except Exception as e:
             print(f"DEBUG: [MainWindow] Error in _process_format_change: {e}")
+
+    def showEvent(self, event):
+        """Override showEvent để đảm bảo ClassificationToolManager được setup đúng"""
+        super().showEvent(event)
+        
+        # Đảm bảo ClassificationToolManager được refresh sau khi window hiển thị
+        try:
+            from PyQt5.QtCore import QTimer
+            QTimer.singleShot(100, self._delayed_classification_setup)
+        except Exception as e:
+            logging.error(f"Error in showEvent: {e}")
+    
+    def _delayed_classification_setup(self):
+        """Setup ClassificationToolManager sau khi UI hoàn toàn sẵn sàng"""
+        try:
+            logging.info("Performing delayed ClassificationToolManager setup...")
+            if hasattr(self, 'classification_tool_manager'):
+                self.refresh_classification_tool_manager()
+                logging.info("Delayed ClassificationToolManager setup completed")
+        except Exception as e:
+            logging.error(f"Error in delayed classification setup: {e}")
+
+

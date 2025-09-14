@@ -300,7 +300,7 @@
             <item>
              <widget class="QStackedWidget" name="settingStackedWidget">
               <property name="currentIndex">
-               <number>1</number>
+               <number>0</number>
               </property>
               <widget class="QWidget" name="palettePage">
                <widget class="QFrame" name="paletteFrame">
@@ -1362,6 +1362,57 @@
                  </property>
                  <property name="text">
                   <string>Structure</string>
+                 </property>
+                </widget>
+               </widget>
+              </widget>
+              <widget class="QWidget" name="classificationSettingPage">
+               <widget class="QFrame" name="classificationSettingFrame">
+                <property name="geometry">
+                 <rect>
+                  <x>20</x>
+                  <y>10</y>
+                  <width>451</width>
+                  <height>731</height>
+                 </rect>
+                </property>
+                <property name="frameShape">
+                 <enum>QFrame::StyledPanel</enum>
+                </property>
+                <property name="frameShadow">
+                 <enum>QFrame::Raised</enum>
+                </property>
+                <widget class="QComboBox" name="modelComboBox">
+                 <property name="geometry">
+                  <rect>
+                   <x>30</x>
+                   <y>50</y>
+                   <width>241</width>
+                   <height>21</height>
+                  </rect>
+                 </property>
+                </widget>
+                <widget class="QComboBox" name="classComboBox">
+                 <property name="geometry">
+                  <rect>
+                   <x>30</x>
+                   <y>120</y>
+                   <width>241</width>
+                   <height>21</height>
+                  </rect>
+                 </property>
+                </widget>
+                <widget class="QCheckBox" name="resultDisplayCheckBox">
+                 <property name="geometry">
+                  <rect>
+                   <x>30</x>
+                   <y>180</y>
+                   <width>241</width>
+                   <height>17</height>
+                  </rect>
+                 </property>
+                 <property name="text">
+                  <string>Result Display</string>
                  </property>
                 </widget>
                </widget>

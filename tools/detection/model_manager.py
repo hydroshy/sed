@@ -60,12 +60,20 @@ class ModelManager:
             List of model filenames (without extension)
         """
         try:
-            models = []
+            models: List[str] = []
             if self.models_dir.exists():
-                for file_path in self.models_dir.glob("*.onnx"):
-                    models.append(file_path.stem)
-            logging.info(f"Found {len(models)} ONNX models: {models}")
-            return sorted(models)
+                # Include both .onnx and .ONNX to be robust on case-sensitive filesystems
+                patterns = ["*.onnx", "*.ONNX"]
+                seen = set()
+                for pat in patterns:
+                    for file_path in self.models_dir.glob(pat):
+                        stem = file_path.stem
+                        if stem not in seen:
+                            seen.add(stem)
+                            models.append(stem)
+            models_sorted = sorted(models)
+            logging.info(f"Found {len(models_sorted)} ONNX models in {self.models_dir}: {models_sorted}")
+            return models_sorted
         except Exception as e:
             logging.error(f"Error getting available models: {e}")
             return []

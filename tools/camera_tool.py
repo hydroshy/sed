@@ -270,16 +270,33 @@ class CameraTool(BaseTool):
                 logger.warning(f"Could not apply frame size: {e}")
         if "format" in self.config and hasattr(self.camera_manager, 'set_format_async'):
             try:
-                fmt = str(self.config["format"]) if "format" in self.config else "BGR888"
-                if fmt not in CameraTool.SUPPORTED_FORMATS:
-                    logger.warning(f"Unsupported pixel format '{fmt}', falling back to 'BGR888'")
-                    fmt = "BGR888"
-                    try:
-                        self.config.set("format", fmt)
-                    except Exception:
-                        pass
-                self.current_format = fmt
-                self.camera_manager.set_format_async(fmt)
+                # Get current format from camera stream to avoid overriding user selection
+                current_stream_format = None
+                if (hasattr(self.camera_manager, 'camera_stream') and 
+                    self.camera_manager.camera_stream and 
+                    hasattr(self.camera_manager.camera_stream, 'get_pixel_format')):
+                    current_stream_format = self.camera_manager.camera_stream.get_pixel_format()
+                    logger.info(f"CameraTool: Current camera stream format is {current_stream_format}")
+                
+                config_format = str(self.config["format"]) if "format" in self.config else "BGR888"
+                
+                # Only apply format if it differs from current stream format or if no stream format available
+                if current_stream_format and current_stream_format == config_format:
+                    logger.info(f"CameraTool: Format {config_format} already matches stream format, skipping apply")
+                    self.current_format = config_format
+                else:
+                    # Prefer current stream format over config format to respect user selection
+                    fmt = current_stream_format if current_stream_format else config_format
+                    if fmt not in CameraTool.SUPPORTED_FORMATS:
+                        logger.warning(f"Unsupported pixel format '{fmt}', falling back to 'BGR888'")
+                        fmt = "BGR888"
+                        try:
+                            self.config.set("format", fmt)
+                        except Exception:
+                            pass
+                    self.current_format = fmt
+                    logger.info(f"CameraTool: Applying format {fmt}")
+                    self.camera_manager.set_format_async(fmt)
             except Exception as e:
                 logger.warning(f"Could not apply pixel format: {e}")
         if "target_fps" in self.config and hasattr(self.camera_manager, 'camera_stream') \
@@ -616,6 +633,99 @@ class CameraTool(BaseTool):
         """
         # Camera Source tool doesn't directly control camera - managed by CameraManager
         return False  # Always return False since this tool doesn't control the camera directly
+
+    def process(self, image: np.ndarray, context: Optional[Dict[str, Any]] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """
+        Process method for Camera Source tool - provides image from camera stream
+        
+        Args:
+            image: Input image (usually None for camera source as it's the first tool)
+            context: Context from previous tools
+            
+        Returns:
+            Tuple of (processed_image, result_context)
+        """
+        try:
+            # Get current frame from camera manager if available
+            current_frame = None
+            
+            # Try to get frame from main window's camera manager
+            if hasattr(self, 'camera_manager') and self.camera_manager:
+                try:
+                    # Get current frame from camera stream
+                    if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
+                        if hasattr(self.camera_manager.camera_stream, 'get_current_frame'):
+                            current_frame = self.camera_manager.camera_stream.get_current_frame()
+                            if current_frame is not None:
+                                logger.debug(f"CameraTool: Got frame from camera_stream, shape={current_frame.shape}")
+                        
+                        # Alternative: try to capture directly
+                        if current_frame is None and hasattr(self.camera_manager.camera_stream, 'capture_frame'):
+                            current_frame = self.camera_manager.camera_stream.capture_frame()
+                            if current_frame is not None:
+                                logger.debug(f"CameraTool: Captured frame directly, shape={current_frame.shape}")
+                except Exception as e:
+                    logger.warning(f"CameraTool: Failed to get frame from camera_manager: {e}")
+            
+            # If we still don't have a frame, try global camera manager access
+            if current_frame is None:
+                try:
+                    # Try to access camera manager through main window
+                    from gui.main_window import MainWindow
+                    # This is a fallback - normally camera_manager should be set properly
+                    logger.debug("CameraTool: Attempting fallback camera access")
+                except Exception as e:
+                    logger.debug(f"CameraTool: Fallback camera access failed: {e}")
+            
+            # If we have a frame, get pixel format and preserve it
+            if current_frame is not None:
+                # Get actual pixel format from camera stream
+                pixel_format = "BGR888"  # Default assumption
+                try:
+                    if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
+                        if hasattr(self.camera_manager.camera_stream, 'get_pixel_format'):
+                            pixel_format = self.camera_manager.camera_stream.get_pixel_format()
+                            logger.debug(f"CameraTool: Got pixel format from camera: {pixel_format}")
+                except Exception as e:
+                    logger.debug(f"CameraTool: Failed to get pixel format: {e}")
+                
+                # Don't convert format - preserve what camera provides
+                # Let downstream tools handle format conversion as needed
+                logger.debug(f"CameraTool: Preserving frame in {pixel_format} format")
+                
+                # Return frame with format information in context
+                return current_frame, {
+                    "tool_name": self.display_name,
+                    "status": "success", 
+                    "source": "Camera Source",
+                    "pixel_format": pixel_format,  # Pass format info to downstream tools
+                    "frame_shape": current_frame.shape,
+                    "tool_id": self.tool_id
+                }
+            else:
+                # No camera frame available - return the input image or a placeholder
+                if image is not None:
+                    logger.debug("CameraTool: No camera frame, returning input image")
+                    return image, {"source": "Camera Source (passthrough)", "tool_id": self.tool_id}
+                else:
+                    # Create a placeholder image if no input
+                    logger.warning("CameraTool: No camera frame and no input image - creating placeholder")
+                    placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
+                    placeholder[:] = (128, 128, 128)  # Gray placeholder
+                    return placeholder, {"source": "Camera Source (placeholder)", "tool_id": self.tool_id}
+                    
+        except Exception as e:
+            logger.error(f"CameraTool process error: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            # Return input image or placeholder on error
+            if image is not None:
+                return image, {"error": str(e), "source": "Camera Source (error)", "tool_id": self.tool_id}
+            else:
+                placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
+                placeholder[:] = (255, 0, 0)  # Red error placeholder
+                return placeholder, {"error": str(e), "source": "Camera Source (error)", "tool_id": self.tool_id}
 
 # Factory function for creating CameraTool
 def create_camera_tool(config: Optional[Dict[str, Any]] = None) -> CameraTool:

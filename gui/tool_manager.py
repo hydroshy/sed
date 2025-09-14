@@ -25,13 +25,17 @@ class ToolManager(QObject):
         self._tool_combo_box = tool_combo_box
         self.main_window = main_window  # Add main_window reference
         
-        # Add Camera Source to tool combo box if not already present
+        # Add Camera Source and Classification Tool to tool combo box if not already present
         if self._tool_combo_box:
             camera_source_text = "Camera Source"
             items = [self._tool_combo_box.itemText(i) for i in range(self._tool_combo_box.count())]
             if camera_source_text not in items:
                 self._tool_combo_box.addItem(camera_source_text)
                 logging.info(f"ToolManager: Added {camera_source_text} to tool combo box")
+            classification_text = "Classification Tool"
+            if classification_text not in items:
+                self._tool_combo_box.addItem(classification_text)
+                logging.info(f"ToolManager: Added {classification_text} to tool combo box")
         
         # Setup job view - check if it's our custom JobTreeView
         if self._job_view:
@@ -227,6 +231,63 @@ class ToolManager(QObject):
                 if not hasattr(tool, 'display_name'):
                     tool.display_name = "Save Image"
                     logging.warning("ToolManager: Added missing 'display_name' attribute to SaveImageTool")
+            elif self._pending_tool == "Classification Tool":
+                # Handle Classification Tool
+                from tools.classification_tool import ClassificationTool
+                config = {}
+                # Prefer reading from ClassificationToolManager combos
+                mw = self.parent() if hasattr(self, 'parent') else None
+                if not mw and hasattr(self, 'main_window'):
+                    mw = self.main_window
+                model_name = None
+                expected_class = None
+                result_display = True  # Enable OK/NG display by default
+                try:
+                    ctm = getattr(mw, 'classification_tool_manager', None) if mw else None
+                    model_combo = getattr(ctm, 'model_combo', None) if ctm else None
+                    class_combo = getattr(ctm, 'class_combo', None) if ctm else None
+                    if model_combo:
+                        model_name = model_combo.currentText()
+                    if class_combo:
+                        expected_class = class_combo.currentText()
+                        if expected_class in ("Select Class...", "No classes"):
+                            expected_class = None
+                    # Try checkbox via main window if present
+                    if hasattr(mw, 'class_resultDisplayCheckBox') and mw.class_resultDisplayCheckBox:
+                        result_display = mw.class_resultDisplayCheckBox.isChecked()
+                except Exception as e:
+                    logging.warning(f"ToolManager: Fallback to MW classification widgets failed: {e}")
+
+                # Resolve model_path using ModelManager (classification dir)
+                model_path = ''
+                try:
+                    from tools.detection.model_manager import ModelManager
+                    from pathlib import Path
+                    project_root = Path(__file__).parent.parent
+                    models_dir = project_root / 'model' / 'classification'
+                    mm = ModelManager(str(models_dir))
+                    if model_name and model_name not in ("Select Model...", "No models found", "Error loading models"):
+                        info = mm.get_model_info(model_name)
+                        if info:
+                            model_path = info.get('path', '')
+                except Exception as e:
+                    logging.error(f"ToolManager: Error resolving classification model path: {e}")
+
+                # Validate minimal config
+                if not model_name or model_name in ("Select Model...", "No models found", "Error loading models") or not model_path:
+                    from PyQt5.QtWidgets import QMessageBox
+                    QMessageBox.warning(None, "Thiếu thông tin mô hình", "Bạn phải chọn mô hình hợp lệ cho Classification Tool.")
+                    logging.warning("ToolManager: Invalid model selection for Classification Tool")
+                    return None
+
+                config.update({
+                    'model_name': model_name,
+                    'model_path': model_path,
+                    'expected_class_name': expected_class or '',
+                    'result_display_enable': bool(result_display),
+                })
+
+                tool = ClassificationTool("Classification Tool", config=config)
             else:
                 from tools.base_tool import GenericTool
                 config = self._pending_tool_config if self._pending_tool_config is not None else {}
@@ -262,9 +323,17 @@ class ToolManager(QObject):
             
             # Force update job view
             self._force_update_job_view()
-            
+
             # Don't auto-restart camera for Camera Source - user must choose manually
             print("DEBUG: Tool apply completed - user must manually start camera if needed")
+            
+            # For Classification Tool, return to palette page similar to Save Image UX
+            try:
+                if pending_tool_type == "Classification Tool" and hasattr(self, 'main_window') and self.main_window:
+                    if hasattr(self.main_window, 'settings_manager') and self.main_window.settings_manager:
+                        self.main_window.settings_manager.return_to_palette_page()
+            except Exception:
+                pass
             
             return tool  # Return Tool object instead of name
         else:

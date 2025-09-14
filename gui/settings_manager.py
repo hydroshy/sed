@@ -14,6 +14,7 @@ class SettingsManager(QObject):
         self.camera_setting_page = None
         self.detect_setting_page = None
         self.save_image_page = None  # Add saveImagePage reference
+        self.classification_setting_page = None  # Classification settings page
         self.palette_page = None  # Trang palette mới (mặc định)
         self.apply_setting_button = None
         self.cancel_setting_button = None
@@ -42,7 +43,8 @@ class SettingsManager(QObject):
             "Detect Tool": "detect",
             "OCR": "detect",
             "Camera Source": "camera",  # Add Camera Source tool mapping to camera settings page
-            "Save Image": "save_image"  # Add Save Image tool mapping to saveImagePage
+            "Save Image": "save_image",  # Add Save Image tool mapping to saveImagePage
+            "Classification Tool": "classification"  # Add Classification Tool mapping
         }
         
     def setup(self, stacked_widget, camera_page, detect_page, apply_button, cancel_button, save_image_page=None):
@@ -63,6 +65,14 @@ class SettingsManager(QObject):
                 logging.info("SettingsManager: Found saveImagePage automatically")
             else:
                 logging.warning("SettingsManager: saveImagePage not found")
+
+        # Find classificationSettingPage automatically
+        if stacked_widget and not self.classification_setting_page:
+            self.classification_setting_page = stacked_widget.findChild(QWidget, 'classificationSettingPage')
+            if self.classification_setting_page:
+                logging.info("SettingsManager: Found classificationSettingPage automatically")
+            else:
+                logging.warning("SettingsManager: classificationSettingPage not found")
         
         # Vô hiệu hóa nút ngay từ đầu
         if self.apply_setting_button:
@@ -147,6 +157,9 @@ class SettingsManager(QObject):
         elif page_type == "save_image" and self.save_image_page:
             target_page = self.save_image_page
             logging.info("SettingsManager: Target page is saveImagePage")
+        elif page_type == "classification" and self.classification_setting_page:
+            target_page = self.classification_setting_page
+            logging.info("SettingsManager: Target page is classificationSettingPage")
         else:
             # Fallback to detect page for unknown tools
             if self.detect_setting_page:
@@ -190,6 +203,14 @@ class SettingsManager(QObject):
                                         break
                         except Exception as e:
                             logging.warning(f"SettingsManager: Failed to auto-switch to detection mode: {e}")
+                
+                # Initialize/Refresh Classification page widgets and lists
+                if page_type == "classification" or tool_name == "Classification Tool":
+                    try:
+                        if hasattr(self.main_window, 'refresh_classification_tool_manager'):
+                            self.main_window.refresh_classification_tool_manager()
+                    except Exception as e:
+                        logging.warning(f"SettingsManager: Failed to refresh classification manager: {e}")
                 
                 # When switching to camera settings page: reflect current mode in UI and (optionally) start preview
                 if page_type == "camera":
@@ -620,6 +641,8 @@ class SettingsManager(QObject):
             return "detect"  # Changed from "detection" to "detect" to match the logic in main_window.py
         elif current_widget == self.save_image_page:
             return "save_image"
+        elif hasattr(self, 'classification_setting_page') and self.classification_setting_page and current_widget == self.classification_setting_page:
+            return "classification"
         else:
             return "unknown"
     
