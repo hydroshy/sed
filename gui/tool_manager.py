@@ -715,21 +715,26 @@ class ToolManager(QObject):
         if not current_job:
             return False
             
-        # Remove tool from job
-        if tool in current_job.tools:
-            current_job.tools.remove(tool)
-            self._update_job_view()
-            
-            # Lấy tên hiển thị của tool một cách an toàn
-            if hasattr(tool, 'display_name'):
-                tool_name = tool.display_name
-            elif hasattr(tool, 'name'):
-                tool_name = tool.name
-            elif isinstance(tool, dict) and 'model_name' in tool:
-                tool_name = f"Detect ({tool.get('model_name', 'Unknown')})"
-            else:
-                tool_name = str(tool)
-                
-            print(f"DEBUG: Removed tool {tool_name} from job")
-            return True
+        # Remove tool from job using Job.remove_tool to clean connections and rebuild workflow
+        try:
+            for i, job_tool in enumerate(current_job.tools):
+                if job_tool is tool or getattr(job_tool, 'tool_id', None) == getattr(tool, 'tool_id', None):
+                    removed = current_job.remove_tool(i)
+                    if removed:
+                        self._update_job_view()
+                        # Lấy tên hiển thị của tool một cách an toàn
+                        if hasattr(tool, 'display_name'):
+                            tool_name = tool.display_name
+                        elif hasattr(tool, 'name'):
+                            tool_name = tool.name
+                        elif isinstance(tool, dict) and 'model_name' in tool:
+                            tool_name = f"Detect ({tool.get('model_name', 'Unknown')})"
+                        else:
+                            tool_name = str(tool)
+                        print(f"DEBUG: Removed tool {tool_name} from job (cleaned connections)")
+                        return True
+                    break
+        except Exception as e:
+            logging.warning(f"ToolManager: Error removing tool: {e}")
+            return False
         return False

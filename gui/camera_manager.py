@@ -209,6 +209,34 @@ class CameraManager(QObject):
             logging.warning(f"Error registering tool: {e}")
         return False
         
+    def _is_editing_camera_tool(self) -> bool:
+        """Return True if the user is currently editing the Camera Source tool.
+
+        Checks multiple sources for robustness: ToolManager's current editing tool,
+        MainWindow's _editing_tool, and SettingsManager's current_editing_tool name.
+        """
+        try:
+            mw = getattr(self, 'main_window', None)
+            if mw is None:
+                return False
+            # Prefer ToolManager's state
+            tm = getattr(mw, 'tool_manager', None)
+            if tm and hasattr(tm, 'get_current_editing_tool'):
+                t = tm.get_current_editing_tool()
+                if t and getattr(t, 'name', '') == 'Camera Source':
+                    return True
+            # Fallback to MainWindow's own editing reference
+            et = getattr(mw, '_editing_tool', None)
+            if et and getattr(et, 'name', '') == 'Camera Source':
+                return True
+            # Fallback to SettingsManager page mapping
+            sm = getattr(mw, 'settings_manager', None)
+            if sm and getattr(sm, 'current_editing_tool', None) == 'Camera Source':
+                return True
+        except Exception:
+            pass
+        return False
+
     def _on_frame_from_camera(self, frame):
         """Handle frames from camera; run job pipeline when enabled, otherwise show raw.
 
@@ -225,7 +253,11 @@ class CameraManager(QObject):
             # Enforce workflow disabled if configured
             if hasattr(self, 'workflow_enabled') and not self.workflow_enabled:
                 self.job_enabled = False
-            # If job execution is disabled, just display raw frame
+            # If job execution is disabled OR we're editing Camera Source, just display raw frame
+            if self._is_editing_camera_tool():
+                if self.camera_view:
+                    self.camera_view.display_frame(frame)
+                return
             if not getattr(self, 'job_enabled', False):
                 if self.camera_view:
                     self.camera_view.display_frame(frame)
@@ -245,9 +277,30 @@ class CameraManager(QObject):
 
             self._processing_frame = True
             try:
-                # Add force_save context to ensure SaveImageTool will save images
-                initial_context = {"force_save": True}
-                processed_image, _ = job_manager.run_current_job(frame)
+                # Build context for pipeline: include pixel_format for correct color handling
+                pixel_format = 'BGR888'
+                try:
+                    cs = getattr(self, 'camera_stream', None)
+                    if cs is not None:
+                        # If using real camera (Picamera2 started), treat frames as BGR regardless of reported format
+                        is_real_camera = False
+                        try:
+                            is_real_camera = bool(getattr(cs, 'is_camera_available', False) and getattr(getattr(cs, 'picam2', None), 'started', False))
+                        except Exception:
+                            is_real_camera = False
+
+                        if is_real_camera:
+                            pixel_format = 'BGR888'
+                        else:
+                            # For test/stub frames, respect the configured pixel format when available
+                            if hasattr(cs, 'get_pixel_format'):
+                                pf = cs.get_pixel_format()
+                                if isinstance(pf, str) and pf:
+                                    pixel_format = pf
+                except Exception:
+                    pass
+                initial_context = {"force_save": True, "pixel_format": str(pixel_format)}
+                processed_image, _ = job_manager.run_current_job(frame, context=initial_context)
                 if self.camera_view:
                     self.camera_view.display_frame(processed_image if processed_image is not None else frame)
             except Exception as e:

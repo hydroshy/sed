@@ -159,7 +159,8 @@ class SaveImageTool(BaseTool):
                     return image, result
             
             logger.info(f"SaveImageTool: Attempting to save image...")
-            filepath = self.save_image_array(image)
+            # Pass context so save routine can honor pixel format / color order
+            filepath = self.save_image_array(image, context=context)
             if filepath:
                 result["saved"] = True
                 result["filepath"] = filepath
@@ -181,7 +182,7 @@ class SaveImageTool(BaseTool):
                 "error": error_msg
             }
 
-    def save_image_array(self, image_array: np.ndarray) -> Optional[str]:
+    def save_image_array(self, image_array: np.ndarray, context: Optional[Dict[str, Any]] = None) -> Optional[str]:
         """
         Save numpy array image to file
 
@@ -218,16 +219,45 @@ class SaveImageTool(BaseTool):
             
             # Handle different image formats and color channels
             save_image = image_array.copy()
-            
-            # For 3-channel images, OpenCV expects BGR format
+
+            # Decide channel order based on context if available
+            input_format = None
+            try:
+                if context:
+                    # Common keys that may carry format information
+                    input_format = (
+                        context.get('pixel_format')
+                        or context.get('color_order')
+                        or context.get('color_format')
+                        or context.get('input_format')
+                    )
+                if isinstance(input_format, str):
+                    input_format = input_format.upper()
+            except Exception:
+                input_format = None
+
+            # Conversion rules:
+            # - OpenCV's imwrite expects BGR order for 3-channel images.
+            # - If input is RGB (e.g., 'RGB888'), convert RGB->BGR.
+            # - If input is BGR (e.g., 'BGR888'), keep as-is.
+            # - If unknown (no context), assume BGR to avoid double-swapping colors from OpenCV pipelines.
             if len(save_image.shape) == 3 and save_image.shape[2] == 3:
-                # Most image sources provide RGB, but OpenCV expects BGR
-                logger.info("SaveImageTool: Converting RGB to BGR for OpenCV")
-                save_image = cv2.cvtColor(save_image, cv2.COLOR_RGB2BGR)
+                if input_format and input_format.startswith('RGB'):
+                    logger.info("SaveImageTool: Input format RGB detected, converting RGB->BGR for saving")
+                    save_image = cv2.cvtColor(save_image, cv2.COLOR_RGB2BGR)
+                else:
+                    # Either explicitly BGR or unknown. Default to no conversion.
+                    if input_format:
+                        logger.info(f"SaveImageTool: Input format {input_format} treated as BGR/no-swap for saving")
+                    else:
+                        logger.info("SaveImageTool: No input format provided; assuming BGR (no color swap)")
             elif len(save_image.shape) == 3 and save_image.shape[2] == 4:
-                # RGBA to BGRA
-                logger.info("SaveImageTool: Converting RGBA to BGRA for OpenCV")
-                save_image = cv2.cvtColor(save_image, cv2.COLOR_RGBA2BGRA)
+                # 4-channel images: try to respect context; otherwise assume BGRA
+                if input_format and (input_format in ('RGBA', 'XRGB8888') or input_format.startswith('RGBA')):
+                    logger.info("SaveImageTool: Input format RGBA detected, converting RGBA->BGRA for saving")
+                    save_image = cv2.cvtColor(save_image, cv2.COLOR_RGBA2BGRA)
+                else:
+                    logger.info("SaveImageTool: Assuming BGRA or unknown 4-channel; no swap needed for saving")
             
             logger.info(f"SaveImageTool: Final image shape for saving: {save_image.shape}")
             logger.info(f"SaveImageTool: Final image dtype: {save_image.dtype}")

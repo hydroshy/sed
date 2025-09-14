@@ -544,6 +544,14 @@ class JobManager:
             logger.info("Đã đăng ký SaveImageTool")
         except ImportError:
             logger.warning("Không thể đăng ký SaveImageTool")
+
+        # ClassificationTool (optional, ONNX-based)
+        try:
+            from tools.classification_tool import ClassificationTool
+            self.register_tool(ClassificationTool)
+            logger.info("Đã đăng ký ClassificationTool")
+        except ImportError:
+            logger.warning("Không thể đăng ký ClassificationTool")
         
     def create_tool(self, tool_type: str, name: str, config: Optional[Dict[str, Any]] = None) -> Optional[BaseTool]:
         """
@@ -609,13 +617,19 @@ class JobManager:
             return self.jobs[job_index].run(image, initial_context)
         return image, {"error": "Chỉ số job không hợp lệ"}
         
-    def run_current_job(self, image: np.ndarray) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """Chạy job hiện tại"""
+    def run_current_job(self, image: np.ndarray, context: Optional[Dict[str, Any]] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """Chạy job hiện tại với context tùy chọn"""
         current_job = self.get_current_job()
         if current_job:
-            # Create initial context with force_save flag for SaveImageTool
-            initial_context = {"force_save": True}
-            # Pass the context to run method
+            # Base context ensures SaveImageTool can save when desired
+            initial_context: Dict[str, Any] = {"force_save": True}
+            # Merge additional context from caller (e.g., pixel_format)
+            if context:
+                try:
+                    initial_context.update(context)
+                except Exception:
+                    pass
+            # Pass the merged context to the job
             return current_job.run(image, initial_context)
         return image, {"error": "Không có job hiện tại"}
         
