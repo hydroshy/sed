@@ -71,6 +71,9 @@ class CameraView(QObject):
         self.frame_history = []  # Store last 5 frames for review views
         self.max_history_frames = 5
         self.review_views = None  # Will be set by main window
+        self._last_review_update = 0  # Timestamp of last review update
+        self._review_update_interval = 0.3  # Update review views every 300ms max (increased for better performance)
+        self.enable_frame_history = False  # Temporarily disabled for performance testing
         
         # Drawing mode variables
         self.draw_mode = False
@@ -557,23 +560,14 @@ class CameraView(QObject):
                         # Test frame is already RGB, use directly
                         # print(f"DEBUG: [CameraView] Test frame RGB888, using directly")
                         rgb_image = self.current_frame
-                        
-                        # Update frame history with RGB frame (no conversion needed)
-                        self.update_frame_history(rgb_image)
                     elif str(pixel_format) == 'BGR888':
                         # Test frame is BGR, convert to RGB
                         # print(f"DEBUG: [CameraView] Test frame BGR888, converting to RGB")
                         rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
-                        
-                        # Update frame history with RGB-converted frame
-                        self.update_frame_history(rgb_image)
                     else:
                         # Unknown test frame format, assume BGR
                         # print(f"DEBUG: [CameraView] Test frame {pixel_format}, assuming BGR and converting")
                         rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
-                        
-                        # Update frame history with RGB-converted frame
-                        self.update_frame_history(rgb_image)
                 else:
                     # For real camera frames: PiCamera2 ALWAYS returns BGR data regardless of format setting
                     # This is PiCamera2's internal behavior - it converts all formats to BGR internally
@@ -584,9 +578,6 @@ class CameraView(QObject):
                     # Always convert BGR->RGB for 3-channel real camera frames
                     # PiCamera2 internally provides BGR regardless of format setting
                     rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
-                    
-                    # Update frame history with RGB-converted frame for correct colors in review views
-                    self.update_frame_history(rgb_image)
                     
                     # print(f"DEBUG: [CameraView] Converted frame shape: {rgb_image.shape}")
                     
@@ -689,6 +680,15 @@ class CameraView(QObject):
             logging.debug("Frame displayed with zoom level: %f and rotation angle: %d", 
                         self.zoom_level, self.rotation_angle)
             self._has_drawn_once = True
+            
+            # Update frame history once at the end with the correct RGB frame
+            if hasattr(self, 'rgb_image') and rgb_image is not None:
+                # Use the RGB-converted frame for review views
+                self.update_frame_history(rgb_image)
+            elif self.current_frame is not None and len(self.current_frame.shape) == 3:
+                # Fallback: convert frame to RGB for frame history
+                rgb_frame = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+                self.update_frame_history(rgb_frame)
         except Exception as e:
             logging.error("Error displaying frame: %s", e)
 
@@ -1075,35 +1075,64 @@ class CameraView(QObject):
         logging.info(f"Frame history: Connected to {len(review_views)} review views")
     
     def update_frame_history(self, frame):
-        """Update frame history and refresh review views"""
+        """Update frame history and refresh review views (throttled for performance)"""
         try:
-            if frame is None:
+            # Skip frame history if disabled for performance
+            if not self.enable_frame_history or frame is None:
                 return
             
-            # Add current frame to history
-            frame_copy = frame.copy()
+            # Limit frame size for history to improve memory and performance
+            import cv2
+            history_frame = frame
+            h, w = frame.shape[:2]
+            
+            # Resize frames larger than 640x480 for history storage
+            if h > 480 or w > 640:
+                aspect_ratio = w / h
+                if aspect_ratio > 1:  # Landscape
+                    new_w, new_h = 640, int(640 / aspect_ratio)
+                else:  # Portrait
+                    new_w, new_h = int(480 * aspect_ratio), 480
+                history_frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+            
+            # Add resized frame to history
+            frame_copy = history_frame.copy()
             self.frame_history.append(frame_copy)
             
             # Keep only last N frames
             if len(self.frame_history) > self.max_history_frames:
                 self.frame_history.pop(0)  # Remove oldest frame
             
-            # Update review views if available
-            self._update_review_views()
+            # Throttle review views update to prevent UI freezing
+            import time
+            current_time = time.time()
+            if current_time - self._last_review_update > self._review_update_interval:
+                self._last_review_update = current_time
+                # Use QTimer to schedule async UI update
+                from PyQt5.QtCore import QTimer
+                QTimer.singleShot(0, self._update_review_views)
             
         except Exception as e:
             logging.error(f"Error updating frame history: {e}")
     
     def _update_review_views(self):
-        """Update review views with frame history"""
+        """Update review views with frame history (optimized for performance)"""
         try:
             if not self.review_views or not self.frame_history:
                 return
             
+            # Process events to keep UI responsive
+            from PyQt5.QtWidgets import QApplication
+            QApplication.processEvents()
+            
+            # Limit the number of review views to update per call to prevent blocking
+            max_updates_per_call = 2
+            updates_done = 0
+            
             # Update each review view with corresponding frame from history
             # reviewView_1 = most recent, reviewView_5 = oldest
             for i, review_view in enumerate(self.review_views):
-                if not review_view:
+                if not review_view or updates_done >= max_updates_per_call:
                     continue
                     
                 # Calculate frame index (newest to oldest)
@@ -1112,17 +1141,27 @@ class CameraView(QObject):
                 if frame_index >= 0 and frame_index < len(self.frame_history):
                     frame = self.frame_history[frame_index]
                     self._display_frame_in_review_view(review_view, frame, i + 1)
+                    updates_done += 1
                 else:
                     # Clear review view if no frame available
                     self._clear_review_view(review_view)
+                    updates_done += 1
+                
+                # Process events between updates to keep UI responsive
+                if updates_done % 1 == 0:  # Process events after each update
+                    QApplication.processEvents()
                     
         except Exception as e:
             logging.error(f"Error updating review views: {e}")
     
     def _display_frame_in_review_view(self, review_view, frame, view_number):
-        """Display a frame in specific review view"""
+        """Display a frame in specific review view (optimized)"""
         try:
             if frame is None or review_view is None:
+                return
+            
+            # Skip if frame is too large (performance optimization)
+            if frame.size > 640 * 480 * 3:  # Skip very large frames for review views
                 return
             
             # Get or create scene for review view
@@ -1133,32 +1172,47 @@ class CameraView(QObject):
             else:
                 scene.clear()
             
+            # Resize frame for review views to improve performance
+            import cv2
+            display_frame = frame
+            h, w = frame.shape[:2]
+            if h > 240 or w > 320:  # Resize large frames for review views
+                display_frame = cv2.resize(frame, (320, 240), interpolation=cv2.INTER_LINEAR)
+                h, w = display_frame.shape[:2]
+            
             # Convert frame to QPixmap with proper color format handling
-            if len(frame.shape) == 3:
-                h, w, ch = frame.shape
+            if len(display_frame.shape) == 3:
+                ch = display_frame.shape[2]
                 if ch == 3:
                     # Frame from history should already be in RGB format
-                    # (converted in _show_frame_with_zoom method)
-                    qimg = QImage(frame.data, w, h, w * ch, QImage.Format_RGB888)
+                    # Use faster image creation without copy
+                    qimg = QImage(display_frame.data, w, h, w * ch, QImage.Format_RGB888)
                 elif ch == 4:
                     # RGBA format
-                    qimg = QImage(frame.data, w, h, w * ch, QImage.Format_RGBA8888)
+                    qimg = QImage(display_frame.data, w, h, w * ch, QImage.Format_RGBA8888)
                 else:
                     logging.warning(f"Unsupported channel count for review view {view_number}: {ch}")
                     return
-            elif len(frame.shape) == 2:
+            elif len(display_frame.shape) == 2:
                 # Grayscale
-                h, w = frame.shape
-                qimg = QImage(frame.data, w, h, w, QImage.Format_Grayscale8)
+                qimg = QImage(display_frame.data, w, h, w, QImage.Format_Grayscale8)
             else:
-                logging.warning(f"Unsupported frame shape for review view {view_number}: {frame.shape}")
+                logging.warning(f"Unsupported frame shape for review view {view_number}: {display_frame.shape}")
                 return
             
+            # Create pixmap and add to scene
             pixmap = QPixmap.fromImage(qimg)
+            if pixmap.isNull():
+                return
+                
             scene.addPixmap(pixmap)
             
-            # Fit in view
-            review_view.fitInView(scene.itemsBoundingRect(), Qt.KeepAspectRatio)
+            # Fit in view (less frequently to improve performance)
+            if view_number <= 2:  # Only fit view for first 2 review views
+                review_view.fitInView(scene.itemsBoundingRect(), Qt.KeepAspectRatio)
+            
+        except Exception as e:
+            logging.error(f"Error displaying frame in review view {view_number}: {e}")
             
         except Exception as e:
             logging.error(f"Error displaying frame in review view {view_number}: {e}")
@@ -1170,7 +1224,3 @@ class CameraView(QObject):
                 review_view.scene().clear()
         except Exception as e:
             logging.error(f"Error clearing review view: {e}")
-            self.scene.addItem(self.current_overlay)
-            
-        self.set_overlay_edit_mode(editable)
-        return self.current_overlay
