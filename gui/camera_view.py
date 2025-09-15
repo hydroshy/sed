@@ -1,14 +1,183 @@
 import logging
 import cv2
 import time
+import threading
 import numpy as np
-from PyQt5.QtCore import Qt, pyqtSignal, QObject, QRectF, QPoint
+from PyQt5.QtCore import Qt, pyqtSignal, QObject, QRectF, QPoint, QThread, QTimer
 from PyQt5.QtGui import QImage, QPixmap, QCursor, QPainter, QPen, QColor, QFont
 from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
 from gui.detection_area_overlay import DetectionAreaOverlay
+from utils.debug_utils import debug_print
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+class FrameHistoryWorker(QObject):
+    """Worker thread for frame history processing to avoid UI blocking"""
+    
+    def __init__(self, camera_view):
+        super().__init__()
+        self.camera_view = camera_view
+        self.running = True
+    
+    def process_frame_history(self):
+        """Process frame history updates in background thread"""
+        while self.running:
+            try:
+                # Check if there are frames to process
+                with self.camera_view.frame_history_lock:
+                    if len(self.camera_view.frame_history_queue) > 0:
+                        # Get the latest frame
+                        frame = self.camera_view.frame_history_queue[-1]
+                        # Clear queue to only keep latest frame
+                        self.camera_view.frame_history_queue.clear()
+                        
+                        # Add to history
+                        self.camera_view.frame_history.append(frame.copy())
+                        
+                        # Keep only last N frames
+                        if len(self.camera_view.frame_history) > self.camera_view.max_history_frames:
+                            self.camera_view.frame_history.pop(0)
+                        
+                        # Check if it's time to update review views
+                        current_time = time.time()
+                        if (current_time - self.camera_view._last_review_update) >= self.camera_view._review_update_interval:
+                            # Schedule UI update on main thread
+                            QTimer.singleShot(0, self.camera_view._update_review_views_threaded)
+                            self.camera_view._last_review_update = current_time
+                
+                # Sleep briefly to avoid busy waiting
+                time.sleep(0.033)  # ~30 FPS max processing rate
+                
+            except Exception as e:
+                logging.error(f"Error in frame history worker: {e}")
+                time.sleep(0.1)  # Sleep longer on error
+    
+    def stop(self):
+        """Stop the worker"""
+        self.running = False
+
+
+class CameraDisplayWorker(QObject):
+    """Worker thread for camera frame display processing to avoid UI blocking"""
+    
+    # Signal to update main thread UI
+    frameProcessed = pyqtSignal(object, object)  # (qimage, frame_for_history)
+    
+    def __init__(self, camera_view):
+        super().__init__()
+        self.camera_view = camera_view
+        self.running = True
+        self.frame_queue = []
+        self.frame_lock = threading.Lock()
+    
+    def add_frame(self, frame):
+        """Add frame to processing queue (thread-safe)"""
+        with self.frame_lock:
+            # Keep only latest frame to avoid memory buildup
+            self.frame_queue.clear()
+            self.frame_queue.append(frame.copy())
+    
+    def process_frames(self):
+        """Process frames in background thread"""
+        while self.running:
+            try:
+                frame = None
+                with self.frame_lock:
+                    if len(self.frame_queue) > 0:
+                        frame = self.frame_queue.pop(0)
+                
+                if frame is not None:
+                    # Process frame in background thread
+                    processed_qimage, frame_for_history = self._process_frame_to_qimage(frame)
+                    
+                    if processed_qimage is not None:
+                        # Emit signal to update UI on main thread
+                        self.frameProcessed.emit(processed_qimage, frame_for_history)
+                
+                # Sleep briefly to avoid busy waiting
+                time.sleep(0.016)  # ~60 FPS max processing rate
+                
+            except Exception as e:
+                logging.error(f"Error in camera display worker: {e}")
+                time.sleep(0.1)  # Sleep longer on error
+    
+    def _process_frame_to_qimage(self, frame):
+        """Process frame to QImage in background thread"""
+        try:
+            if frame is None or frame.size == 0:
+                return None, None
+            
+            # Choose frame to display based on current display mode
+            display_frame = self.camera_view._get_display_frame_from_raw(frame)
+            frame_to_process = display_frame if display_frame is not None else frame
+            
+            # Get pixel format from camera stream
+            pixel_format = 'BGR888'  # Default fallback
+            try:
+                mw = getattr(self.camera_view, 'main_window', None)
+                cm = getattr(mw, 'camera_manager', None) if mw else None
+                cs = getattr(cm, 'camera_stream', None) if cm else None
+                if cs is not None and hasattr(cs, 'get_pixel_format'):
+                    pixel_format = cs.get_pixel_format()
+            except Exception:
+                pass
+            
+            debug_print(f"Processing frame with format: {pixel_format}", "[CameraDisplayWorker]")
+            
+            # Handle different frame formats safely with proper color conversion
+            if len(frame_to_process.shape) == 3 and frame_to_process.shape[2] >= 3:  # Color image with channels
+                if frame_to_process.shape[2] == 4:  # 4-channel format
+                    if str(pixel_format) == 'XRGB8888':
+                        # PiCamera2 XRGB8888 actually returns BGRX data, need to convert BGRA->RGB
+                        frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_BGRA2RGB)
+                        debug_print("PiCamera2 XRGB8888 config: Converting BGRA->RGB", "[CameraDisplayWorker]")
+                    else:
+                        frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_BGRA2RGB)
+                        debug_print("Converted BGRA->RGB", "[CameraDisplayWorker]")
+                elif frame_to_process.shape[2] == 3:  # 3-channel format
+                    if str(pixel_format) == 'RGB888':
+                        # PiCamera2 configured as RGB888 but actually returns BGR data
+                        # This is PiCamera2's internal behavior - always convert BGR->RGB
+                        frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_BGR2RGB)
+                        debug_print("PiCamera2 RGB888 config: Converting BGR->RGB", "[CameraDisplayWorker]")
+                    elif str(pixel_format) == 'BGR888':
+                        # Frame is BGR, convert to RGB
+                        frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_BGR2RGB)
+                        debug_print("Converted BGR888->RGB", "[CameraDisplayWorker]")
+                    else:
+                        # Unknown format, assume BGR and convert
+                        frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_BGR2RGB)
+                        debug_print(f"Unknown format {pixel_format}, assuming BGR and converting", "[CameraDisplayWorker]")
+            elif len(frame_to_process.shape) == 2:  # 2D frame
+                frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_GRAY2RGB)
+            else:
+                # Handle other formats
+                if len(frame_to_process.shape) == 3 and frame_to_process.shape[2] == 1:
+                    frame_to_process = frame_to_process.squeeze()
+                    frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_GRAY2RGB)
+                else:
+                    logging.warning("Unsupported frame format with shape: %s", frame_to_process.shape)
+                    return None, None
+            
+            # Convert to QImage
+            h, w, ch = frame_to_process.shape
+            bytes_per_line = ch * w
+            
+            # Create QImage from processed frame
+            qimage = QImage(frame_to_process.data, w, h, bytes_per_line, QImage.Format_RGB888)
+            
+            # Return QImage and frame for history (make copies to be thread-safe)
+            return qimage.copy(), frame_to_process.copy()
+            
+        except Exception as e:
+            logging.error(f"Error processing frame to QImage: {e}")
+            return None, None
+    
+    def stop(self):
+        """Stop the worker"""
+        self.running = False
 
 
 class CameraView(QObject):
@@ -73,7 +242,23 @@ class CameraView(QObject):
         self.review_views = None  # Will be set by main window
         self._last_review_update = 0  # Timestamp of last review update
         self._review_update_interval = 0.3  # Update review views every 300ms max (increased for better performance)
-        self.enable_frame_history = False  # Temporarily disabled for performance testing
+        self.enable_frame_history = True  # Re-enabled with threading support
+        
+        # Threading for frame history processing
+        self.frame_history_thread = None
+        self.frame_history_worker = None
+        self.frame_history_queue = []
+        self.frame_history_lock = threading.Lock()
+        self._shutdown_frame_history = False
+        
+        # Threading for camera display processing
+        self.camera_display_thread = None
+        self.camera_display_worker = None
+        self._shutdown_camera_display = False
+        
+        # Start worker threads
+        self._start_frame_history_worker()
+        self._start_camera_display_worker()
         
         # Drawing mode variables
         self.draw_mode = False
@@ -200,7 +385,7 @@ class CameraView(QObject):
 
     def display_frame(self, frame):
         """
-        Hiển thị frame từ camera
+        Hiển thị frame từ camera (sử dụng background thread cho xử lý)
         
         Args:
             frame: Numpy array chứa hình ảnh từ camera (có thể là BGR, RGB, YUV420, etc.)
@@ -214,65 +399,53 @@ class CameraView(QObject):
         # Store raw frame for display mode switching
         self.current_raw_frame = frame.copy()
         
-        # Choose frame to display based on current display mode
-        display_frame = self._get_display_frame()
-        
-        # Use the display frame (could be raw or processed)
-        frame_to_process = display_frame if display_frame is not None else frame
-
+        # Send frame to worker thread for processing
+        if self.camera_display_worker:
+            self.camera_display_worker.add_frame(frame)
+        else:
+            # Fallback to synchronous processing if worker not available
+            logging.warning("Camera display worker not available, using synchronous processing")
+            self._display_frame_sync(frame)
+    
+    def _get_display_frame_from_raw(self, raw_frame):
+        """Get display frame from raw frame based on current display mode (thread-safe)"""
         try:
-            # Handle different frame formats safely
-            if len(frame_to_process.shape) == 3 and frame_to_process.shape[2] >= 3:  # Color image with channels
-                if frame_to_process.shape[2] == 4:  # RGBA format
-                    logging.debug("Converting RGBA to RGB")
-                    frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_RGBA2RGB)
-                elif frame_to_process.shape[2] == 3:  # Already 3-channel (BGR/RGB)
-                    logging.debug("Using 3-channel frame as-is")
-            elif len(frame_to_process.shape) == 2:  # 2D frame
-                logging.debug("Converting 2D frame to RGB for display")
-                # For simplicity, treat all 2D frames as grayscale
-                frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_GRAY2RGB)
-            else:
-                # For other formats, try to display as-is or convert to displayable format
-                logging.debug("Frame format: %s, attempting to display directly", frame_to_process.shape)
-                if len(frame_to_process.shape) == 3 and frame_to_process.shape[2] == 1:
-                    # Single channel, convert to grayscale then RGB
-                    frame_to_process = frame_to_process.squeeze()  # Remove single dimension
-                    frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_GRAY2RGB)
-                elif len(frame_to_process.shape) == 1:
-                    # 1D array - reshape to 2D if possible
-                    height = int(np.sqrt(frame_to_process.size))
-                    if height * height == frame_to_process.size:
-                        frame_to_process = frame_to_process.reshape(height, height)
-                        frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_GRAY2RGB)
-                    else:
-                        logging.warning("Cannot display 1D frame of size %s", frame_to_process.size)
-                        return
-                else:
-                    logging.warning("Unsupported frame format with shape: %s", frame_to_process.shape)
-                    return
+            # Store current raw frame temporarily
+            temp_raw_frame = self.current_raw_frame
+            self.current_raw_frame = raw_frame
+            
+            # Get display frame
+            display_frame = self._get_display_frame()
+            
+            # Restore previous raw frame
+            self.current_raw_frame = temp_raw_frame
+            
+            return display_frame
+            
         except Exception as e:
-            logging.error("Error processing frame format: %s", e)
-            # Fallback: try to display as grayscale if possible
-            try:
-                if len(frame_to_process.shape) >= 2:
-                    # Take first 2 dimensions and treat as grayscale
-                    gray_frame = frame_to_process[:, :, 0] if len(frame_to_process.shape) == 3 else frame_to_process
-                    frame_to_process = cv2.cvtColor(gray_frame.astype(np.uint8), cv2.COLOR_GRAY2RGB)
-                else:
-                    logging.error("Cannot recover from frame format error")
-                    return
-            except Exception as fallback_error:
-                logging.error("Fallback frame processing failed: %s", fallback_error)
-                return
-
-        self.current_frame = frame_to_process  # Lưu frame hiện tại sau khi xử lý format
-        # current_raw_frame đã được lưu ở đầu hàm
-        
-        self._show_frame_with_zoom()
-        self._calculate_fps()
-        
-        # Note: Frame history is updated in _show_frame_with_zoom after RGB conversion
+            logging.error(f"Error getting display frame from raw: {e}")
+            return None
+    
+    def _display_frame_sync(self, frame):
+        """Fallback synchronous frame display method"""
+        try:
+            # Use existing synchronous processing logic
+            display_frame = self._get_display_frame()
+            frame_to_process = display_frame if display_frame is not None else frame
+            
+            # Handle frame format conversion (simplified version)
+            if len(frame_to_process.shape) == 3 and frame_to_process.shape[2] >= 3:
+                if frame_to_process.shape[2] == 4:
+                    frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_RGBA2RGB)
+            elif len(frame_to_process.shape) == 2:
+                frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_GRAY2RGB)
+            
+            self.current_frame = frame_to_process
+            self._show_frame_with_zoom()
+            self._calculate_fps()
+            
+        except Exception as e:
+            logging.error(f"Error in synchronous frame display: {e}")
         
     def _run_job_processing(self, frame):
         """
@@ -554,29 +727,21 @@ class CameraView(QObject):
                 pass
                 
             if ch == 3:
-                if is_test_frame:
-                    # For test frames, trust the pixel format
-                    if str(pixel_format) == 'RGB888':
-                        # Test frame is already RGB, use directly
-                        # print(f"DEBUG: [CameraView] Test frame RGB888, using directly")
-                        rgb_image = self.current_frame
-                    elif str(pixel_format) == 'BGR888':
-                        # Test frame is BGR, convert to RGB
-                        # print(f"DEBUG: [CameraView] Test frame BGR888, converting to RGB")
-                        rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
-                    else:
-                        # Unknown test frame format, assume BGR
-                        # print(f"DEBUG: [CameraView] Test frame {pixel_format}, assuming BGR and converting")
-                        rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+                # Debug pixel format
+                debug_print(f"Current pixel_format: '{pixel_format}' (type: {type(pixel_format)})", "[CameraView]")
+                
+                # For both test frames and real camera frames, trust the pixel format
+                if str(pixel_format) == 'RGB888':
+                    # PiCamera2 configured as RGB888 but actually returns BGR data
+                    debug_print("PiCamera2 RGB888 config: Converting BGR->RGB", "[CameraView]")
+                    rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+                elif str(pixel_format) == 'BGR888':
+                    # Frame is BGR, convert to RGB
+                    debug_print("Frame BGR888, converting to RGB", "[CameraView]")
+                    rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
                 else:
-                    # For real camera frames: PiCamera2 ALWAYS returns BGR data regardless of format setting
-                    # This is PiCamera2's internal behavior - it converts all formats to BGR internally
-                    # print(f"DEBUG: [CameraView] Real camera processing: format={pixel_format}")
-                    # print(f"DEBUG: [CameraView] Original frame shape: {self.current_frame.shape}")
-                    # print(f"DEBUG: [CameraView] PiCamera2 always returns BGR data, converting to RGB for PyQt")
-                    
-                    # Always convert BGR->RGB for 3-channel real camera frames
-                    # PiCamera2 internally provides BGR regardless of format setting
+                    # Unknown format, assume it needs conversion
+                    debug_print(f"Frame {pixel_format}, assuming BGR and converting", "[CameraView]")
                     rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
                     
                     # print(f"DEBUG: [CameraView] Converted frame shape: {rgb_image.shape}")
@@ -589,13 +754,17 @@ class CameraView(QObject):
                     #     print(f"DEBUG: [CameraView] Display pixel at (50,50): {display_sample} (RGB for PyQt)")
                     #     print(f"DEBUG: [CameraView] Color analysis - R:{display_sample[0]}, G:{display_sample[1]}, B:{display_sample[2]}")
             elif ch == 4:
-                if is_test_frame and str(pixel_format) == 'XRGB8888':
-                    # Test frame RGBA format, convert to RGB
-                    # print(f"DEBUG: [CameraView] Test frame XRGB8888, converting RGBA->RGB")
-                    rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_RGBA2RGB)
+                # Debug pixel format for 4-channel
+                debug_print(f"4-channel pixel_format: '{pixel_format}' (type: {type(pixel_format)})", "[CameraView]")
+                
+                # For 4-channel frames, check the format
+                if str(pixel_format) == 'XRGB8888':
+                    # PiCamera2 XRGB8888 actually returns BGRX data, need to convert BGRA->RGB
+                    debug_print("PiCamera2 XRGB8888 config: Converting BGRA->RGB", "[CameraView]")
+                    rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGRA2RGB)
                 else:
-                    # Real camera or unknown 4-channel format, assume BGRA and convert
-                    print(f"DEBUG: [CameraView] 4-channel frame (format={pixel_format}), converting BGRA->RGB")
+                    # Unknown 4-channel format, assume BGRA and convert
+                    debug_print(f"4-channel frame (format={pixel_format}), converting BGRA->RGB", "[CameraView]")
                     rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGRA2RGB)
             else:
                 # Fallback for other channel counts
@@ -1072,16 +1241,32 @@ class CameraView(QObject):
     def set_review_views(self, review_views):
         """Set reference to review views for frame history display"""
         self.review_views = review_views
-        logging.info(f"Frame history: Connected to {len(review_views)} review views")
+        
+        # Configure each review view for read-only display
+        for i, review_view in enumerate(review_views):
+            if review_view:
+                # Disable user interactions
+                review_view.setDragMode(review_view.NoDrag)
+                review_view.setInteractive(False)
+                review_view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+                review_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+                
+                # Disable zoom with mouse wheel
+                review_view.wheelEvent = lambda event: None
+                
+                # Set background color
+                review_view.setStyleSheet("background-color: #2b2b2b; border: 1px solid #555;")
+                
+        logging.info(f"Frame history: Connected to {len(review_views)} review views (read-only mode)")
     
     def update_frame_history(self, frame):
-        """Update frame history and refresh review views (throttled for performance)"""
+        """Add frame to history queue for background processing (thread-safe)"""
         try:
             # Skip frame history if disabled for performance
             if not self.enable_frame_history or frame is None:
                 return
             
-            # Limit frame size for history to improve memory and performance
+            # Resize frame for history to improve memory and performance
             import cv2
             history_frame = frame
             h, w = frame.shape[:2]
@@ -1095,67 +1280,204 @@ class CameraView(QObject):
                     new_w, new_h = int(480 * aspect_ratio), 480
                 history_frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
             
-            # Add resized frame to history
-            frame_copy = history_frame.copy()
-            self.frame_history.append(frame_copy)
-            
-            # Keep only last N frames
-            if len(self.frame_history) > self.max_history_frames:
-                self.frame_history.pop(0)  # Remove oldest frame
-            
-            # Throttle review views update to prevent UI freezing
-            import time
-            current_time = time.time()
-            if current_time - self._last_review_update > self._review_update_interval:
-                self._last_review_update = current_time
-                # Use QTimer to schedule async UI update
-                from PyQt5.QtCore import QTimer
-                QTimer.singleShot(0, self._update_review_views)
+            # Add frame to queue for background processing
+            with self.frame_history_lock:
+                # Add frame to queue (keep only latest few frames in queue)
+                self.frame_history_queue.append(history_frame.copy())
+                # Limit queue size to prevent memory buildup
+                if len(self.frame_history_queue) > 3:
+                    self.frame_history_queue.pop(0)
             
         except Exception as e:
             logging.error(f"Error updating frame history: {e}")
     
-    def _update_review_views(self):
-        """Update review views with frame history (optimized for performance)"""
+    def _start_frame_history_worker(self):
+        """Start the frame history worker thread"""
         try:
-            if not self.review_views or not self.frame_history:
+            if self.frame_history_thread is not None:
+                return  # Already started
+            
+            # Create worker and thread
+            self.frame_history_worker = FrameHistoryWorker(self)
+            self.frame_history_thread = QThread()
+            
+            # Move worker to thread
+            self.frame_history_worker.moveToThread(self.frame_history_thread)
+            
+            # Connect signals
+            self.frame_history_thread.started.connect(self.frame_history_worker.process_frame_history)
+            
+            # Start thread
+            self.frame_history_thread.start()
+            logging.info("Frame history worker thread started")
+            
+        except Exception as e:
+            logging.error(f"Error starting frame history worker: {e}")
+    
+    def _stop_frame_history_worker(self):
+        """Stop the frame history worker thread"""
+        try:
+            if self.frame_history_worker:
+                self.frame_history_worker.stop()
+            
+            if self.frame_history_thread and self.frame_history_thread.isRunning():
+                self.frame_history_thread.quit()
+                self.frame_history_thread.wait(5000)  # Wait up to 5 seconds
+                
+            self.frame_history_worker = None
+            self.frame_history_thread = None
+            logging.info("Frame history worker thread stopped")
+            
+        except Exception as e:
+            logging.error(f"Error stopping frame history worker: {e}")
+    
+    def _start_camera_display_worker(self):
+        """Start the camera display worker thread"""
+        try:
+            if self.camera_display_thread is not None:
+                return  # Already started
+            
+            # Create worker and thread
+            self.camera_display_worker = CameraDisplayWorker(self)
+            self.camera_display_thread = QThread()
+            
+            # Move worker to thread
+            self.camera_display_worker.moveToThread(self.camera_display_thread)
+            
+            # Connect signals
+            self.camera_display_thread.started.connect(self.camera_display_worker.process_frames)
+            self.camera_display_worker.frameProcessed.connect(self._handle_processed_frame)
+            
+            # Start thread
+            self.camera_display_thread.start()
+            logging.info("Camera display worker thread started")
+            
+        except Exception as e:
+            logging.error(f"Error starting camera display worker: {e}")
+    
+    def _stop_camera_display_worker(self):
+        """Stop the camera display worker thread"""
+        try:
+            if self.camera_display_worker:
+                self.camera_display_worker.stop()
+            
+            if self.camera_display_thread and self.camera_display_thread.isRunning():
+                self.camera_display_thread.quit()
+                self.camera_display_thread.wait(5000)  # Wait up to 5 seconds
+                
+            self.camera_display_worker = None
+            self.camera_display_thread = None
+            logging.info("Camera display worker thread stopped")
+            
+        except Exception as e:
+            logging.error(f"Error stopping camera display worker: {e}")
+    
+    def _handle_processed_frame(self, qimage, frame_for_history):
+        """Handle processed frame from worker thread (runs on main thread)"""
+        try:
+            if qimage is None:
                 return
             
-            # Process events to keep UI responsive
-            from PyQt5.QtWidgets import QApplication
-            QApplication.processEvents()
+            # Update current frame for internal use
+            self.current_frame = frame_for_history
             
-            # Limit the number of review views to update per call to prevent blocking
-            max_updates_per_call = 2
-            updates_done = 0
+            # Display the processed QImage
+            self._display_qimage(qimage)
+            
+            # Calculate FPS
+            self._calculate_fps()
+            
+            # Update frame history
+            if frame_for_history is not None:
+                self.update_frame_history(frame_for_history)
+            
+        except Exception as e:
+            logging.error(f"Error handling processed frame: {e}")
+    
+    def _display_qimage(self, qimage):
+        """Display QImage in graphics view (main thread only)"""
+        try:
+            # Convert QImage to QPixmap
+            pixmap = QPixmap.fromImage(qimage)
+            if pixmap.isNull():
+                return
+            
+            # Get or create graphics scene
+            scene = self.graphics_view.scene()
+            if scene is None:
+                scene = QGraphicsScene()
+                self.graphics_view.setScene(scene)
+            else:
+                scene.clear()
+            
+            # Add pixmap to scene
+            scene.addPixmap(pixmap)
+            
+            # Apply zoom and rotation if needed
+            if self.fit_on_next_frame:
+                self.graphics_view.fitInView(scene.itemsBoundingRect(), Qt.KeepAspectRatio)
+                self.fit_on_next_frame = False
+            
+            # Apply current zoom level
+            if hasattr(self, 'zoom_level') and self.zoom_level != 1.0:
+                transform = self.graphics_view.transform()
+                transform.scale(self.zoom_level, self.zoom_level)
+                self.graphics_view.setTransform(transform)
+            
+            # Apply rotation if needed
+            if hasattr(self, 'rotation_angle') and self.rotation_angle != 0:
+                transform = self.graphics_view.transform()
+                transform.rotate(self.rotation_angle)
+                self.graphics_view.setTransform(transform)
+            
+        except Exception as e:
+            logging.error(f"Error displaying QImage: {e}")
+    
+    def __del__(self):
+        """Cleanup when object is destroyed"""
+        self._stop_frame_history_worker()
+        self._stop_camera_display_worker()
+    
+    def _update_review_views_threaded(self):
+        """Update review views from main thread (called by worker thread)"""
+        try:
+            # Make a thread-safe copy of frame history
+            with self.frame_history_lock:
+                frame_history_copy = self.frame_history.copy()
+            
+            # Update review views with the copy
+            self._update_review_views_with_frames(frame_history_copy)
+            
+        except Exception as e:
+            logging.error(f"Error in threaded review views update: {e}")
+    
+    def _update_review_views_with_frames(self, frame_history):
+        """Update review views with given frame history"""
+        try:
+            if not self.review_views or not frame_history:
+                return
             
             # Update each review view with corresponding frame from history
             # reviewView_1 = most recent, reviewView_5 = oldest
             for i, review_view in enumerate(self.review_views):
-                if not review_view or updates_done >= max_updates_per_call:
+                if not review_view:
                     continue
                     
                 # Calculate frame index (newest to oldest)
-                frame_index = len(self.frame_history) - 1 - i
+                frame_index = len(frame_history) - 1 - i
                 
-                if frame_index >= 0 and frame_index < len(self.frame_history):
-                    frame = self.frame_history[frame_index]
+                if frame_index >= 0 and frame_index < len(frame_history):
+                    frame = frame_history[frame_index]
                     self._display_frame_in_review_view(review_view, frame, i + 1)
-                    updates_done += 1
                 else:
                     # Clear review view if no frame available
                     self._clear_review_view(review_view)
-                    updates_done += 1
-                
-                # Process events between updates to keep UI responsive
-                if updates_done % 1 == 0:  # Process events after each update
-                    QApplication.processEvents()
                     
         except Exception as e:
-            logging.error(f"Error updating review views: {e}")
+            logging.error(f"Error updating review views with frames: {e}")
     
     def _display_frame_in_review_view(self, review_view, frame, view_number):
-        """Display a frame in specific review view (optimized)"""
+        """Display a frame in specific review view (auto-fit, read-only)"""
         try:
             if frame is None or review_view is None:
                 return
@@ -1163,6 +1485,12 @@ class CameraView(QObject):
             # Skip if frame is too large (performance optimization)
             if frame.size > 640 * 480 * 3:  # Skip very large frames for review views
                 return
+            
+            # Configure review view for read-only display
+            review_view.setDragMode(review_view.NoDrag)
+            review_view.setInteractive(False)
+            review_view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            review_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
             
             # Get or create scene for review view
             scene = review_view.scene()
@@ -1207,12 +1535,12 @@ class CameraView(QObject):
                 
             scene.addPixmap(pixmap)
             
-            # Fit in view (less frequently to improve performance)
-            if view_number <= 2:  # Only fit view for first 2 review views
-                review_view.fitInView(scene.itemsBoundingRect(), Qt.KeepAspectRatio)
+            # Always fit image in view and maintain aspect ratio
+            review_view.fitInView(scene.itemsBoundingRect(), Qt.KeepAspectRatio)
             
-        except Exception as e:
-            logging.error(f"Error displaying frame in review view {view_number}: {e}")
+            # Reset any zoom transformations
+            review_view.resetTransform()
+            review_view.fitInView(scene.itemsBoundingRect(), Qt.KeepAspectRatio)
             
         except Exception as e:
             logging.error(f"Error displaying frame in review view {view_number}: {e}")

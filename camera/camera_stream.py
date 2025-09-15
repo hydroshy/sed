@@ -52,6 +52,11 @@ class _LiveWorker(QObject):
             self._target_fps = float(target_fps)
         except Exception:
             self._target_fps = 10.0
+        
+        # Performance monitoring
+        self._frame_count = 0
+        self._last_fps_time = 0
+        self._fps_interval = 5.0  # Report FPS every 5 seconds
 
     @pyqtSlot()
     def run(self):
@@ -60,27 +65,74 @@ class _LiveWorker(QObject):
             period = 1.0 / max(1.0, self._target_fps)
         except Exception:
             period = 0.1
+        
         next_t = time.monotonic()
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+        
         while self._running:
+            start_time = time.monotonic()
+            
             try:
                 picam2 = getattr(self._stream, 'picam2', None)
                 if not picam2 or not getattr(picam2, 'started', False):
-                    time.sleep(0.01)
+                    time.sleep(0.05)  # Increased sleep for camera not ready
                     continue
-                frame = picam2.capture_array()
-                if frame is not None:
-                    self.frame_ready.emit(frame)
+                
+                # Use capture_array with timeout to prevent blocking
+                # If capture takes too long, skip frame to maintain FPS
+                try:
+                    frame = picam2.capture_array()
+                    if frame is not None:
+                        self.frame_ready.emit(frame)
+                        consecutive_errors = 0  # Reset error counter on success
+                        
+                        # FPS monitoring for performance debugging
+                        self._frame_count += 1
+                        now_fps = time.monotonic()
+                        if self._last_fps_time == 0:
+                            self._last_fps_time = now_fps
+                        elif now_fps - self._last_fps_time >= self._fps_interval:
+                            actual_fps = self._frame_count / (now_fps - self._last_fps_time)
+                            from utils.debug_utils import debug_log
+                            debug_log(f"LiveWorker FPS: {actual_fps:.1f} (target: {self._target_fps})", level="INFO")
+                            self._frame_count = 0
+                            self._last_fps_time = now_fps
+                except Exception as capture_e:
+                    # Handle capture-specific errors without stopping worker
+                    consecutive_errors += 1
+                    if consecutive_errors <= max_consecutive_errors:
+                        # Don't emit error for first few failures (could be timing issues)
+                        time.sleep(0.01)
+                        continue
+                    else:
+                        # Only emit error after multiple consecutive failures
+                        if not self._running:
+                            break
+                        self.error.emit(f"capture_array timeout/error: {capture_e}")
+                        time.sleep(0.1)  # Longer sleep after persistent errors
+                        continue
+                        
             except Exception as e:
                 if not self._running:
                     break
-                self.error.emit(f"capture_array error: {e}")
-                time.sleep(0.01)
+                consecutive_errors += 1
+                if consecutive_errors > max_consecutive_errors:
+                    self.error.emit(f"live worker error: {e}")
+                time.sleep(0.05)
                 continue
 
+            # Precise timing control to maintain target FPS
             now = time.monotonic()
-            if now < next_t:
-                time.sleep(max(0, next_t - now))
-            next_t = now + period
+            elapsed = now - start_time
+            
+            # Calculate sleep time more accurately
+            sleep_time = max(0.001, next_t - now)  # Minimum 1ms sleep
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            
+            # Update next target time
+            next_t = max(now, next_t) + period
 
         self.finished.emit()
 

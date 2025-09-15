@@ -91,6 +91,10 @@ def main():
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
         logger.debug("Debug logging enabled")
+        
+        # Set debug mode in debug utils
+        from utils.debug_utils import set_debug_mode
+        set_debug_mode(True)
     
     # Force Qt platform if specified
     if args.platform:

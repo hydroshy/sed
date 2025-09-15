@@ -10,6 +10,7 @@ import cv2
 import json
 import argparse
 import numpy as np
+import time
 from pathlib import Path
 
 # Add project root to path
@@ -63,6 +64,8 @@ def load_model(model_path):
 def preprocess_image(image_path, imgsz=448):
     """Preprocess image for YOLO classification"""
     # Load image
+    start_time = time.perf_counter()
+    
     img = cv2.imread(image_path)
     if img is None:
         raise ValueError(f"Failed to load image: {image_path}")
@@ -84,8 +87,13 @@ def preprocess_image(image_path, imgsz=448):
     # Add batch dimension
     img_batch = np.expand_dims(img_chw, axis=0)
     
+    end_time = time.perf_counter()
+    preprocessing_time = (end_time - start_time) * 1000
+    
     print(f"📊 Preprocessed shape: {img_batch.shape}")
-    return img_batch
+    print(f"⏱️  Preprocessing time: {preprocessing_time:.2f} ms")
+    
+    return img_batch, preprocessing_time
 
 
 def run_inference(model, image_batch):
@@ -97,19 +105,41 @@ def run_inference(model, image_batch):
         
         print(f"🧠 Input: {input_name}, Output: {output_name}")
         
-        # Run inference
+        # Run inference with timing
+        start_time = time.perf_counter()
         outputs = model.run([output_name], {input_name: image_batch})
+        end_time = time.perf_counter()
+        
+        inference_time = (end_time - start_time) * 1000  # Convert to milliseconds
+        print(f"⏱️  Inference time: {inference_time:.2f} ms")
+        
         logits = outputs[0][0]  # Remove batch dimension
         
         print(f"📈 Raw logits: {logits}")
         
-        # Apply softmax to get probabilities
-        exp_logits = np.exp(logits - np.max(logits))  # Numerical stability
-        probs = exp_logits / np.sum(exp_logits)
+        # Check if logits are already probabilities or need special handling
+        if np.allclose(np.sum(logits), 1.0, atol=1e-6) and np.all(logits >= 0) and np.all(logits <= 1):
+            # Logits are already probabilities
+            probs = logits
+            print(f"📊 Direct probabilities (no softmax needed): {probs}")
+        elif np.max(logits) <= 1.0 and np.min(logits) >= 0:
+            # Looks like probabilities but don't sum to 1, normalize
+            probs = logits / np.sum(logits)
+            print(f"📊 Normalized probabilities: {probs}")
+        else:
+            # Check if this is a YOLO-style output where one value is 1.0 and others are near 0
+            if np.max(logits) == 1.0 and np.sum(logits < 1e-10) >= (len(logits) - 1):
+                # This is already a one-hot style output from YOLO
+                probs = logits.copy()
+                print(f"📊 YOLO-style one-hot output: {probs}")
+            else:
+                # Apply softmax to get probabilities
+                max_logit = np.max(logits)
+                exp_logits = np.exp(logits - max_logit)  # Numerical stability
+                probs = exp_logits / np.sum(exp_logits)
+                print(f"📊 Softmax probabilities: {probs}")
         
-        print(f"📊 Probabilities: {probs}")
-        
-        return probs
+        return probs, inference_time
         
     except Exception as e:
         print(f"❌ Inference failed: {e}")
@@ -148,17 +178,29 @@ def classify_image(model_path, image_path, imgsz=448, device='cpu', top_k=5):
         return None
     
     try:
+        # Measure total time
+        total_start_time = time.perf_counter()
+        
         # Load model
+        model_start_time = time.perf_counter()
         model, names = load_model(model_path)
+        model_load_time = (time.perf_counter() - model_start_time) * 1000
+        print(f"⏱️  Model loading time: {model_load_time:.2f} ms")
         
         # Preprocess image
-        image_batch = preprocess_image(image_path, imgsz)
+        image_batch, preprocessing_time = preprocess_image(image_path, imgsz)
         
         # Run inference
-        probs = run_inference(model, image_batch)
+        probs, inference_time = run_inference(model, image_batch)
         
         # Get top predictions
+        postprocess_start_time = time.perf_counter()
         results = get_top_predictions(probs, names, top_k)
+        postprocess_time = (time.perf_counter() - postprocess_start_time) * 1000
+        print(f"⏱️  Postprocessing time: {postprocess_time:.2f} ms")
+        
+        # Calculate total time
+        total_time = (time.perf_counter() - total_start_time) * 1000
         
         # Print YOLO-style results
         print(f"\n🎯 Results for: {os.path.basename(image_path)}")
@@ -172,6 +214,25 @@ def classify_image(model_path, image_path, imgsz=448, device='cpu', top_k=5):
                                                    results['top_scores'])):
             print(f"   #{i+1}: {label} ({score:.4f})")
         
+        # Print timing summary
+        print(f"\n⏱️  Timing Summary:")
+        print(f"   Model loading:  {model_load_time:8.2f} ms")
+        print(f"   Preprocessing:  {preprocessing_time:8.2f} ms")
+        print(f"   Inference:      {inference_time:8.2f} ms")
+        print(f"   Postprocessing: {postprocess_time:8.2f} ms")
+        print(f"   Total:          {total_time:8.2f} ms")
+        print(f"   FPS:            {1000.0/total_time:8.2f}")
+        
+        # Add timing to results
+        results['timing'] = {
+            'model_load_ms': model_load_time,
+            'preprocessing_ms': preprocessing_time,
+            'inference_ms': inference_time,
+            'postprocessing_ms': postprocess_time,
+            'total_ms': total_time,
+            'fps': 1000.0 / total_time
+        }
+        
         return results
         
     except Exception as e:
@@ -183,7 +244,7 @@ def main():
     """Command line interface"""
     parser = argparse.ArgumentParser(description="YOLO-style Classification Test")
     parser.add_argument('--model', '-m', type=str, 
-                       default='model/classification/yolov11n-cls.onnx',
+                       default='model/classification/best.onnx',
                        help='Path to ONNX model file')
     parser.add_argument('--image', '-i', type=str, required=True,
                        help='Path to test image')
@@ -266,6 +327,17 @@ def quick_test():
         print('Top-5 indices:', top5_idx)
         print('Top-5 labels :', [model_names[i] if i < len(model_names) else r['top_labels'][i] for i in range(len(top5_idx))])
         print('Top-5 scores :', [f'{score:.4f}' for score in r['top_scores']])
+        
+        # Print timing summary
+        if 'timing' in results:
+            timing = results['timing']
+            print(f"\n⏱️  Performance Summary:")
+            print(f"   Inference time: {timing['inference_ms']:.2f} ms")
+            print(f"   Total time:     {timing['total_ms']:.2f} ms")
+            print(f"   FPS:            {timing['fps']:.2f}")
+    
+    if results:
+        print("\n✅ Quick test completed successfully!")
 
 
 if __name__ == "__main__":

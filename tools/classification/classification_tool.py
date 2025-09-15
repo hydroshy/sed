@@ -23,6 +23,7 @@ import numpy as np
 import cv2
 
 from tools.base_tool import BaseTool, ToolConfig
+from utils.debug_utils import debug_log
 
 # Direct ONNX imports
 try:
@@ -61,8 +62,8 @@ class ClassificationTool(BaseTool):
         self.config.set_default("model_name", "")
         self.config.set_default("model_path", "")
         self.config.set_default("top_k", 1)
-        self.config.set_default("input_width", 448)
-        self.config.set_default("input_height", 448)
+        self.config.set_default("input_width", 224)
+        self.config.set_default("input_height", 224)
         self.config.set_default("use_rgb", True)
         self.config.set_default("normalize", False)
         # Standard ImageNet normalization
@@ -84,9 +85,22 @@ class ClassificationTool(BaseTool):
         self.config.set_default("classify_only_classes", [])
         self.config.set_default("roi_expand", 0.0)
 
+        # NEW: Confidence-based rejection
+        self.config.set_default("confidence_threshold", 0.75)
+        self.config.set_default("enable_rejection", True)
+        self.config.set_default("rejection_method", "both")  # "confidence", "entropy", "both"
+        
+        # NEW: Entropy-based uncertainty detection
+        self.config.set_default("uncertainty_threshold", 0.8)
+        
+        # NEW: Per-class thresholds (optional)
+        self.config.set_default("class_thresholds", {})
+
         # Validators
         self.config.set_validator("top_k", lambda x: int(x) >= 1)
         self.config.set_validator("roi_expand", lambda x: 0.0 <= float(x) <= 0.5)
+        self.config.set_validator("confidence_threshold", lambda x: 0.0 <= float(x) <= 1.0)
+        self.config.set_validator("uncertainty_threshold", lambda x: 0.0 <= float(x) <= 1.0)
 
     def _load_class_names(self, model_name: str) -> List[str]:
         """Load class names from JSON file - YOLO style"""
@@ -181,6 +195,74 @@ class ClassificationTool(BaseTool):
             y1, y2 = y2, y1
         return x1, y1, x2, y2
 
+    def _calculate_entropy(self, probabilities: np.ndarray) -> float:
+        """Calculate prediction entropy to detect uncertain predictions"""
+        epsilon = 1e-8
+        probs = np.clip(probabilities, epsilon, 1.0)
+        entropy = -np.sum(probs * np.log(probs))
+        return entropy
+
+    def _apply_rejection_logic(self, predictions: List[Dict[str, Any]], probabilities: np.ndarray) -> List[Dict[str, Any]]:
+        """Apply confidence and entropy-based rejection"""
+        if not bool(self.config.get("enable_rejection", True)):
+            return predictions
+        
+        confidence_threshold = float(self.config.get("confidence_threshold", 0.75))
+        uncertainty_threshold = float(self.config.get("uncertainty_threshold", 0.8))
+        rejection_method = self.config.get("rejection_method", "both")
+        class_thresholds = self.config.get("class_thresholds", {})
+        
+        # Calculate uncertainty metrics
+        entropy = self._calculate_entropy(probabilities)
+        max_entropy = np.log(len(probabilities))
+        uncertainty = entropy / max_entropy if max_entropy > 0 else 0.0
+        
+        debug_log(f"ClassificationTool: Entropy={entropy:.3f}, Uncertainty={uncertainty:.3f}", logging.INFO)
+        
+        # Check entropy-based rejection first
+        if rejection_method in ["entropy", "both"] and uncertainty > uncertainty_threshold:
+            debug_log(f"ClassificationTool: High uncertainty detected ({uncertainty:.3f} > {uncertainty_threshold}) - rejecting as 'uncertain'", logging.INFO)
+            return [{
+                "class_name": "uncertain",
+                "confidence": 1.0 - uncertainty,
+                "class_id": -2,
+                "entropy": entropy,
+                "uncertainty": uncertainty,
+                "rejection_reason": "high_uncertainty"
+            }]
+        
+        # Apply confidence-based rejection
+        if rejection_method in ["confidence", "both"]:
+            filtered_predictions = []
+            
+            for pred in predictions:
+                class_name = pred["class_name"]
+                confidence = pred["confidence"]
+                
+                # Check class-specific threshold first, then global threshold
+                threshold = class_thresholds.get(class_name, confidence_threshold)
+                
+                if confidence >= threshold:
+                    pred["threshold_met"] = True
+                    filtered_predictions.append(pred)
+                else:
+                    debug_log(f"ClassificationTool: Rejecting {class_name} ({confidence:.3f} < {threshold:.3f})", logging.INFO)
+            
+            # If no predictions meet threshold, return "unknown"
+            if not filtered_predictions:
+                debug_log("ClassificationTool: No predictions meet confidence threshold - returning 'unknown'", logging.INFO)
+                return [{
+                    "class_name": "unknown",
+                    "confidence": 0.0,
+                    "class_id": -1,
+                    "threshold_met": False,
+                    "rejection_reason": "low_confidence"
+                }]
+            
+            return filtered_predictions
+        
+        return predictions
+
     def _preprocess_image(self, image: np.ndarray) -> np.ndarray:
         """Preprocess image for ONNX inference"""
         # Get config parameters
@@ -226,13 +308,13 @@ class ClassificationTool(BaseTool):
         frame_mean = np.mean(image)
         frame_std = np.std(image)
         
-        logger.info(f"ClassificationTool: _classify_image - input shape={image.shape}, top_k={top_k}")
-        # logger.info(f"ClassificationTool: Frame hash={frame_hash}, mean={frame_mean:.2f}, std={frame_std:.2f}")
+        debug_log(f"ClassificationTool: _classify_image - input shape={image.shape}, top_k={top_k}", logging.INFO)
+        debug_log(f"ClassificationTool: Frame hash={frame_hash}, mean={frame_mean:.2f}, std={frame_std:.2f}", logging.INFO)
 
         try:
             # Preprocess image
             input_tensor = self._preprocess_image(image)
-            logger.info(f"ClassificationTool: Input tensor shape: {input_tensor.shape}")
+            debug_log(f"ClassificationTool: Input tensor shape: {input_tensor.shape}", logging.INFO)
             
             # Run inference
             input_name = self.onnx_session.get_inputs()[0].name
@@ -243,21 +325,37 @@ class ClassificationTool(BaseTool):
             
             # Detailed logging disabled for performance
             # logger.info(f"ClassificationTool: Raw predictions shape: {predictions.shape}")
-            # logger.info(f"ClassificationTool: Raw predictions: {predictions}")
+            debug_log(f"ClassificationTool: Raw predictions/logits: {predictions}", logging.INFO)
             
-            # Apply softmax to get probabilities
-            exp_scores = np.exp(predictions - np.max(predictions))
-            probabilities = exp_scores / np.sum(exp_scores)
+            # Handle different output formats like YOLO
+            if np.allclose(np.sum(predictions), 1.0, atol=1e-6) and np.all(predictions >= 0) and np.all(predictions <= 1):
+                # Predictions are already probabilities
+                probabilities = predictions
+                debug_log("ClassificationTool: Using direct probabilities (no softmax needed)", logging.INFO)
+            elif np.max(predictions) <= 1.0 and np.min(predictions) >= 0:
+                # Looks like probabilities but don't sum to 1, normalize
+                probabilities = predictions / np.sum(predictions)
+                debug_log("ClassificationTool: Using normalized probabilities", logging.INFO)
+            else:
+                # Check if this is a YOLO-style output where one value is 1.0 and others are near 0
+                if np.max(predictions) == 1.0 and np.sum(predictions < 1e-10) >= (len(predictions) - 1):
+                    # This is already a one-hot style output from YOLO
+                    probabilities = predictions.copy()
+                    debug_log("ClassificationTool: Using YOLO-style one-hot output", logging.INFO)
+                else:
+                    # Apply softmax to get probabilities
+                    max_pred = np.max(predictions)
+                    exp_scores = np.exp(predictions - max_pred)  # Numerical stability
+                    probabilities = exp_scores / np.sum(exp_scores)
+                    debug_log("ClassificationTool: Using softmax probabilities", logging.INFO)
             
-            # logger.info(f"ClassificationTool: Probabilities: {probabilities}")
+            debug_log(f"ClassificationTool: Final probabilities: {probabilities}", logging.INFO)
             
-            # Get ALL classes (not limited by top_k) for proper OK/NG evaluation
-            # We need all classes to compare with expected_class
+            # Create initial results (all classes sorted by confidence)
             num_classes = len(probabilities)
             all_indices = np.argsort(probabilities)[::-1]  # All classes sorted by confidence
             
-            # Return all classes with their probabilities
-            results = []
+            initial_results = []
             for i, idx in enumerate(all_indices):
                 confidence = float(probabilities[idx])
                 class_name = self._labels[idx] if idx < len(self._labels) else f"class_{idx}"
@@ -267,16 +365,25 @@ class ClassificationTool(BaseTool):
                     "confidence": confidence,
                     "class_id": int(idx)
                 }
-                results.append(result)
+                initial_results.append(result)
+            
+            # Apply rejection logic (confidence + entropy based)
+            final_results = self._apply_rejection_logic(initial_results, probabilities)
+            
+            # Debug logging for final results
+            if final_results:
+                top_result = final_results[0]
+                if top_result.get("rejection_reason"):
+                    debug_log(f"ClassificationTool: Rejected - {top_result['class_name']} (reason: {top_result['rejection_reason']})", logging.INFO)
+                else:
+                    debug_log(f"ClassificationTool: Accepted - {top_result['class_name']} ({top_result['confidence']:.4f})", logging.INFO)
                 
-            # Detailed logging disabled for performance
-            # logger.info(f"ClassificationTool: All {num_classes} classes results: {results}")
+                # Log top-k for debugging (YOLO format)
+                top_k_results = final_results[:top_k]
+                results_str = [(r['class_name'], f"{r['confidence']:.4f}") for r in top_k_results]
+                debug_log(f"ClassificationTool: Final Top-{top_k} results: {results_str}", logging.INFO)
             
-            # Also log top-k for backward compatibility (disabled for performance)
-            top_k_results = results[:top_k]
-            # logger.info(f"ClassificationTool: Top-{top_k} results: {top_k_results}")
-            
-            return results  # Return ALL classes, not just top_k
+            return final_results  # Return processed results with rejection logic
             
         except Exception as e:
             logger.error(f"ClassificationTool: _classify_image - inference error: {e}")
@@ -295,7 +402,7 @@ class ClassificationTool(BaseTool):
         image: np.ndarray,
         context: Optional[Dict[str, Any]] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
-        logger.info(f"ClassificationTool: Starting classification process for image shape {image.shape}")
+        debug_log(f"ClassificationTool: Starting classification process for image shape {image.shape}", logging.INFO)
         
         # Auto-detect and convert image format if needed
         # Most classification models expect RGB, but OpenCV uses BGR
@@ -313,9 +420,9 @@ class ClassificationTool(BaseTool):
             import cv2  # Ensure cv2 is available in local scope
             if input_format in ["BGR888", "unknown"] and len(image.shape) == 3 and image.shape[2] == 3:
                 # Convert BGR to RGB for classification
-                logger.info(f"ClassificationTool: About to convert BGR to RGB using cv2.cvtColor")
+                debug_log(f"ClassificationTool: About to convert BGR to RGB using cv2.cvtColor", logging.INFO)
                 work_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                logger.info(f"ClassificationTool: Converted {input_format} to RGB for classification")
+                debug_log(f"ClassificationTool: Converted {input_format} to RGB for classification", logging.INFO)
             elif input_format == "RGB888":
                 # Already RGB, no conversion needed
                 logger.info(f"ClassificationTool: Image already in RGB format")
@@ -339,7 +446,7 @@ class ClassificationTool(BaseTool):
             result_display = bool(self.config.get("result_display_enable", False))
             # Removed threshold - always show OK/NG regardless of confidence
             
-            logger.info(f"ClassificationTool: Config - draw_result={draw}, result_display={result_display}")
+            debug_log(f"ClassificationTool: Config - draw_result={draw}, result_display={result_display}", logging.INFO)
             
             # Copy image if we are going to draw anything (class text or OK/NG)
             result_img = image.copy() if (draw or result_display) else image
@@ -389,9 +496,9 @@ class ClassificationTool(BaseTool):
                         self._draw_label(result_img, label, (x1 + 4, max(y1 - 6, 12)))
             else:
                 # Full-frame classification
-                logger.info("ClassificationTool: Performing full-frame classification")
+                debug_log("ClassificationTool: Performing full-frame classification", logging.INFO)
                 preds = self._classify_image(work_image)  # Use RGB work_image for classification
-                logger.info(f"ClassificationTool: Got {len(preds)} predictions: {preds}")
+                debug_log(f"ClassificationTool: Got {len(preds)} predictions: {preds}", logging.INFO)
                 
                 all_results.append({
                     "bbox": None,
@@ -399,7 +506,7 @@ class ClassificationTool(BaseTool):
                 })
                 if draw and preds:
                     top1 = preds[0]
-                    logger.info(f"ClassificationTool: Top prediction - {top1['class_name']} with confidence {top1['confidence']:.3f}")
+                    debug_log(f"ClassificationTool: Top prediction - {top1['class_name']} with confidence {top1['confidence']:.3f}", logging.INFO)
                     label = f"{top1['class_name']} {top1['confidence']:.2f}"
                     pos = tuple(self.config.get("position", (8, 24)))
                     self._draw_label(result_img, label, pos)
@@ -408,8 +515,8 @@ class ClassificationTool(BaseTool):
             ok_flag: Optional[bool] = None
             if result_display:
                 expected = (self.config.get("expected_class_name") or "").strip()
-                # Removed threshold - evaluate all predictions regardless of confidence
-                logger.info(f"ClassificationTool: OK/NG evaluation - expected_class='{expected}' (no threshold)")
+                confidence_threshold = self.config.get("confidence_threshold", 0.75)
+                debug_log(f"ClassificationTool: OK/NG evaluation - expected_class='{expected}', threshold={confidence_threshold}", logging.INFO)
                 
                 # Collect top1 predictions from all results
                 tops: List[Dict[str, Any]] = []
@@ -418,34 +525,56 @@ class ClassificationTool(BaseTool):
                     if preds:
                         tops.append(preds[0])
                 
-                logger.info(f"ClassificationTool: Evaluating {len(tops)} predictions for OK/NG")
+                debug_log(f"ClassificationTool: Evaluating {len(tops)} predictions for OK/NG", logging.INFO)
                 
                 if tops:
-                    # No threshold check - evaluate all predictions
-                    if expected:
-                        # OK if any prediction matches expected class
-                        matching_preds = [t for t in tops if t.get('class_name') == expected]
-                        ok_flag = len(matching_preds) > 0
-                        logger.info(f"ClassificationTool: Expected class '{expected}' - found {len(matching_preds)} matching predictions")
+                    # Filter by confidence threshold and reject cases
+                    valid_preds = []
+                    for t in tops:
+                        class_name = t.get('class_name', '')
+                        confidence = t.get('confidence', 0.0)
+                        
+                        # Reject "unknown" and "uncertain" predictions as NG
+                        if class_name in ['unknown', 'uncertain']:
+                            debug_log(f"ClassificationTool: Rejecting {class_name} prediction", logging.INFO)
+                            continue
+                            
+                        # Apply confidence threshold
+                        if confidence >= confidence_threshold:
+                            valid_preds.append(t)
+                        else:
+                            debug_log(f"ClassificationTool: Low confidence {confidence:.3f} < {confidence_threshold}", logging.INFO)
+                    
+                    debug_log(f"ClassificationTool: {len(valid_preds)} valid predictions after filtering", logging.INFO)
+                    
+                    if valid_preds:
+                        if expected:
+                            # OK if any valid prediction matches expected class
+                            matching_preds = [t for t in valid_preds if t.get('class_name') == expected]
+                            ok_flag = len(matching_preds) > 0
+                            debug_log(f"ClassificationTool: Expected class '{expected}' - found {len(matching_preds)} matching predictions", logging.INFO)
+                        else:
+                            # No expected class configured: OK if we have any valid prediction
+                            ok_flag = True
+                            logger.info(f"ClassificationTool: No expected class - OK because we have {len(valid_preds)} valid predictions")
                     else:
-                        # No expected class configured: OK if we have any prediction
-                        ok_flag = True
-                        logger.info(f"ClassificationTool: No expected class - OK because we have {len(tops)} predictions")
+                        ok_flag = False
+                        logger.info("ClassificationTool: NG - no valid predictions (rejected/low confidence)")
                 else:
                     ok_flag = False
                     logger.info("ClassificationTool: NG - no predictions available")
 
                 # Draw OK/NG badge at corner - always show result if we have predictions
                 if ok_flag is not None:
-                    should_show_result = len(tops) > 0  # Show if we have any predictions
-                    logger.info(f"ClassificationTool: Should show OK/NG result: {should_show_result}")
+                    should_show_result = len(tops) > 0  # Show if we have any predictions (including rejected ones)
+                    debug_log(f"ClassificationTool: Should show OK/NG result: {should_show_result}", logging.INFO)
                     
                     if should_show_result:
                         try:
                             import cv2
                             label = "OK" if ok_flag else "NG"
                             color = (0, 200, 0) if ok_flag else (0, 0, 255)
-                            logger.info(f"ClassificationTool: Drawing {label} badge in {color}")
+                            debug_log(f"ClassificationTool: Drawing {label} badge in {color}", logging.INFO)
                             
                             # Badge size and position
                             pad = 8
@@ -481,10 +610,10 @@ class ClassificationTool(BaseTool):
                 "result_count": len(all_results),
             }
             
-            logger.info(f"ClassificationTool: Process completed successfully - {len(all_results)} results")
+            debug_log(f"ClassificationTool: Process completed successfully - {len(all_results)} results", logging.INFO)
             if all_results and all_results[0].get("predictions"):
                 top_pred = all_results[0]["predictions"][0]
-                logger.info(f"ClassificationTool: Final result - {top_pred['class_name']} ({top_pred['confidence']:.3f})")
+                debug_log(f"ClassificationTool: Final result - {top_pred['class_name']} ({top_pred['confidence']:.3f})", logging.INFO)
             
             return result_img, output
 

@@ -18,6 +18,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger("JobManager")
 
 from tools.base_tool import ToolConfig, BaseTool, GenericTool
+from utils.debug_utils import debug_log
 
 
 class JobWorkerThread(QThread if QT_AVAILABLE else object):
@@ -102,11 +103,11 @@ class Job:
             Công cụ đã được thêm hoặc None nếu có lỗi
         """
         # Debug log
-        logger.info(f"Adding tool to job: {self.name}")
+        debug_log(f"Adding tool to job: {self.name}", logging.INFO)
         tool_name = getattr(tool, 'name', 'Unknown') if not isinstance(tool, dict) else tool.get('name', 'Unknown dict')
         tool_display_name = getattr(tool, 'display_name', 'No display name') if not isinstance(tool, dict) else tool.get('display_name', 'No display name')
         tool_type = type(tool).__name__
-        logger.info(f"Tool details: name={tool_name}, display_name={tool_display_name}, type={tool_type}")
+        debug_log(f"Tool details: name={tool_name}, display_name={tool_display_name}, type={tool_type}", logging.INFO)
         
         # Kiểm tra nếu tool là dictionary thay vì BaseTool
         if isinstance(tool, dict):
@@ -129,13 +130,13 @@ class Job:
                 # Fallback nếu không có phương thức set_tool_id
                 tool.tool_id = self._next_tool_id
             self._next_tool_id += 1
-            logger.info(f"Assigned tool ID: {tool.tool_id}")
+            debug_log(f"Assigned tool ID: {tool.tool_id}", logging.INFO)
         else:
-            logger.info(f"Tool already has ID: {tool.tool_id}")
+            debug_log(f"Tool already has ID: {tool.tool_id}", logging.INFO)
         
         # Thêm tool vào danh sách
         self.tools.append(tool)
-        logger.info(f"Added tool to job. Job now has {len(self.tools)} tools")
+        debug_log(f"Added tool to job. Job now has {len(self.tools)} tools", logging.INFO)
         
         # Kiểm tra xem tool đã được thêm chưa
         found = False
@@ -144,7 +145,7 @@ class Job:
                 found = True
                 t_name = getattr(t, 'name', 'Unknown')
                 t_display = getattr(t, 'display_name', 'No display')
-                logger.info(f"Verified tool in position {idx}: ID={t.tool_id}, name={t_name}, display={t_display}")
+                debug_log(f"Verified tool in position {idx}: ID={t.tool_id}, name={t_name}, display={t_display}", logging.INFO)
                 break
         
         if not found:
@@ -166,7 +167,7 @@ class Job:
         
         # Log với tên hiển thị
         display_name = tool.display_name if hasattr(tool, 'display_name') else "Unknown Tool"
-        logger.info(f"Added tool: {display_name} to job {self.name}")
+        debug_log(f"Added tool: {display_name} to job {self.name}", logging.INFO)
         
         return tool
         
@@ -207,7 +208,7 @@ class Job:
         # Cập nhật workflow
         self._rebuild_workflow()
         
-        logger.info(f"Đã kết nối: {source_tool.display_name} -> {target_tool.display_name}")
+        debug_log(f"Đã kết nối: {source_tool.display_name} -> {target_tool.display_name}", logging.INFO)
         return True
         
     def disconnect_tools(self, source_tool_id: int, target_tool_id: int) -> bool:
@@ -242,7 +243,7 @@ class Job:
         # Cập nhật workflow
         self._rebuild_workflow()
         
-        logger.info(f"Đã ngắt kết nối: {source_tool.display_name} -> {target_tool.display_name}")
+        debug_log(f"Đã ngắt kết nối: {source_tool.display_name} -> {target_tool.display_name}", logging.INFO)
         return True
         
     def set_tool_as_source(self, source_tool_id: int, target_tool_id: int) -> bool:
@@ -276,7 +277,7 @@ class Job:
         # Cập nhật workflow
         self._rebuild_workflow()
         
-        logger.info(f"Đã đặt {source_tool.display_name} làm nguồn dữ liệu cho {target_tool.display_name}")
+        debug_log(f"Đã đặt {source_tool.display_name} làm nguồn dữ liệu cho {target_tool.display_name}", logging.INFO)
         return True
         
     def get_workflow_structure(self) -> Dict[str, Any]:
@@ -418,7 +419,7 @@ class Job:
                         queue.append(tool)
                         continue
                 
-                logger.info(f"Đang chạy công cụ: {tool.display_name} (ID: {tool_id})")
+                debug_log(f"Đang chạy công cụ: {tool.display_name} (ID: {tool_id})", logging.INFO)
                 tool_start = time.time()
                 
                 # Chuẩn bị dữ liệu đầu vào cho tool hiện tại
@@ -460,7 +461,7 @@ class Job:
             
             self.execution_time = time.time() - start_time
             self.status = "completed"
-            logger.info(f"Job {self.name} hoàn thành trong {self.execution_time:.2f}s")
+            debug_log(f"Job {self.name} hoàn thành trong {self.execution_time:.2f}s", logging.INFO)
             
             return processed_image, {
                 "job_name": self.name,
@@ -579,7 +580,7 @@ class JobManager:
         try:
             from tools.saveimage_tool import SaveImageTool
             self.register_tool(SaveImageTool)
-            logger.info("Đã đăng ký SaveImageTool")
+            debug_log("Đã đăng ký SaveImageTool", logging.INFO)
         except ImportError:
             logger.warning("Không thể đăng ký SaveImageTool")
 
@@ -587,7 +588,7 @@ class JobManager:
         try:
             from tools.classification_tool import ClassificationTool
             self.register_tool(ClassificationTool)
-            logger.info("Đã đăng ký ClassificationTool")
+            debug_log("Đã đăng ký ClassificationTool", logging.INFO)
         except ImportError:
             logger.warning("Không thể đăng ký ClassificationTool")
         
@@ -696,7 +697,7 @@ class JobManager:
             os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(self.jobs[job_index].to_dict(), f, ensure_ascii=False, indent=2)
-            logger.info(f"Đã lưu job vào {path}")
+            debug_log(f"Đã lưu job vào {path}", logging.INFO)
             return True
         except Exception as e:
             logger.error(f"Lỗi khi lưu job: {str(e)}")
@@ -718,7 +719,7 @@ class JobManager:
                     'jobs': [job.to_dict() for job in self.jobs],
                     'current_job_index': self.current_job_index
                 }, f, ensure_ascii=False, indent=2)
-            logger.info(f"Đã lưu tất cả job vào {path}")
+            debug_log(f"Đã lưu tất cả job vào {path}", logging.INFO)
             return True
         except Exception as e:
             logger.error(f"Lỗi khi lưu tất cả job: {str(e)}")
@@ -731,7 +732,7 @@ class JobManager:
                 data = json.load(f)
                 job = Job.from_dict(data, self.tool_registry)
                 self.add_job(job)
-                logger.info(f"Đã tải job từ {path}")
+                debug_log(f"Đã tải job từ {path}", logging.INFO)
                 return job
         except Exception as e:
             logger.error(f"Lỗi khi tải job: {str(e)}")
@@ -744,7 +745,7 @@ class JobManager:
                 data = json.load(f)
                 self.jobs = [Job.from_dict(jd, self.tool_registry) for jd in data.get('jobs', [])]
                 self.current_job_index = data.get('current_job_index', 0 if self.jobs else -1)
-                logger.info(f"Đã tải {len(self.jobs)} job từ {path}")
+                debug_log(f"Đã tải {len(self.jobs)} job từ {path}", logging.INFO)
                 return True
         except Exception as e:
             logger.error(f"Lỗi khi tải tất cả job: {str(e)}")
@@ -839,14 +840,14 @@ class JobManager:
         Returns:
             Công cụ đã được thêm hoặc None nếu có lỗi
         """
-        logger.info(f"JobManager: add_tool_to_current_job called with tool: {tool}")
+        debug_log(f"JobManager: add_tool_to_current_job called with tool: {tool}", logging.INFO)
         
         # Log chi tiết về tool
         tool_name = getattr(tool, 'name', 'Unknown') if not isinstance(tool, dict) else tool.get('name', 'Unknown dict')
         tool_display_name = getattr(tool, 'display_name', 'No display name') if not isinstance(tool, dict) else tool.get('display_name', 'No display name')
         tool_id = getattr(tool, 'tool_id', 'No ID') if not isinstance(tool, dict) else tool.get('tool_id', 'No ID')
         
-        logger.info(f"JobManager: Tool details - name={tool_name}, display_name={tool_display_name}, ID={tool_id}")
+        debug_log(f"JobManager: Tool details - name={tool_name}, display_name={tool_display_name}, ID={tool_id}", logging.INFO)
         
         current_job = self.get_current_job()
         if current_job:
@@ -854,29 +855,29 @@ class JobManager:
             is_camera_source = False
             if isinstance(tool, BaseTool) and hasattr(tool, 'name') and "camera" in tool.name.lower():
                 is_camera_source = True
-                logger.info("JobManager: Detected Camera Source tool")
+                debug_log("JobManager: Detected Camera Source tool", logging.INFO)
                 
             # Thêm tool vào job
             result = current_job.add_tool(tool, source_tool_id)
             
             # Kiểm tra kết quả
             if result:
-                logger.info(f"JobManager: Tool '{tool_name}' added successfully to job '{current_job.name}'")
+                debug_log(f"JobManager: Tool '{tool_name}' added successfully to job '{current_job.name}'", logging.INFO)
                 
                 # Log danh sách tools trong job
-                logger.info(f"JobManager: Current job now has {len(current_job.tools)} tools:")
+                debug_log(f"JobManager: Current job now has {len(current_job.tools)} tools:", logging.INFO)
                 for i, t in enumerate(current_job.tools):
                     t_name = getattr(t, 'name', 'Unknown')
                     t_display = getattr(t, 'display_name', 'No display')
                     t_id = getattr(t, 'tool_id', 'No ID')
-                    logger.info(f"JobManager:   Tool {i}: name={t_name}, display_name={t_display}, id={t_id}")
+                    debug_log(f"JobManager:   Tool {i}: name={t_name}, display_name={t_display}, id={t_id}", logging.INFO)
                     
                 # Thông báo job đã thay đổi
                 self._notify_job_changed()
                 
                 # Xử lý đặc biệt cho Camera Source
                 if is_camera_source:
-                    logger.info("JobManager: Camera Source added successfully to job")
+                    debug_log("JobManager: Camera Source added successfully to job", logging.INFO)
                 
                 return result
             else:
@@ -890,18 +891,18 @@ class JobManager:
         """
         Thông báo rằng job đã thay đổi để các đối tượng quan sát có thể cập nhật
         """
-        logger.info("JobManager: Job changed notification triggered")
+        debug_log("JobManager: Job changed notification triggered", logging.INFO)
         # Ở đây có thể thêm code thông báo cho các observer nếu cần
         
         # In danh sách công cụ hiện tại trong job để debug
         current_job = self.get_current_job()
         if current_job:
-            logger.info(f"JobManager: Current job '{current_job.name}' has {len(current_job.tools)} tools:")
+            debug_log(f"JobManager: Current job '{current_job.name}' has {len(current_job.tools)} tools:", logging.INFO)
             for i, tool in enumerate(current_job.tools):
                 tool_name = getattr(tool, 'name', 'Unknown')
                 tool_display = getattr(tool, 'display_name', 'No display')
                 tool_id = getattr(tool, 'tool_id', 'No ID')
-                logger.info(f"JobManager:   Tool {i}: name={tool_name}, display_name={tool_display}, id={tool_id}")
+                debug_log(f"JobManager:   Tool {i}: name={tool_name}, display_name={tool_display}, id={tool_id}", logging.INFO)
                 
     def get_tool_list(self) -> List[BaseTool]:
         """Lấy danh sách các công cụ có sẵn (tương thích với giao diện cũ)"""
