@@ -391,28 +391,86 @@ class CameraStream(QObject):
         """Generate a test frame for testing without a real camera"""
         h, w = 480, 640
         
-        # Create distinct color patterns to easily verify format correctness
-        # Red gradient on left, Green gradient on top, Blue solid on bottom-right
+        # Try to load a real test image instead of synthetic patterns
+        test_image_path = "/home/pi/Desktop/project/image/pilsner333/pilsner333_3.jpg"
+        try:
+            import cv2
+            if hasattr(cv2, 'imread'):
+                test_img = cv2.imread(test_image_path)
+                if test_img is not None:
+                    # Resize to camera frame size
+                    test_frame = cv2.resize(test_img, (w, h))
+                    print(f"DEBUG: [CameraStream] Using real test image: {test_image_path}")
+                    return test_frame
+        except Exception as e:
+            # print(f"DEBUG: [CameraStream] Could not load real test image: {e}")
+            pass
+        
+        # Fallback to synthetic patterns if real image fails
+        # Create varied patterns that change over time for proper classification testing
+        # This ensures different frames will produce different classification results
+        pattern_cycle = int(time.time() * 0.5) % 6  # Change pattern every 2 seconds
+        
         r = np.zeros((h, w), dtype=np.uint8)
         g = np.zeros((h, w), dtype=np.uint8)
         b = np.zeros((h, w), dtype=np.uint8)
         
-        # Red gradient from left (0) to middle (255)
-        r[:, :w//2] = np.tile(np.linspace(0, 255, w//2, dtype=np.uint8), (h, 1))
+        if pattern_cycle == 0:
+            # Pattern 0: Red gradient with blue noise
+            r[:, :] = np.tile(np.linspace(0, 255, w, dtype=np.uint8), (h, 1))
+            b[:, :] = np.random.randint(0, 100, (h, w), dtype=np.uint8)
+        elif pattern_cycle == 1:
+            # Pattern 1: Green checkerboard
+            for i in range(0, h, 32):
+                for j in range(0, w, 32):
+                    if (i//32 + j//32) % 2 == 0:
+                        g[i:i+32, j:j+32] = 200
+        elif pattern_cycle == 2:
+            # Pattern 2: Blue radial gradient
+            center_y, center_x = h//2, w//2
+            for y in range(h):
+                for x in range(w):
+                    dist = np.sqrt((y - center_y)**2 + (x - center_x)**2)
+                    b[y, x] = min(255, int(dist * 0.8))
+        elif pattern_cycle == 3:
+            # Pattern 3: Multi-color stripes
+            stripe_width = w // 8
+            for i in range(8):
+                start_x = i * stripe_width
+                end_x = min(w, (i + 1) * stripe_width)
+                if i % 3 == 0:
+                    r[:, start_x:end_x] = 255
+                elif i % 3 == 1:
+                    g[:, start_x:end_x] = 255
+                else:
+                    b[:, start_x:end_x] = 255
+        elif pattern_cycle == 4:
+            # Pattern 4: Random noise with color bias
+            r[:, :] = np.random.randint(100, 255, (h, w), dtype=np.uint8)
+            g[:, :] = np.random.randint(0, 150, (h, w), dtype=np.uint8)
+            b[:, :] = np.random.randint(0, 100, (h, w), dtype=np.uint8)
+        else:  # pattern_cycle == 5
+            # Pattern 5: Geometric shapes
+            # Triangle in top-left
+            for y in range(h//2):
+                for x in range(w//2):
+                    if x < y:
+                        r[y, x] = 255
+            # Circle in bottom-right
+            center_y, center_x = 3*h//4, 3*w//4
+            radius = min(h, w) // 8
+            for y in range(h//2, h):
+                for x in range(w//2, w):
+                    if (y - center_y)**2 + (x - center_x)**2 < radius**2:
+                        g[y, x] = 255
         
-        # Green gradient from top (0) to middle (255)
-        g[:h//2, :] = np.tile(np.linspace(0, 255, h//2, dtype=np.uint8).reshape(h//2, 1), (1, w))
-        
-        # Blue solid in bottom-right quadrant, with time-based variation for motion detection
-        b[h//2:, w//2:] = int(time.time() * 20) % 255
-        
-        # Add format identifier text area (white rectangle in corner)
+        # Add format identifier text area (white rectangle in corner) - keep this
         r[10:50, 10:200] = 255
         g[10:50, 10:200] = 255
         b[10:50, 10:200] = 255
 
         pf = getattr(self, '_pixel_format', 'RGB888')
-        print(f"DEBUG: [CameraStream] Generating test frame with format: {pf}")
+        print(f"DEBUG: [CameraStream] Generating test frame with format: {pf}, pattern: {pattern_cycle}")
         
         if pf == 'BGR888':
             # BGR order: Blue, Green, Red
@@ -530,12 +588,22 @@ class CameraStream(QObject):
             # Restart camera in appropriate mode
             try:
                 if enabled:
-                    print("DEBUG: [CameraStream] Restarting camera in trigger mode")
+                    print("DEBUG: [CameraStream] Setting up camera in trigger mode")
                     # Configure for still capture if available
                     if hasattr(self, 'still_config') and self.still_config:
                         print("DEBUG: [CameraStream] Configuring with still_config for trigger mode")
                         self.picam2.configure(self.still_config)
-                    self.start_live()  # Keep trigger enabled
+                    
+                    # In trigger mode, just start camera but DON'T start continuous streaming
+                    # Camera will capture only when external trigger signal received
+                    if not self.picam2.started:
+                        self.picam2.start()
+                        print("DEBUG: [CameraStream] Camera started in trigger mode (waiting for external trigger)")
+                    
+                    # Stop any live streaming if it was running
+                    if hasattr(self, 'is_live') and self.is_live:
+                        self.stop_live()
+                        print("DEBUG: [CameraStream] Stopped live streaming for trigger mode")
                 else:
                     print("DEBUG: [CameraStream] Restarting camera in live mode (no trigger)")
                     # Configure for preview if available
@@ -596,8 +664,12 @@ class CameraStream(QObject):
                 return False
             
         try:
-            # DON'T automatically disable hardware trigger here
-            # Let the caller decide if they want trigger mode or not
+            # For regular live view, we need to disable trigger mode if it's enabled
+            # This ensures camera can start properly in continuous capture mode
+            if hasattr(self, 'external_trigger_enabled') and self.external_trigger_enabled:
+                print("DEBUG: [CameraStream] Disabling trigger mode for live view")
+                self.set_trigger_mode(False)
+            
             print(f"DEBUG: [CameraStream] Current trigger mode: {self.external_trigger_enabled}")
             
             # Ensure camera is initialized
@@ -656,6 +728,75 @@ class CameraStream(QObject):
         
         # Then start live view normally
         return self.start_live()
+    
+    def start_preview(self):
+        """Start simple camera preview stream like testjob.py - no mode changes"""
+        print("DEBUG: [CameraStream] start_preview called - simple streaming mode")
+        
+        # Handle stub mode (no picamera2): start test-frame timer instead of failing
+        if not self.is_camera_available:
+            print("DEBUG: [CameraStream] Camera not available -> starting stub preview timer")
+            try:
+                # Ensure a timer exists and is wired to generate frames
+                if not hasattr(self, 'timer'):
+                    self.timer = QTimer()
+                    self.timer.timeout.connect(self._generate_test_frame)
+                # Start timer at target FPS
+                interval = int(1000.0 / max(1.0, float(getattr(self, '_target_fps', 10.0))))
+                if not self.timer.isActive():
+                    self.timer.start(max(1, interval))
+                self.is_live = True
+                return True
+            except Exception as e:
+                print(f"DEBUG: [CameraStream] Error starting stub preview: {e}")
+                return False
+                
+        try:
+            # Ensure camera is initialized (but don't change trigger mode)
+            if not hasattr(self, 'picam2') or self.picam2 is None:
+                print("DEBUG: [CameraStream] Initializing camera for preview")
+                if not self._safe_init_picamera():
+                    print("DEBUG: [CameraStream] Failed to initialize camera")
+                    return False
+            
+            # If camera is already started, stop it first
+            if hasattr(self, 'picam2') and self.picam2 and self.picam2.started:
+                print("DEBUG: [CameraStream] Camera already started, stopping first")
+                self.picam2.stop()
+            
+            # Configure for preview (use preview config regardless of mode)
+            self.picam2.configure(self.preview_config)
+            print("DEBUG: [CameraStream] Camera configured for preview")
+            
+            # Start the camera
+            print("DEBUG: [CameraStream] Starting camera for preview streaming")
+            self.picam2.start(show_preview=False)
+            
+            # Start threaded live capturing or fallback timer
+            if getattr(self, '_use_threaded_live', False):
+                print(f"DEBUG: [CameraStream] Starting threaded preview worker at {self._target_fps} FPS")
+                if hasattr(self, 'timer') and self.timer.isActive():
+                    self.timer.stop()
+                self._start_live_worker()
+            else:
+                if hasattr(self, 'timer') and not self.timer.isActive():
+                    interval = int(1000.0 / max(1.0, float(self._target_fps)))
+                    self.timer.start(interval)
+            
+            self.is_live = True
+            print("DEBUG: [CameraStream] Preview streaming started successfully")
+            return True
+            
+        except Exception as e:
+            print(f"DEBUG: [CameraStream] Error starting preview: {e}")
+            self.camera_error.emit(f"Failed to start camera preview: {str(e)}")
+            self.is_live = False
+            return False
+    
+    def stop_preview(self):
+        """Stop preview stream like testjob.py - simple stop"""
+        print("DEBUG: [CameraStream] stop_preview called")
+        return self.stop_live()  # Reuse existing stop_live logic
     
     def stop_live(self):
         """Stop live view"""
@@ -974,10 +1115,11 @@ class CameraStream(QObject):
         """Return current preview pixel format string (e.g., 'RGB888')."""
         try:
             format_str = str(self._pixel_format)
-            print(f"DEBUG: [CameraStream] get_pixel_format() returning: {format_str}")
+            # Debug logging disabled for performance
+            # print(f"DEBUG: [CameraStream] get_pixel_format() returning: {format_str}")
             return format_str
         except Exception:
-            print(f"DEBUG: [CameraStream] get_pixel_format() exception, returning BGR888")
+            # print(f"DEBUG: [CameraStream] get_pixel_format() exception, returning BGR888")
             return 'BGR888'
 
     def set_target_fps(self, fps):

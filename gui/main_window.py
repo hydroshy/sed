@@ -429,6 +429,9 @@ class MainWindow(QMainWindow):
         # Link CameraManager with SettingsManager for synchronization
         self.camera_manager.set_settings_manager(self.settings_manager)
         
+        # Setup review views for frame history
+        self._setup_review_views()
+        
         # Setup area change connections
         if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
             if hasattr(self.camera_manager.camera_view, 'area_changed'):
@@ -450,6 +453,33 @@ class MainWindow(QMainWindow):
             )
         else:
             logging.error("DetectToolManager not initialized!")
+    
+    def _setup_review_views(self):
+        """Setup review views for frame history display"""
+        try:
+            # Collect all review views
+            review_views = []
+            for i in range(1, 6):  # reviewView_1 to reviewView_5
+                view_name = f"reviewView_{i}"
+                if hasattr(self, view_name):
+                    review_view = getattr(self, view_name)
+                    review_views.append(review_view)
+                    logging.info(f"Found {view_name}: {review_view is not None}")
+                else:
+                    logging.warning(f"Review view {view_name} not found")
+                    review_views.append(None)
+            
+            # Pass review views to camera view if available
+            if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                self.camera_manager.camera_view.set_review_views(review_views)
+                logging.info("Review views connected to camera view for frame history")
+            else:
+                logging.warning("Camera view not available for review views setup")
+                
+        except Exception as e:
+            logging.error(f"Error setting up review views: {e}")
+            import traceback
+            traceback.print_exc()
 
         # Setup ClassificationToolManager (bind to classificationSettingPage widgets)
         try:
@@ -721,11 +751,16 @@ class MainWindow(QMainWindow):
                 
                 if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
                     try:
-                        # Gọi start_live() để bắt đầu stream frame
-                        success = self.camera_manager.camera_stream.start_live()
+                        # Use start_preview() for simple frame streaming like testjob.py (no job processing)
+                        if hasattr(self.camera_manager.camera_stream, 'start_preview'):
+                            success = self.camera_manager.camera_stream.start_preview()
+                        else:
+                            # Fallback to start_live() but disable job processing
+                            success = self.camera_manager.camera_stream.start_live()
+                            
                         if success:
                             logging.info("Camera stream started successfully")
-                            # Enable job execution để có thể chạy classification
+                            # Enable job execution for classification while keeping simple streaming
                             if hasattr(self.camera_manager.camera_stream, 'set_job_enabled'):
                                 self.camera_manager.camera_stream.set_job_enabled(True)
                                 logging.info("Job execution enabled on camera stream")
@@ -733,6 +768,7 @@ class MainWindow(QMainWindow):
                             if hasattr(self.camera_manager, 'job_enabled'):
                                 self.camera_manager.job_enabled = True
                                 logging.info("Job execution enabled in camera manager")
+                            
                             # Set button style to green when active
                             self.onlineCamera.setStyleSheet("""
                                 QPushButton {
@@ -773,7 +809,12 @@ class MainWindow(QMainWindow):
                             self.camera_manager.job_enabled = False
                             logging.info("Job execution disabled in camera manager")
                         
-                        self.camera_manager.camera_stream.stop_live()
+                        # Use stop_preview() for simple streaming like testjob.py
+                        if hasattr(self.camera_manager.camera_stream, 'stop_preview'):
+                            self.camera_manager.camera_stream.stop_preview()
+                        else:
+                            # Fallback to stop_live()
+                            self.camera_manager.camera_stream.stop_live()
                         logging.info("Camera stream stopped")
                     except Exception as e:
                         logging.error(f"Error stopping camera stream: {e}")

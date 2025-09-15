@@ -67,6 +67,11 @@ class CameraView(QObject):
         self.fps_alpha = 0.9  # Hệ số trung bình động cho FPS
         self.show_fps = True
         
+        # Frame history for review views
+        self.frame_history = []  # Store last 5 frames for review views
+        self.max_history_frames = 5
+        self.review_views = None  # Will be set by main window
+        
         # Drawing mode variables
         self.draw_mode = False
         self.drawing = False
@@ -208,46 +213,49 @@ class CameraView(QObject):
         
         # Choose frame to display based on current display mode
         display_frame = self._get_display_frame()
+        
+        # Use the display frame (could be raw or processed)
+        frame_to_process = display_frame if display_frame is not None else frame
 
         try:
             # Handle different frame formats safely
-            if len(frame.shape) == 3 and frame.shape[2] >= 3:  # Color image with channels
-                if frame.shape[2] == 4:  # RGBA format
+            if len(frame_to_process.shape) == 3 and frame_to_process.shape[2] >= 3:  # Color image with channels
+                if frame_to_process.shape[2] == 4:  # RGBA format
                     logging.debug("Converting RGBA to RGB")
-                    frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2RGB)
-                elif frame.shape[2] == 3:  # Already 3-channel (BGR/RGB)
+                    frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_RGBA2RGB)
+                elif frame_to_process.shape[2] == 3:  # Already 3-channel (BGR/RGB)
                     logging.debug("Using 3-channel frame as-is")
-            elif len(frame.shape) == 2:  # 2D frame
+            elif len(frame_to_process.shape) == 2:  # 2D frame
                 logging.debug("Converting 2D frame to RGB for display")
                 # For simplicity, treat all 2D frames as grayscale
-                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
+                frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_GRAY2RGB)
             else:
                 # For other formats, try to display as-is or convert to displayable format
-                logging.debug("Frame format: %s, attempting to display directly", frame.shape)
-                if len(frame.shape) == 3 and frame.shape[2] == 1:
+                logging.debug("Frame format: %s, attempting to display directly", frame_to_process.shape)
+                if len(frame_to_process.shape) == 3 and frame_to_process.shape[2] == 1:
                     # Single channel, convert to grayscale then RGB
-                    frame = frame.squeeze()  # Remove single dimension
-                    frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
-                elif len(frame.shape) == 1:
+                    frame_to_process = frame_to_process.squeeze()  # Remove single dimension
+                    frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_GRAY2RGB)
+                elif len(frame_to_process.shape) == 1:
                     # 1D array - reshape to 2D if possible
-                    height = int(np.sqrt(frame.size))
-                    if height * height == frame.size:
-                        frame = frame.reshape(height, height)
-                        frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
+                    height = int(np.sqrt(frame_to_process.size))
+                    if height * height == frame_to_process.size:
+                        frame_to_process = frame_to_process.reshape(height, height)
+                        frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_GRAY2RGB)
                     else:
-                        logging.warning("Cannot display 1D frame of size %s", frame.size)
+                        logging.warning("Cannot display 1D frame of size %s", frame_to_process.size)
                         return
                 else:
-                    logging.warning("Unsupported frame format with shape: %s", frame.shape)
+                    logging.warning("Unsupported frame format with shape: %s", frame_to_process.shape)
                     return
         except Exception as e:
             logging.error("Error processing frame format: %s", e)
             # Fallback: try to display as grayscale if possible
             try:
-                if len(frame.shape) >= 2:
+                if len(frame_to_process.shape) >= 2:
                     # Take first 2 dimensions and treat as grayscale
-                    gray_frame = frame[:, :, 0] if len(frame.shape) == 3 else frame
-                    frame = cv2.cvtColor(gray_frame.astype(np.uint8), cv2.COLOR_GRAY2RGB)
+                    gray_frame = frame_to_process[:, :, 0] if len(frame_to_process.shape) == 3 else frame_to_process
+                    frame_to_process = cv2.cvtColor(gray_frame.astype(np.uint8), cv2.COLOR_GRAY2RGB)
                 else:
                     logging.error("Cannot recover from frame format error")
                     return
@@ -255,11 +263,13 @@ class CameraView(QObject):
                 logging.error("Fallback frame processing failed: %s", fallback_error)
                 return
 
-        self.current_frame = frame  # Lưu frame hiện tại sau khi xử lý format
+        self.current_frame = frame_to_process  # Lưu frame hiện tại sau khi xử lý format
         # current_raw_frame đã được lưu ở đầu hàm
         
         self._show_frame_with_zoom()
         self._calculate_fps()
+        
+        # Note: Frame history is updated in _show_frame_with_zoom after RGB conversion
         
     def _run_job_processing(self, frame):
         """
@@ -341,6 +351,10 @@ class CameraView(QObject):
                         # Determine tool type and store accordingly
                         if 'detect' in tool_name.lower():
                             tool_key = f"detection_detect_tool"
+                            self.processed_frames[tool_key] = result_image
+                            print(f"DEBUG: [CameraView] Stored processed frame for {tool_key}")
+                        elif 'classification' in tool_name.lower():
+                            tool_key = f"classification_classification_tool"
                             self.processed_frames[tool_key] = result_image
                             print(f"DEBUG: [CameraView] Stored processed frame for {tool_key}")
                         elif 'edge' in tool_name.lower():
@@ -516,11 +530,13 @@ class CameraView(QObject):
                 cs = getattr(cm, 'camera_stream', None) if cm else None
                 if cs is not None and hasattr(cs, 'get_pixel_format'):
                     pixel_format = cs.get_pixel_format()
-                    print(f"DEBUG: [CameraView] Got pixel format from stream: {pixel_format}")
+                    # Debug logging disabled for performance
+                    # print(f"DEBUG: [CameraView] Got pixel format from stream: {pixel_format}")
                 else:
-                    print(f"DEBUG: [CameraView] Could not get pixel format from stream, using default: {pixel_format}")
+                    # print(f"DEBUG: [CameraView] Could not get pixel format from stream, using default: {pixel_format}")
+                    pass
             except Exception as e:
-                print(f"DEBUG: [CameraView] Exception getting pixel format: {e}")
+                # print(f"DEBUG: [CameraView] Exception getting pixel format: {e}")
                 pixel_format = 'BGR888'
             # Convert frame to RGB - PiCamera2 ALWAYS returns BGR regardless of config
             # Only trust format for test frames (when camera not available)
@@ -539,40 +555,52 @@ class CameraView(QObject):
                     # For test frames, trust the pixel format
                     if str(pixel_format) == 'RGB888':
                         # Test frame is already RGB, use directly
-                        print(f"DEBUG: [CameraView] Test frame RGB888, using directly")
+                        # print(f"DEBUG: [CameraView] Test frame RGB888, using directly")
                         rgb_image = self.current_frame
+                        
+                        # Update frame history with RGB frame (no conversion needed)
+                        self.update_frame_history(rgb_image)
                     elif str(pixel_format) == 'BGR888':
                         # Test frame is BGR, convert to RGB
-                        print(f"DEBUG: [CameraView] Test frame BGR888, converting to RGB")
+                        # print(f"DEBUG: [CameraView] Test frame BGR888, converting to RGB")
                         rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+                        
+                        # Update frame history with RGB-converted frame
+                        self.update_frame_history(rgb_image)
                     else:
                         # Unknown test frame format, assume BGR
-                        print(f"DEBUG: [CameraView] Test frame {pixel_format}, assuming BGR and converting")
+                        # print(f"DEBUG: [CameraView] Test frame {pixel_format}, assuming BGR and converting")
                         rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+                        
+                        # Update frame history with RGB-converted frame
+                        self.update_frame_history(rgb_image)
                 else:
                     # For real camera frames: PiCamera2 ALWAYS returns BGR data regardless of format setting
                     # This is PiCamera2's internal behavior - it converts all formats to BGR internally
-                    print(f"DEBUG: [CameraView] Real camera processing: format={pixel_format}")
-                    print(f"DEBUG: [CameraView] Original frame shape: {self.current_frame.shape}")
-                    print(f"DEBUG: [CameraView] PiCamera2 always returns BGR data, converting to RGB for PyQt")
+                    # print(f"DEBUG: [CameraView] Real camera processing: format={pixel_format}")
+                    # print(f"DEBUG: [CameraView] Original frame shape: {self.current_frame.shape}")
+                    # print(f"DEBUG: [CameraView] PiCamera2 always returns BGR data, converting to RGB for PyQt")
                     
                     # Always convert BGR->RGB for 3-channel real camera frames
                     # PiCamera2 internally provides BGR regardless of format setting
                     rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
                     
-                    print(f"DEBUG: [CameraView] Converted frame shape: {rgb_image.shape}")
+                    # Update frame history with RGB-converted frame for correct colors in review views
+                    self.update_frame_history(rgb_image)
                     
-                    # Debug: Check pixel values 
-                    if h > 100 and w > 100:
-                        sample_pixel = self.current_frame[50, 50]  # Sample a pixel from original
-                        display_sample = rgb_image[50, 50]  # Sample from display data
-                        print(f"DEBUG: [CameraView] Original pixel at (50,50): {sample_pixel} (BGR from PiCamera2)")
-                        print(f"DEBUG: [CameraView] Display pixel at (50,50): {display_sample} (RGB for PyQt)")
-                        print(f"DEBUG: [CameraView] Color analysis - R:{display_sample[0]}, G:{display_sample[1]}, B:{display_sample[2]}")
+                    # print(f"DEBUG: [CameraView] Converted frame shape: {rgb_image.shape}")
+                    
+                    # Debug: Check pixel values (disabled for performance)
+                    # if h > 100 and w > 100:
+                    #     sample_pixel = self.current_frame[50, 50]  # Sample a pixel from original
+                    #     display_sample = rgb_image[50, 50]  # Sample from display data
+                    #     print(f"DEBUG: [CameraView] Original pixel at (50,50): {sample_pixel} (BGR from PiCamera2)")
+                    #     print(f"DEBUG: [CameraView] Display pixel at (50,50): {display_sample} (RGB for PyQt)")
+                    #     print(f"DEBUG: [CameraView] Color analysis - R:{display_sample[0]}, G:{display_sample[1]}, B:{display_sample[2]}")
             elif ch == 4:
                 if is_test_frame and str(pixel_format) == 'XRGB8888':
                     # Test frame RGBA format, convert to RGB
-                    print(f"DEBUG: [CameraView] Test frame XRGB8888, converting RGBA->RGB")
+                    # print(f"DEBUG: [CameraView] Test frame XRGB8888, converting RGBA->RGB")
                     rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_RGBA2RGB)
                 else:
                     # Real camera or unknown 4-channel format, assume BGRA and convert
@@ -1040,6 +1068,108 @@ class CameraView(QObject):
         else:
             rect = QRectF(x1, y1, x2-x1, y2-y1)
             self.current_overlay = DetectionAreaOverlay(rect, camera_view=self)
+    
+    def set_review_views(self, review_views):
+        """Set reference to review views for frame history display"""
+        self.review_views = review_views
+        logging.info(f"Frame history: Connected to {len(review_views)} review views")
+    
+    def update_frame_history(self, frame):
+        """Update frame history and refresh review views"""
+        try:
+            if frame is None:
+                return
+            
+            # Add current frame to history
+            frame_copy = frame.copy()
+            self.frame_history.append(frame_copy)
+            
+            # Keep only last N frames
+            if len(self.frame_history) > self.max_history_frames:
+                self.frame_history.pop(0)  # Remove oldest frame
+            
+            # Update review views if available
+            self._update_review_views()
+            
+        except Exception as e:
+            logging.error(f"Error updating frame history: {e}")
+    
+    def _update_review_views(self):
+        """Update review views with frame history"""
+        try:
+            if not self.review_views or not self.frame_history:
+                return
+            
+            # Update each review view with corresponding frame from history
+            # reviewView_1 = most recent, reviewView_5 = oldest
+            for i, review_view in enumerate(self.review_views):
+                if not review_view:
+                    continue
+                    
+                # Calculate frame index (newest to oldest)
+                frame_index = len(self.frame_history) - 1 - i
+                
+                if frame_index >= 0 and frame_index < len(self.frame_history):
+                    frame = self.frame_history[frame_index]
+                    self._display_frame_in_review_view(review_view, frame, i + 1)
+                else:
+                    # Clear review view if no frame available
+                    self._clear_review_view(review_view)
+                    
+        except Exception as e:
+            logging.error(f"Error updating review views: {e}")
+    
+    def _display_frame_in_review_view(self, review_view, frame, view_number):
+        """Display a frame in specific review view"""
+        try:
+            if frame is None or review_view is None:
+                return
+            
+            # Get or create scene for review view
+            scene = review_view.scene()
+            if scene is None:
+                scene = QGraphicsScene()
+                review_view.setScene(scene)
+            else:
+                scene.clear()
+            
+            # Convert frame to QPixmap with proper color format handling
+            if len(frame.shape) == 3:
+                h, w, ch = frame.shape
+                if ch == 3:
+                    # Frame from history should already be in RGB format
+                    # (converted in _show_frame_with_zoom method)
+                    qimg = QImage(frame.data, w, h, w * ch, QImage.Format_RGB888)
+                elif ch == 4:
+                    # RGBA format
+                    qimg = QImage(frame.data, w, h, w * ch, QImage.Format_RGBA8888)
+                else:
+                    logging.warning(f"Unsupported channel count for review view {view_number}: {ch}")
+                    return
+            elif len(frame.shape) == 2:
+                # Grayscale
+                h, w = frame.shape
+                qimg = QImage(frame.data, w, h, w, QImage.Format_Grayscale8)
+            else:
+                logging.warning(f"Unsupported frame shape for review view {view_number}: {frame.shape}")
+                return
+            
+            pixmap = QPixmap.fromImage(qimg)
+            scene.addPixmap(pixmap)
+            
+            # Fit in view
+            review_view.fitInView(scene.itemsBoundingRect(), Qt.KeepAspectRatio)
+            
+        except Exception as e:
+            logging.error(f"Error displaying frame in review view {view_number}: {e}")
+    
+    def _clear_review_view(self, review_view):
+        """Clear a review view"""
+        try:
+            if review_view and review_view.scene():
+                review_view.scene().clear()
+        except Exception as e:
+            logging.error(f"Error clearing review view: {e}")
             self.scene.addItem(self.current_overlay)
             
         self.set_overlay_edit_mode(editable)

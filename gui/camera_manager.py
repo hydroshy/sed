@@ -56,8 +56,13 @@ class CameraManager(QObject):
         self.trigger_camera_mode = None  # Button for switching to trigger mode
         
         # Job control state
-        self.job_enabled = False  # M   c      nh DISABLE job execution       tr  nh camera b        ng b  ng
+        self.job_enabled = False  # Mặc định DISABLE job execution để tránh camera bị đơ cứng
         self.job_toggle_btn = None
+        
+        # Frame processing throttling for performance
+        # self._frame_skip_counter = 0
+        # self._frame_skip_interval = 3  # Process every 3rd frame for better performance  
+        # self._last_processed_frame = None  # Store last processed frame to show during skipped frames
         
         # Exposure settings state
         self._is_auto_exposure = False  # B   t      u v   i manual mode       user c   th    ch   nh exposure
@@ -271,11 +276,6 @@ class CameraManager(QObject):
                     self.camera_view.display_frame(frame)
                 return
 
-            # Drop frame if a previous one is still being processed
-            if getattr(self, '_processing_frame', False):
-                return
-
-            self._processing_frame = True
             try:
                 # Build context for pipeline: include pixel_format for correct color handling
                 pixel_format = 'BGR888'
@@ -301,14 +301,13 @@ class CameraManager(QObject):
                     pass
                 initial_context = {"force_save": True, "pixel_format": str(pixel_format)}
                 processed_image, _ = job_manager.run_current_job(frame, context=initial_context)
+                
                 if self.camera_view:
                     self.camera_view.display_frame(processed_image if processed_image is not None else frame)
             except Exception as e:
                 logging.getLogger(__name__).error(f"Error processing frame in job pipeline: {e}")
                 if self.camera_view:
                     self.camera_view.display_frame(frame)
-            finally:
-                self._processing_frame = False
         except Exception:
             # As a last resort, show the raw frame
             try:
@@ -1479,81 +1478,113 @@ class CameraManager(QObject):
             return False
     
     def on_live_camera_clicked(self):
-        """Handle click Live Camera button (onlineCamera)"""
-        # Arm and wait: mark waiting for first frame when starting
+        """Handle click Live Camera button (onlineCamera) - Simple stream on/off without mode change"""
         try:
             if self.live_camera_btn and self.live_camera_btn.isChecked():
                 self._waiting_first_frame = True
         except Exception:
             pass
+        
         current_checked = self.live_camera_btn.isChecked() if self.live_camera_btn else True
-        print(f"DEBUG: [CameraManager] Live camera button clicked, checked: {current_checked}, current_mode: {self.current_mode}")
+        print(f"DEBUG: [CameraManager] Online camera button clicked, checked: {current_checked}")
         
+        if not self.camera_stream:
+            print("DEBUG: [CameraManager] No camera stream available")
+            if self.live_camera_btn:
+                self.live_camera_btn.setChecked(False)
+            return
+            
         if current_checked:
-            # Button        c click       b   t camera
-            print(f"DEBUG: [CameraManager] Starting camera in mode: {self.current_mode or 'default'}")
-            
-            # H  nh vi kh  c nhau d   a v  o ch          hi   n t   i
-            if self.current_mode == 'trigger' or (self.trigger_camera_mode and self.trigger_camera_mode.isChecked()):
-                # Ch          trigger - b   t camera trong ch               i external trigger
-                print("DEBUG: [CameraManager] Starting camera in TRIGGER mode")
-                
-                #      m b   o hardware        c thi   t l   p     ng     ch          trigger
-                if self.camera_stream and hasattr(self.camera_stream, 'set_trigger_mode'):
-                    print("DEBUG: [CameraManager] Setting hardware to trigger mode")
-                    self.camera_stream.set_trigger_mode(True)
-                    
-                # Thi   t l   p ch          trigger ngay c    khi kh  ng ph   i   ang     ch              
-                self.current_mode = 'trigger'
-                
-                # B   t      u camera trong ch          STILL/TRIGGER
-                success = self._implement_start_trigger()
-                if not success:
-                    print("DEBUG: [CameraManager] Failed to start camera in trigger mode")
-                    self.current_mode = None
-                    # Uncheck button if failed
-                    if self.live_camera_btn:
-                        self.live_camera_btn.setChecked(False)
-            else:
-                # Ch          live m   c      nh ho   c             c ch   n
-                print("DEBUG: [CameraManager] Starting camera in LIVE mode")
-                
-                # Set hardware to live mode
-                if self.camera_stream and hasattr(self.camera_stream, 'set_trigger_mode'):
-                    print("DEBUG: [CameraManager] Setting hardware to live mode")
-                    self.camera_stream.set_trigger_mode(False)
-                
-                # Refresh source output combo before starting
-                print("DEBUG: [CameraManager] Refreshing source output combo before live start")
-                self.refresh_source_output_combo()
-                    
-                success = self.toggle_live_camera(True)
+            # Start camera stream (like testjob.py - simple stream without mode change)
+            print("DEBUG: [CameraManager] Starting camera stream...")
+            try:
+                # Use simple stream method that doesn't change trigger/live mode
+                success = self._start_camera_stream()
                 if success:
-                    self.current_mode = 'live'
+                    print("DEBUG: [CameraManager] Camera stream started successfully")
                 else:
-                    print("DEBUG: [CameraManager] Failed to start live mode")
-                    self.current_mode = None
-                    # Uncheck button if failed
+                    print("DEBUG: [CameraManager] Failed to start camera stream")
                     if self.live_camera_btn:
                         self.live_camera_btn.setChecked(False)
+            except Exception as e:
+                print(f"DEBUG: [CameraManager] Error starting camera stream: {e}")
+                if self.live_camera_btn:
+                    self.live_camera_btn.setChecked(False)
         else:
-            # Button        c click       t   t camera
-            print("DEBUG: [CameraManager] Stopping camera")
-            
-            # D   ng camera b   t k    ch          n  o
-            if self.current_mode == 'trigger':
-                # N   u   ang     ch          trigger, d   ng camera theo c  ch ph   h   p
-                success = self._implement_stop_trigger()
-            else:
-                # N   u     ch          live ho   c kh  ng x  c      nh, d  ng ph    ng th   c th  ng th     ng
-                success = self.toggle_live_camera(False)
-                
-            if success:
-                self.current_mode = None
-            # Keep button unchecked regardless
+            # Stop camera stream
+            print("DEBUG: [CameraManager] Stopping camera stream...")
+            try:
+                success = self._stop_camera_stream()
+                if success:
+                    print("DEBUG: [CameraManager] Camera stream stopped successfully")
+                else:
+                    print("DEBUG: [CameraManager] Failed to stop camera stream")
+            except Exception as e:
+                print(f"DEBUG: [CameraManager] Error stopping camera stream: {e}")
         
-        # Update UI to reflect current state
+        # Update UI to reflect current streaming state (not mode)
         self.update_camera_mode_ui()
+    
+    def _start_camera_stream(self):
+        """Start camera stream like testjob.py - simple streaming without mode change"""
+        if not self.camera_stream:
+            return False
+            
+        try:
+            # Check if camera is already streaming
+            if hasattr(self.camera_stream, 'is_live') and self.camera_stream.is_live:
+                print("DEBUG: [CameraManager] Camera stream already running")
+                return True
+            
+            # Start simple preview stream (like testjob.py)
+            if hasattr(self.camera_stream, 'start_preview'):
+                success = self.camera_stream.start_preview()
+            else:
+                # Fallback to start_live if start_preview not available
+                success = self.camera_stream.start_live()
+            
+            if success:
+                # Enable job execution for frame processing
+                self.job_enabled = True
+                if hasattr(self.camera_stream, 'set_job_enabled'):
+                    self.camera_stream.set_job_enabled(True)
+                print("DEBUG: [CameraManager] Camera stream started with job processing enabled")
+                return True
+            else:
+                print("DEBUG: [CameraManager] Failed to start camera stream")
+                return False
+                
+        except Exception as e:
+            print(f"DEBUG: [CameraManager] Exception starting camera stream: {e}")
+            return False
+    
+    def _stop_camera_stream(self):
+        """Stop camera stream like testjob.py - simple stop without mode change"""
+        if not self.camera_stream:
+            return False
+            
+        try:
+            # Disable job execution first
+            self.job_enabled = False
+            if hasattr(self.camera_stream, 'set_job_enabled'):
+                self.camera_stream.set_job_enabled(False)
+            
+            # Stop stream
+            if hasattr(self.camera_stream, 'stop_preview'):
+                success = self.camera_stream.stop_preview()
+            elif hasattr(self.camera_stream, 'stop_live'):
+                success = self.camera_stream.stop_live()
+            else:
+                # Fallback to cancel_all_and_flush
+                self.camera_stream.cancel_all_and_flush()
+                success = True
+            
+            print("DEBUG: [CameraManager] Camera stream stopped")
+            return success
+            
+        except Exception as e:
+            print(f"DEBUG: [CameraManager] Exception stopping camera stream: {e}")
+            return False
     
     def on_trigger_camera_clicked(self):
         """X    l   khi click Trigger Camera button - ch    ch   p    nh m   t l   n"""

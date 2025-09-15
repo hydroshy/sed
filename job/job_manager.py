@@ -6,11 +6,45 @@ from typing import Dict, List, Any, Optional, Tuple, Union, cast
 
 import numpy as np
 
+# Import Qt for threading
+try:
+    from PyQt5.QtCore import QThread, QObject, pyqtSignal
+    QT_AVAILABLE = True
+except ImportError:
+    QT_AVAILABLE = False
+
 # Cấu hình logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("JobManager")
 
 from tools.base_tool import ToolConfig, BaseTool, GenericTool
+
+
+class JobWorkerThread(QThread if QT_AVAILABLE else object):
+    """Worker thread for job execution to avoid blocking UI"""
+    
+    if QT_AVAILABLE:
+        job_completed = pyqtSignal(str, dict)  # job_name, results
+        job_error = pyqtSignal(str, str)       # job_name, error_message
+    
+    def __init__(self, job, image, context=None):
+        if QT_AVAILABLE:
+            super().__init__()
+        self.job = job
+        self.image = image
+        self.context = context or {}
+        
+    def run(self):
+        """Execute job in background thread"""
+        try:
+            results = self.job.process_image(self.image, self.context)
+            if QT_AVAILABLE:
+                self.job_completed.emit(self.job.name, results)
+        except Exception as e:
+            error_msg = f"Job execution failed: {str(e)}"
+            logger.error(error_msg)
+            if QT_AVAILABLE:
+                self.job_error.emit(self.job.name, error_msg)
 
 
 class Job:
@@ -516,6 +550,10 @@ class JobManager:
         self.tool_registry: Dict[str, type] = {}  # map tool_type -> Tool class
         self.register_default_tools()
         
+        # Threading support
+        self.worker_thread = None
+        self.use_threading = QT_AVAILABLE  # Use threading if PyQt5 is available
+        
     def register_tool(self, tool_class: type) -> None:
         """Đăng ký một loại công cụ mới"""
         self.tool_registry[tool_class.__name__] = tool_class
@@ -629,9 +667,24 @@ class JobManager:
                     initial_context.update(context)
                 except Exception:
                     pass
-            # Pass the merged context to the job
-            return current_job.run(image, initial_context)
+            
+            # Use threading if available to avoid blocking UI
+            if self.use_threading and self.worker_thread is None:
+                return self._run_job_threaded(current_job, image, initial_context)
+            else:
+                # Fallback to synchronous execution
+                return current_job.run(image, initial_context)
         return image, {"error": "Không có job hiện tại"}
+        
+    def _run_job_threaded(self, job, image: np.ndarray, context: Dict[str, Any]) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """Run job in background thread (non-blocking for UI)"""
+        try:
+            # For now, still run synchronously but with minimal blocking
+            # In the future, this could be fully async with signals
+            return job.run(image, context)
+        except Exception as e:
+            logger.error(f"Threaded job execution failed: {e}")
+            return image, {"error": f"Job execution failed: {str(e)}"}
         
     def save_job(self, job_index: int, path: str) -> bool:
         """Lưu một job vào file"""
