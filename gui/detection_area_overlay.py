@@ -109,19 +109,23 @@ class DetectionAreaOverlay(QGraphicsRectItem):
             self.setBrush(brush)
             
         else:
-            # Tắt tương tác
-            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
-            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
-            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, False)
-            
-            # Ẩn handles
-            self._show_handles(False)
-            
-            # Style khi không edit (khung mỏng hơn)
-            pen = QPen(QColor(255, 0, 0), 2)
-            brush = QBrush(QColor(255, 0, 0, 20))
-            self.setPen(pen)
-            self.setBrush(brush)
+            # Tắt tương tác với error handling
+            try:
+                self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+                self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+                self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, False)
+                
+                # Ẩn handles
+                self._show_handles(False)
+                
+                # Style khi không edit (khung mỏng hơn)
+                pen = QPen(QColor(255, 0, 0), 2)
+                brush = QBrush(QColor(255, 0, 0, 20))
+                self.setPen(pen)
+                self.setBrush(brush)
+            except RuntimeError as e:
+                print(f"DEBUG: DetectionAreaOverlay already deleted: {e}")
+                return  # Object đã bị delete, không thể thao tác
             
         print(f"DEBUG: DetectionAreaOverlay edit mode: {enabled}")
         

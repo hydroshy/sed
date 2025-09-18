@@ -551,6 +551,12 @@ class JobManager:
         self.tool_registry: Dict[str, type] = {}  # map tool_type -> Tool class
         self.register_default_tools()
         
+        # Performance optimization attributes
+        self.last_detection_time = 0
+        self.detection_interval = 1.0 / 12.0  # 12 FPS for detection (instead of 66 FPS)
+        self.frame_cache = {}
+        self.last_processed_frame = None
+        
         # Threading support
         self.worker_thread = None
         self.use_threading = QT_AVAILABLE  # Use threading if PyQt5 is available
@@ -657,9 +663,25 @@ class JobManager:
         return image, {"error": "Chỉ số job không hợp lệ"}
         
     def run_current_job(self, image: np.ndarray, context: Optional[Dict[str, Any]] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """Chạy job hiện tại với context tùy chọn"""
+        """Chạy job hiện tại với context tùy chọn và frame skipping optimization"""
         current_job = self.get_current_job()
         if current_job:
+            # Smart frame skipping for detection jobs
+            current_time = time.time()
+            has_detect_tool = any('detect' in tool.name.lower() for tool in current_job.tools)
+            
+            if has_detect_tool:
+                # Check if enough time has passed for detection
+                if current_time - self.last_detection_time < self.detection_interval:
+                    # Return cached result if available
+                    if self.last_processed_frame is not None:
+                        return self.last_processed_frame, {"cached": True, "skipped_frame": True}
+                    # Or return original image with minimal processing
+                    return image, {"cached": False, "skipped_frame": True}
+                
+                # Update last detection time
+                self.last_detection_time = current_time
+            
             # Base context ensures SaveImageTool can save when desired
             initial_context: Dict[str, Any] = {"force_save": True}
             # Merge additional context from caller (e.g., pixel_format)
@@ -671,10 +693,16 @@ class JobManager:
             
             # Use threading if available to avoid blocking UI
             if self.use_threading and self.worker_thread is None:
-                return self._run_job_threaded(current_job, image, initial_context)
+                result = self._run_job_threaded(current_job, image, initial_context)
             else:
                 # Fallback to synchronous execution
-                return current_job.run(image, initial_context)
+                result = current_job.run(image, initial_context)
+            
+            # Cache the result for frame skipping
+            if has_detect_tool and result[0] is not None:
+                self.last_processed_frame = result[0]
+            
+            return result
         return image, {"error": "Không có job hiện tại"}
         
     def _run_job_threaded(self, job, image: np.ndarray, context: Dict[str, Any]) -> Tuple[np.ndarray, Dict[str, Any]]:

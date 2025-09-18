@@ -558,14 +558,47 @@ class DetectToolManager:
     
     def get_tool_config(self) -> Dict:
         """Get current tool configuration"""
+        # Get class names from current model
+        class_names = []
+        if self.current_model and 'classes' in self.current_model:
+            class_names = self.current_model['classes']
+        
         config = {
             'model_name': self.current_model['name'] if self.current_model else None,
             'model_path': self.current_model['path'] if self.current_model else None,
+            'class_names': class_names,  # Add class_names from model
             'selected_classes': self.selected_classes.copy(),
             'class_thresholds': self.get_class_thresholds(),
-            'num_classes': len(self.selected_classes)
+            'num_classes': len(self.selected_classes),
+            'confidence_threshold': 0.5,  # Default confidence threshold
+            'nms_threshold': 0.45,  # Default NMS threshold
+            'detection_region': self._get_detection_area(),  # Get detection area from camera view
+            'visualize_results': True,
+            'show_confidence': True,
+            'show_class_names': True
         }
         return config
+    
+    def _get_detection_area(self):
+        """Get detection area coordinates from camera view"""
+        try:
+            # Get camera view from main window
+            if hasattr(self, 'main_window') and self.main_window:
+                camera_manager = getattr(self.main_window, 'camera_manager', None)
+                if camera_manager and hasattr(camera_manager, 'camera_view'):
+                    camera_view = camera_manager.camera_view
+                    if camera_view and hasattr(camera_view, 'overlays'):
+                        # Get first overlay area (assuming single detection area for now)
+                        for overlay in camera_view.overlays.values():
+                            if hasattr(overlay, 'get_area_coords'):
+                                coords = overlay.get_area_coords()
+                                if coords and len(coords) == 4:
+                                    print(f"DEBUG: Got detection area: {coords}")
+                                    return coords
+        except Exception as e:
+            print(f"DEBUG: Error getting detection area: {e}")
+        
+        return None  # No detection area defined
     
     def load_tool_config(self, config: Dict):
         """Load tool configuration"""

@@ -1094,6 +1094,9 @@ class MainWindow(QMainWindow):
         """Xử lý khi người dùng nhấn nút Add Tool"""
         # Lấy công cụ được chọn
         tool_name = self.tool_manager.on_add_tool()
+        print(f"DEBUG: _on_add_tool called, tool_name: {tool_name}")
+        print(f"DEBUG: tool_manager._pending_tool after on_add_tool: {getattr(self.tool_manager, '_pending_tool', 'None')}")
+        
         # Khi add tool mới, không truyền detection_area từ tool trước đó
         # pending_detection_area chỉ dùng cho preview/crop khi cần
         self.tool_manager._pending_detection_area = None
@@ -1105,6 +1108,11 @@ class MainWindow(QMainWindow):
             elif tool_name == "Classification Tool":
                 if self.settings_manager.switch_to_tool_setting_page("Classification Tool"):
                     self.refresh_classification_tool_manager()
+            elif tool_name == "Detect Tool":
+                print(f"DEBUG: Switching to Detect Tool settings page")
+                if self.settings_manager.switch_to_tool_setting_page("Detect Tool"):
+                    self.refresh_detect_tool_manager()
+                    print(f"DEBUG: Detect tool manager refreshed")
             else:
                 self.settings_manager.switch_to_tool_setting_page(tool_name)
                 self._clear_tool_config_ui()
@@ -1393,6 +1401,10 @@ class MainWindow(QMainWindow):
 
         # Handle detection settings page
         if current_page == "detect":
+            print(f"DEBUG: Entering detect page handling")
+            print(f"DEBUG: _editing_tool: {self._editing_tool}")
+            print(f"DEBUG: tool_manager._pending_tool: {getattr(self.tool_manager, '_pending_tool', 'None')}")
+            
             # Nếu đang ở chế độ chỉnh sửa tool (edit), chỉ cập nhật config tool đó
             if self._editing_tool is not None:
                 print(f"DEBUG: Updating config for editing tool: {self._editing_tool.display_name}")
@@ -1435,6 +1447,10 @@ class MainWindow(QMainWindow):
                 # Cập nhật workflow view
                 self._update_workflow_view()
                 return
+            
+            print(f"DEBUG: Not in edit mode, checking if should add new DetectTool")
+            print(f"DEBUG: Has detect_tool_manager: {hasattr(self, 'detect_tool_manager')}")
+        
         # Handle classification settings page (simple apply -> add tool)
         if current_page == "classification":
             try:
@@ -1452,6 +1468,9 @@ class MainWindow(QMainWindow):
                 return
             except Exception as e:
                 logging.error(f"Error applying Classification Tool settings: {e}")
+                
+        # Continue with detect page logic if not in edit mode
+        if current_page == "detect":
             # Nếu không phải chế độ edit, xử lý như cũ (thêm mới tool)
             print(f"DEBUG: Detection page - _pending_tool: {getattr(self.tool_manager, '_pending_tool', 'None')}")
             print(f"DEBUG: Detection page - _editing_tool: {self._editing_tool}")
@@ -1532,65 +1551,14 @@ class MainWindow(QMainWindow):
                 
                 return
             
-            # Đoạn này đã xử lý cập nhật tool ở trên với self._editing_tool, không cần lặp lại với editing_tool
-            # Nếu không phải chế độ edit, xử lý như cũ (thêm mới tool)
-            # Adding new tool (old path - should not reach here for Detect Tool)
-            print("DEBUG: Adding new tool (old path)")
-            # Lưu cấu hình vào tool_manager
-            if hasattr(self.tool_manager, '_pending_tool') and self.tool_manager._pending_tool:
-                # Get UI widgets from appropriate setting page
-                ui_widgets = {}
-                current_widget = self.settingStackedWidget.currentWidget()
-                
-                # Collect all relevant UI widgets from the current setting page
-                if current_widget:
-                    # Find all relevant UI controls
-                    all_controls = current_widget.findChildren(QWidget)
-                    for control in all_controls:
-                        if control.objectName():
-                            ui_widgets[control.objectName()] = control
-                
-                config = self.settings_manager.collect_tool_config(
-                    self.tool_manager._pending_tool,
-                    ui_widgets
-                )
-                self.tool_manager.set_tool_config(config)
-
-                # Áp dụng cài đặt detection và get added tool
-                added_tool = self.tool_manager.on_apply_setting()
-                
-                # Debug log để kiểm tra tool đã được thêm chưa
-                print(f"DEBUG: Added tool result: {added_tool}")
-                if added_tool:
-                    print(f"DEBUG: Added tool details - name: {added_tool.name}, display_name: {getattr(added_tool, 'display_name', 'N/A')}, ID: {getattr(added_tool, 'tool_id', 'N/A')}")
-                    # Kiểm tra xem tool đã được thêm vào job chưa
-                    current_job = self.job_manager.get_current_job()
-                    if current_job:
-                        print(f"DEBUG: Current job has {len(current_job.tools)} tools")
-                        for i, t in enumerate(current_job.tools):
-                            print(f"DEBUG: Job tool {i}: {getattr(t, 'name', 'Unknown')}, ID: {getattr(t, 'tool_id', 'N/A')}")
-                
-                # Update overlay with tool_id if tool was added
-                if added_tool and hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
-                    if self.camera_manager.camera_view.current_overlay:
-                        overlay = self.camera_manager.camera_view.current_overlay
-                        # Update overlay with tool ID and add to overlays dict
-                        old_id = overlay.tool_id
-                        overlay.tool_id = added_tool.tool_id
-                        overlay.update()  # Trigger repaint to show new ID
-
-                        # Move to overlays dict with new tool_id
-                        if old_id in self.camera_manager.camera_view.overlays:
-                            del self.camera_manager.camera_view.overlays[old_id]
-                        self.camera_manager.camera_view.overlays[added_tool.tool_id] = overlay
-
-                        # Disable edit mode
-                        overlay.set_edit_mode(False)
-                        self.camera_manager.camera_view.current_overlay = None
-                        print(f"DEBUG: Updated overlay with tool ID #{added_tool.tool_id}")
-
-            # Quay lại trang palette (không phải trang camera)
+            # If no specific tool handling above, fallback to generic path
+            print("DEBUG: No specific detect tool handling matched, using generic apply")
+            added_tool = self.tool_manager.on_apply_setting()
+            if added_tool:
+                print(f"DEBUG: Generic tool added: {added_tool.name}")
+                self.tool_manager._update_job_view()
             self.settings_manager.return_to_palette_page()
+            return
         
         # Re-enable camera button when leaving edit mode
         self._enable_camera_button_after_edit()
@@ -1600,10 +1568,24 @@ class MainWindow(QMainWindow):
         # --- Tắt edit mode cho overlays như cancelSetting ---
         if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
             camera_view = self.camera_manager.camera_view
-            # Tắt edit mode cho tất cả overlays
+            # Tắt edit mode cho tất cả overlays với kiểm tra tồn tại
             if hasattr(camera_view, 'overlays'):
-                for overlay in camera_view.overlays.values():
-                    overlay.set_edit_mode(False)
+                overlays_to_remove = []
+                for tool_id, overlay in camera_view.overlays.items():
+                    try:
+                        # Kiểm tra nếu overlay object vẫn còn tồn tại
+                        if overlay and hasattr(overlay, 'set_edit_mode'):
+                            overlay.set_edit_mode(False)
+                    except RuntimeError as e:
+                        # Object đã bị delete, đánh dấu để xóa khỏi dictionary
+                        print(f"DEBUG: Overlay {tool_id} already deleted: {e}")
+                        overlays_to_remove.append(tool_id)
+                
+                # Xóa các overlay đã bị delete khỏi dictionary
+                for tool_id in overlays_to_remove:
+                    del camera_view.overlays[tool_id]
+                    print(f"DEBUG: Removed deleted overlay {tool_id} from dictionary")
+            
             # Đặt current_overlay = None
             if hasattr(camera_view, 'current_overlay'):
                 camera_view.current_overlay = None

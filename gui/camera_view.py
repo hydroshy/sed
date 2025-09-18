@@ -449,72 +449,15 @@ class CameraView(QObject):
         
     def _run_job_processing(self, frame):
         """
-        Run job manager processing on current frame
+        Run job manager processing on current frame - DISABLED to avoid duplicate execution
+        CameraManager now handles job processing directly.
         
         Args:
             frame: Current frame to process
         """
-        try:
-            # Get job manager from main window
-            if hasattr(self, 'main_window') and hasattr(self.main_window, 'job_manager'):
-                job_manager = self.main_window.job_manager
-                current_job = job_manager.get_current_job()
-                
-                if current_job and current_job.tools:
-                    logging.debug(f"Running job: {current_job.name} with {len(current_job.tools)} tools")
-                    
-                    # Process frame through job pipeline
-                    processed_frame, results = current_job.run(frame)
-                    
-                    logging.info(f"=== JOB RESULTS DEBUG ===")
-                    logging.info(f"Results type: {type(results)}")
-                    logging.info(f"Results keys: {list(results.keys()) if isinstance(results, dict) else 'Not a dict'}")
-                    
-                    # Get actual tool results - they might be nested under 'results' key
-                    tool_results = results
-                    if 'results' in results and isinstance(results['results'], dict):
-                        tool_results = results['results']
-                        logging.info(f"Found nested results, tool result keys: {list(tool_results.keys())}")
-                    
-                    # Handle detection results if available - check all tool results
-                    has_detections = False
-                    for tool_name, tool_result in tool_results.items():
-                        if isinstance(tool_result, dict):
-                            logging.info(f"Checking tool {tool_name}, result keys: {list(tool_result.keys())}")
-                            # Check if this tool has detection data
-                            if 'data' in tool_result:
-                                tool_data = tool_result['data']
-                                if isinstance(tool_data, dict) and 'detections' in tool_data:
-                                    logging.info(f"Found detections in tool {tool_name} data")
-                                    has_detections = True
-                                    break
-                            # Also check direct detections field
-                            elif 'detections' in tool_result:
-                                logging.info(f"Found direct detections in tool {tool_name}")
-                                has_detections = True
-                                break
-                    
-                    if has_detections:
-                        logging.info("Processing detection results...")
-                        self._handle_detection_results(tool_results, processed_frame)
-                    else:
-                        logging.warning("No detection results found in any tool")
-                        # Debug: show what's actually in the results
-                        for tool_name, tool_result in tool_results.items():
-                            if isinstance(tool_result, dict):
-                                logging.info(f"Tool {tool_name} available keys: {list(tool_result.keys())}")
-                    
-                    # Store processed frames from tools for display mode switching
-                    self._store_processed_frames(tool_results)
-                        
-                    logging.debug(f"Job processing completed: {len(tool_results)} tool results")
-                else:
-                    logging.debug("No active job with tools to run")
-            else:
-                logging.debug("Job manager not available")
-                
-        except Exception as e:
-            logging.error(f"Error in job processing: {e}")
+        # DISABLED: CameraManager now handles job processing to avoid duplicate execution
+        logging.debug("CameraView: _run_job_processing disabled - CameraManager handles jobs")
+        return
     
     def _store_processed_frames(self, tool_results):
         """Store processed frames from job results for display mode switching"""

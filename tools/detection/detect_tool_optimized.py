@@ -1,7 +1,6 @@
 """
-Optimized Detect Tool for Job System Integration
+Optimized Detect Tool - Based on testonnx.py approach
 High-performance YOLO detection with direct ONNX inference
-Based on testonnx.py approach for maximum performance
 """
 
 import logging
@@ -22,13 +21,13 @@ except ImportError:
     ONNX_AVAILABLE = False
     logger.warning("ONNX Runtime not available. Install with: pip install onnxruntime")
 
-class DetectTool(BaseTool):
-    """Optimized Detect Tool - Direct ONNX inference for maximum performance"""
+class OptimizedDetectTool(BaseTool):
+    """Optimized Detect Tool - Direct ONNX inference approach"""
     
-    def __init__(self, name: str = "Detect Tool", config: Optional[Union[Dict[str, Any], ToolConfig]] = None, tool_id: Optional[int] = None):
+    def __init__(self, name: str = "Optimized Detect Tool", config: Optional[Union[Dict[str, Any], ToolConfig]] = None, tool_id: Optional[int] = None):
         super().__init__(name, config)
         self.tool_id = tool_id
-        self.name = name or "Detect Tool"
+        self.name = name
         
         # Core ONNX components
         self.session = None
@@ -47,28 +46,27 @@ class DetectTool(BaseTool):
         self.last_detections = []
         self.execution_enabled = True
         
-        # Legacy compatibility
-        self.model_name = None
-        self.detect_job = None
-        
         logger.info(f"OptimizedDetectTool {self.display_name} created")
     
     def setup_config(self) -> None:
         """Setup default configuration"""
-        # Core settings
-        self.config.set_default('model_name', '')  # Legacy compatibility
         self.config.set_default('model_path', '')
         self.config.set_default('class_names', [])
         self.config.set_default('selected_classes', [])
         self.config.set_default('confidence_threshold', 0.5)
         self.config.set_default('nms_threshold', 0.45)
         self.config.set_default('imgsz', 640)
-        
-        # Detection area settings
         self.config.set_default('detection_region', None)
-        self.config.set_default('detection_area', None)  # UI compatibility
+        self.config.set_default('visualize_results', True)
+        self.config.set_default('show_confidence', True)
+        self.config.set_default('show_class_names', True)
         
-        logger.info(f"DetectTool {self.display_name} configuration setup completed")
+        # Validators
+        self.config.set_validator('confidence_threshold', lambda x: 0.0 <= x <= 1.0)
+        self.config.set_validator('nms_threshold', lambda x: 0.0 <= x <= 1.0)
+        self.config.set_validator('imgsz', lambda x: x > 0 and x % 32 == 0)
+        
+        logger.info(f"OptimizedDetectTool {self.display_name} configuration setup completed")
     
     def _letterbox_fast(self, bgr: np.ndarray, size: int = 640, color=(114, 114, 114), stride: int = 32) -> Tuple[np.ndarray, float, Tuple[int, int]]:
         """
@@ -207,27 +205,13 @@ class DetectTool(BaseTool):
             return False
         
         try:
-            # Get configuration with debug logging
-            logger.info(f"DetectTool config keys: {list(self.config.to_dict().keys())}")
-            
+            # Get configuration
             self.model_path = self.config.get('model_path')
             self.class_names = self.config.get('class_names', [])
             self.selected_classes = self.config.get('selected_classes', [])
             self.confidence_threshold = self.config.get('confidence_threshold', 0.5)
             self.nms_threshold = self.config.get('nms_threshold', 0.45)
             self.imgsz = self.config.get('imgsz', 640)
-            
-            # Debug logging
-            logger.info(f"DetectTool config debug:")
-            logger.info(f"  - model_path: {self.model_path}")
-            logger.info(f"  - class_names: {self.class_names}")
-            logger.info(f"  - selected_classes: {self.selected_classes}")
-            logger.info(f"  - confidence_threshold: {self.confidence_threshold}")
-            
-            # Legacy compatibility
-            if not self.model_path:
-                self.model_path = self.config.get('model_name', '')  # Fallback to model_name
-                logger.info(f"  - Using legacy model_name: {self.model_path}")
             
             if not self.model_path or not Path(self.model_path).exists():
                 logger.error(f"Model path not found: {self.model_path}")
@@ -239,15 +223,13 @@ class DetectTool(BaseTool):
             self.input_name = self.session.get_inputs()[0].name
             
             self.is_initialized = True
-            self.model_name = Path(self.model_path).stem  # Legacy compatibility
-            
-            logger.info(f"DetectTool {self.display_name} initialized - Model: {Path(self.model_path).name}")
+            logger.info(f"OptimizedDetectTool {self.display_name} initialized - Model: {Path(self.model_path).name}")
             logger.info(f"Classes: {len(self.class_names)} - Selected: {len(self.selected_classes)}")
             
             return True
             
         except Exception as e:
-            logger.error(f"Error initializing DetectTool {self.display_name}: {e}")
+            logger.error(f"Error initializing OptimizedDetectTool {self.display_name}: {e}")
             return False
     
     def process(self, image: np.ndarray, context: Optional[Dict[str, Any]] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
@@ -287,10 +269,6 @@ class DetectTool(BaseTool):
             detection_region = self.config.get('detection_region')
             if context and 'detection_region' in context:
                 detection_region = context['detection_region']
-            
-            # Also check detection_area for UI compatibility
-            if not detection_region:
-                detection_region = self.config.get('detection_area')
             
             # Prepare detection frame
             detection_frame = image
@@ -341,14 +319,9 @@ class DetectTool(BaseTool):
                 class_id = int(cls_id)
                 class_name = self.class_names[class_id] if class_id < len(self.class_names) else f"class_{class_id}"
                 
-                # Filter by selected classes if any are specified
+                # Filter by selected classes
                 if self.selected_classes and class_name not in self.selected_classes:
-                    logger.debug(f"Skipping class {class_name} - not in selected_classes: {self.selected_classes}")
                     continue
-                
-                # If no selected_classes specified, detect all classes (legacy behavior)
-                if not self.selected_classes:
-                    logger.debug(f"No selected_classes specified, detecting all classes including: {class_name}")
                 
                 detections.append({
                     'bbox': [int(x1), int(y1), int(x2), int(y2)],
@@ -374,7 +347,6 @@ class DetectTool(BaseTool):
                 'inference_time': inference_time,
                 'detections': detections,
                 'detection_count': len(detections),
-                'model_name': self.model_name,
                 'model_path': self.model_path,
                 'selected_classes': self.selected_classes,
                 'detection_region': detection_region,
@@ -389,21 +361,16 @@ class DetectTool(BaseTool):
                     class_counts[class_name] = class_counts.get(class_name, 0) + 1
                 result['class_counts'] = class_counts
                 result['avg_confidence'] = np.mean([det['confidence'] for det in detections])
-                
-                # Debug logging for successful detections
-                logger.debug(f"DetectTool found {len(detections)} detections:")
-                for i, det in enumerate(detections[:3]):  # Log first 3 detections
-                    logger.debug(f"  Detection {i}: {det['class_name']} ({det['confidence']:.2f})")
             else:
                 result['class_counts'] = {}
                 result['avg_confidence'] = 0.0
             
-            logger.debug(f"DetectTool {self.display_name} - {len(detections)} detections in {total_time:.3f}s")
+            logger.debug(f"OptimizedDetectTool {self.display_name} - {len(detections)} detections in {total_time:.3f}s")
             
             return processed_image, result
             
         except Exception as e:
-            logger.error(f"Error in DetectTool {self.display_name}: {e}")
+            logger.error(f"Error in OptimizedDetectTool {self.display_name}: {e}")
             return image, {
                 'tool_name': self.display_name,
                 'execution_time': time.time() - start_time,
@@ -461,10 +428,10 @@ class DetectTool(BaseTool):
                     return False
             
             # Re-initialize if model changed
-            if 'model_path' in new_config or 'model_name' in new_config:
+            if 'model_path' in new_config:
                 self.is_initialized = False
             
-            logger.info(f"DetectTool {self.display_name} configuration updated")
+            logger.info(f"OptimizedDetectTool {self.display_name} configuration updated")
             return True
             
         except Exception as e:
@@ -478,18 +445,17 @@ class DetectTool(BaseTool):
     def set_execution_enabled(self, enabled: bool):
         """Enable or disable execution"""
         self.execution_enabled = enabled
-        logger.info(f"DetectTool {self.display_name} execution {'enabled' if enabled else 'disabled'}")
+        logger.info(f"OptimizedDetectTool {self.display_name} execution {'enabled' if enabled else 'disabled'}")
     
     def get_info(self) -> Dict[str, Any]:
         """Get tool information"""
         return {
-            'tool_type': 'DetectTool',
+            'tool_type': 'OptimizedDetectTool',
             'display_name': self.display_name,
             'tool_id': self.tool_id,
             'execution_enabled': self.execution_enabled,
             'is_initialized': self.is_initialized,
             'model_path': self.model_path,
-            'model_name': self.model_name,
             'class_count': len(self.class_names),
             'selected_classes': len(self.selected_classes),
             'last_detection_count': len(self.last_detections),
@@ -504,40 +470,11 @@ class DetectTool(BaseTool):
         
         self.last_detections = []
         self.is_initialized = False
-        # Legacy compatibility
-        self.detect_job = None
-        logger.info(f"DetectTool {self.display_name} cleaned up")
+        logger.info(f"OptimizedDetectTool {self.display_name} cleaned up")
 
-# Factory function for creating DetectTool from DetectToolManager config
-def create_detect_tool_from_manager_config(manager_config: Dict[str, Any], tool_id: Optional[int] = None) -> DetectTool:
-    """
-    Create DetectTool from DetectToolManager configuration
-    
-    Args:
-        manager_config: Config from DetectToolManager.get_tool_config()
-        tool_id: Optional tool ID
-        
-    Returns:
-        DetectTool instance
-    """
-    # Convert manager config to tool config
-    tool_config = {
-        'model_name': manager_config.get('model_name', ''),
-        'model_path': manager_config.get('model_path', ''),
-        'class_names': manager_config.get('class_names', []),
-        'selected_classes': manager_config.get('selected_classes', []),
-        'class_thresholds': manager_config.get('class_thresholds', {}),
-        'confidence_threshold': manager_config.get('confidence_threshold', 0.5),
-        'nms_threshold': manager_config.get('nms_threshold', 0.45),
-        'imgsz': manager_config.get('imgsz', 640),
-        'detection_region': manager_config.get('detection_region', None),
-        'detection_area': manager_config.get('detection_area', None),  # For UI compatibility
-        'visualize_results': manager_config.get('visualize_results', True),
-        'show_confidence': manager_config.get('show_confidence', True),
-        'show_class_names': manager_config.get('show_class_names', True)
-    }
-    
-    tool = DetectTool("Detect Tool", tool_config, tool_id)
-    logger.info(f"Created DetectTool from manager config - Model: {tool_config.get('model_path', 'None')}")
-    
+# Factory function for backward compatibility
+def create_optimized_detect_tool_from_config(config: Dict[str, Any], tool_id: Optional[int] = None) -> OptimizedDetectTool:
+    """Create OptimizedDetectTool from configuration dict"""
+    tool = OptimizedDetectTool("Optimized Detect Tool", config, tool_id)
+    logger.info(f"Created OptimizedDetectTool from config - Model: {config.get('model_path', 'None')}")
     return tool
