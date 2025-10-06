@@ -439,16 +439,8 @@ class CameraStream(QObject):
         print("DEBUG: [CameraStream] Fallback start_live_camera called")
         return self._fallback_start_live()
         
-    def _generate_test_frame(self, return_frame=False):
-        """Generate a test frame for testing without a real camera
-        
-        Args:
-            return_frame: Nếu True, trả về frame thay vì phát ra tín hiệu.
-                         Hữu ích cho việc chụp hình trong chế độ edit.
-        
-        Returns:
-            numpy.ndarray: Frame hình nếu return_frame=True, None nếu không
-        """
+    def _generate_test_frame(self):
+        """Generate a test frame for testing without a real camera"""
         h, w = 480, 640
         
         # Try to load a real test image instead of synthetic patterns
@@ -461,8 +453,7 @@ class CameraStream(QObject):
                     # Resize to camera frame size
                     test_frame = cv2.resize(test_img, (w, h))
                     print(f"DEBUG: [CameraStream] Using real test image: {test_image_path}")
-                    if return_frame:
-                        return test_frame
+                    return test_frame
         except Exception as e:
             # print(f"DEBUG: [CameraStream] Could not load real test image: {e}")
             pass
@@ -548,15 +539,9 @@ class CameraStream(QObject):
             print(f"DEBUG: [CameraStream] Unsupported format {pf}, using BGR")
             frame = np.dstack((b, g, r))
         
-        # Store latest frame
+        # Store and emit the test frame
         self.latest_frame = frame
-        
-        # Trả về frame nếu cần, nếu không thì phát ra tín hiệu
-        if return_frame:
-            return frame
-        else:
-            # Phát tín hiệu như bình thường
-            self.frame_ready.emit(frame)
+        self.frame_ready.emit(frame)
     
     def set_trigger_mode(self, enabled):
         """Enable/disable external hardware trigger and reconfigure Picamera2.
@@ -708,9 +693,13 @@ class CameraStream(QObject):
             if "timeout" not in str(e).lower() and "closed" not in str(e).lower():
                 self.camera_error.emit(f"Frame processing error: {str(e)}")
     
-    def start_live(self):
-        """Start live view from camera or stub generator when hardware unavailable"""
-        print("DEBUG: [CameraStream] start_live called")
+    def start_live(self, preserve_trigger_mode=False):
+        """Start live view from camera or stub generator when hardware unavailable
+        
+        Args:
+            preserve_trigger_mode: If True, don't change trigger mode when starting live
+        """
+        print(f"DEBUG: [CameraStream] start_live called with preserve_trigger_mode={preserve_trigger_mode}")
         
         # Handle stub mode (no picamera2): start test-frame timer instead of failing
         if not self.is_camera_available:
@@ -732,10 +721,13 @@ class CameraStream(QObject):
             
         try:
             # For regular live view, we need to disable trigger mode if it's enabled
-            # This ensures camera can start properly in continuous capture mode
-            if hasattr(self, 'external_trigger_enabled') and self.external_trigger_enabled:
+            # UNLESS we're being asked to preserve the current mode (for editing)
+            current_trigger_mode = getattr(self, 'external_trigger_enabled', False)
+            if not preserve_trigger_mode and hasattr(self, 'external_trigger_enabled') and self.external_trigger_enabled:
                 print("DEBUG: [CameraStream] Disabling trigger mode for live view")
                 self.set_trigger_mode(False)
+            else:
+                print(f"DEBUG: [CameraStream] Preserving trigger mode: {current_trigger_mode}")
             
             print(f"DEBUG: [CameraStream] Current trigger mode: {self.external_trigger_enabled}")
             
@@ -1467,68 +1459,6 @@ class CameraStream(QObject):
             
         # Mặc định là không chạy
         return False
-        
-    def ensure_camera_initialized(self):
-        """Đảm bảo camera được khởi tạo - hữu ích cho chế độ edit Camera Source"""
-        if not hasattr(self, 'picam2') or self.picam2 is None:
-            if has_picamera2:
-                print("DEBUG: [CameraStream] Initializing camera for edit mode")
-                try:
-                    self._safe_init_picamera()
-                    self._fix_preview_size()
-                    return True
-                except Exception as e:
-                    print(f"DEBUG: [CameraStream] Error initializing camera: {e}")
-            else:
-                # Không có picamera2, vẫn coi như đã khởi tạo để có thể generate test frame
-                print("DEBUG: [CameraStream] Using test frames for edit mode")
-                return True
-        return True
-        
-    def capture_still_image(self):
-        """Capture a single still image - useful for Camera Source edit mode"""
-        print("DEBUG: [CameraStream] Attempting to capture still image")
-        
-        # Nếu không có camera thực, tạo test frame
-        if not self.is_camera_available or not hasattr(self, 'picam2') or self.picam2 is None:
-            print("DEBUG: [CameraStream] Using test frame for capture_still_image")
-            return self._generate_test_frame(return_frame=True)
-            
-        # Nếu camera đang chạy, lấy frame hiện tại
-        if self.is_running() and self.latest_frame is not None:
-            print("DEBUG: [CameraStream] Camera is running, using latest frame")
-            return self.latest_frame.copy()
-            
-        # Thử khởi động camera và chụp hình
-        try:
-            # Nếu camera chưa khởi động, khởi động tạm thời
-            was_started = False
-            if not getattr(self.picam2, 'started', False):
-                print("DEBUG: [CameraStream] Starting camera for capture")
-                config = self.picam2.create_still_configuration()
-                self.picam2.configure(config)
-                self.picam2.start()
-                was_started = True
-                # Đợi 100ms để sensor ổn định
-                time.sleep(0.1)
-                
-            # Chụp hình
-            print("DEBUG: [CameraStream] Capturing image")
-            frame = self.picam2.capture_array()
-            
-            # Dừng camera nếu chúng ta đã khởi động nó
-            if was_started:
-                print("DEBUG: [CameraStream] Stopping camera after capture")
-                self.picam2.stop()
-                
-            # Lưu frame mới nhất và trả về
-            self.latest_frame = frame
-            return frame
-            
-        except Exception as e:
-            print(f"DEBUG: [CameraStream] Error in capture_still_image: {e}")
-            # Thử tạo test frame nếu không chụp được hình thật
-            return self._generate_test_frame(return_frame=True)
 
 # End of CameraStream class
 

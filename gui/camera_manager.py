@@ -4,6 +4,7 @@ from camera.camera_stream import CameraStream
 from gui.camera_view import CameraView
 import logging
 import re
+import inspect
 
 class CameraOperationThread(QThread):
     """Thread for non-blocking camera operations"""
@@ -1423,7 +1424,15 @@ class CameraManager(QObject):
         # Start camera only if not running
         if self.camera_stream and not self.camera_stream.is_running():
             try:
-                success = self.camera_stream.start_live()
+                # Kiểm tra xem có cần giữ nguyên chế độ trigger hay không
+                if not force_mode_change and hasattr(self.camera_stream, 'start_live'):
+                    print(f"DEBUG: [CameraManager] Starting camera with preserve_trigger_mode=True")
+                    # Truyền preserve_trigger_mode=True để giữ nguyên chế độ trigger khi đang edit
+                    success = self.camera_stream.start_live(preserve_trigger_mode=True)
+                else:
+                    # Chạy start_live thông thường (sẽ tắt trigger mode)
+                    success = self.camera_stream.start_live()
+                
                 if success:
                     # Only update mode if force_mode_change is True
                     if force_mode_change:
@@ -1546,12 +1555,27 @@ class CameraManager(QObject):
             # Kiểm tra xem có đang edit Camera Source không
             editing_camera_tool = self._is_editing_camera_tool()
             
+            # Xác định chế độ camera hiện tại
+            current_mode = self.current_mode
+            if current_mode is None:
+                current_mode = 'live'
+            
+            # Lưu và in ra thông tin về trạng thái camera mode và edit mode
+            print(f"DEBUG: [CameraManager] Starting stream with current mode: {current_mode}, edit mode: {editing_camera_tool}")
+            
+            # Nếu đang edit Camera Source, thì giữ nguyên chế độ trigger (nếu có)
+            preserve_trigger_mode = editing_camera_tool
+            
             # Start simple preview stream (like testjob.py)
             if hasattr(self.camera_stream, 'start_preview'):
                 success = self.camera_stream.start_preview()
             else:
                 # Fallback to start_live if start_preview not available
-                success = self.camera_stream.start_live()
+                # Truyền preserve_trigger_mode để giữ nguyên chế độ trigger khi đang edit
+                if hasattr(self.camera_stream, 'start_live') and 'preserve_trigger_mode' in inspect.signature(self.camera_stream.start_live).parameters:
+                    success = self.camera_stream.start_live(preserve_trigger_mode=preserve_trigger_mode)
+                else:
+                    success = self.camera_stream.start_live()
             
             if success:
                 print(f"DEBUG: [CameraManager] Camera stream started successfully, edit mode: {editing_camera_tool}")
