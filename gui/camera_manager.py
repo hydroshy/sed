@@ -225,20 +225,41 @@ class CameraManager(QObject):
             mw = getattr(self, 'main_window', None)
             if mw is None:
                 return False
+                
+            # If we're on palette page, we're definitely not editing
+            sm = getattr(mw, 'settings_manager', None)
+            if sm and getattr(sm, 'palette_page', None):
+                current_widget = None
+                if hasattr(sm, 'setting_stacked_widget') and sm.setting_stacked_widget:
+                    current_widget = sm.setting_stacked_widget.currentWidget()
+                
+                # If current widget is palette page, we're not editing
+                if current_widget == sm.palette_page:
+                    return False
+                
+            # Check if we're on the camera settings page AND actively editing a tool
+            if sm:
+                # Only consider it editing if we're on camera page AND there's a tool being edited
+                if getattr(sm, 'current_page_type', None) == 'camera' and hasattr(mw, '_editing_tool'):
+                    tm = getattr(mw, 'tool_manager', None)
+                    if tm and hasattr(tm, '_pending_tool') and tm._pending_tool == "Camera Source":
+                        return True
+                
+                if getattr(sm, 'current_editing_tool', None) == 'Camera Source':
+                    return True
+                    
             # Prefer ToolManager's state
             tm = getattr(mw, 'tool_manager', None)
             if tm and hasattr(tm, 'get_current_editing_tool'):
                 t = tm.get_current_editing_tool()
                 if t and getattr(t, 'name', '') == 'Camera Source':
                     return True
+                    
             # Fallback to MainWindow's own editing reference
             et = getattr(mw, '_editing_tool', None)
             if et and getattr(et, 'name', '') == 'Camera Source':
                 return True
-            # Fallback to SettingsManager page mapping
-            sm = getattr(mw, 'settings_manager', None)
-            if sm and getattr(sm, 'current_editing_tool', None) == 'Camera Source':
-                return True
+                
         except Exception:
             pass
         return False

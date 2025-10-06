@@ -275,6 +275,12 @@ class SettingsManager(QObject):
             
             # Reset current editing tool
             self.current_editing_tool = None
+            
+            # Update camera button state after returning to palette page
+            if hasattr(self.main_window, '_update_camera_button_state'):
+                logging.info("SettingsManager: Updating camera button state after returning to palette")
+                self.main_window._update_camera_button_state()
+                
             return True
         else:
             logging.error("SettingsManager: Palette page not found in settingStackedWidget.")

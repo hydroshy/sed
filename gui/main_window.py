@@ -857,17 +857,30 @@ class MainWindow(QMainWindow):
         try:
             has_camera_source = self._has_camera_source_in_job()
             
-            logging.info(f"_update_camera_button_state called: has_camera_source={has_camera_source}")
+            # Check if we are currently editing Camera Tool
+            is_editing_camera_tool = False
+            if hasattr(self, 'camera_manager') and self.camera_manager:
+                is_editing_camera_tool = self.camera_manager._is_editing_camera_tool()
+                
+            logging.info(f"_update_camera_button_state: has_camera_source={has_camera_source}, is_editing_camera_tool={is_editing_camera_tool}")
             
-            if has_camera_source:
-                # Enable button and set red style (off state)
+            # Only enable button if we have a camera source and not editing
+            if has_camera_source and not is_editing_camera_tool:
+                # Enable button and set red style (off state) if not editing Camera Tool
                 self.onlineCamera.setEnabled(True)
                 self._set_camera_button_off_style()
                 logging.info("Camera button enabled (has Camera Source in job)")
+                print(f"DEBUG: [MainWindow] Camera button ENABLED - has_camera_source={has_camera_source}, is_editing_camera_tool={is_editing_camera_tool}")
             else:
                 # Disable button and set gray style
                 self.onlineCamera.setEnabled(False)
                 self.onlineCamera.setChecked(False)
+                if is_editing_camera_tool:
+                    logging.info("Camera button disabled (editing Camera Tool)")
+                    print(f"DEBUG: [MainWindow] Camera button DISABLED - editing tool - has_camera_source={has_camera_source}, is_editing_camera_tool={is_editing_camera_tool}")
+                else:
+                    logging.info("Camera button disabled (no Camera Source in job)")
+                    print(f"DEBUG: [MainWindow] Camera button DISABLED - no camera source - has_camera_source={has_camera_source}, is_editing_camera_tool={is_editing_camera_tool}")
                 self.onlineCamera.setStyleSheet("""
                     QPushButton {
                         background-color: #cccccc;  /* Gray */
@@ -1101,6 +1114,9 @@ class MainWindow(QMainWindow):
         # pending_detection_area chỉ dùng cho preview/crop khi cần
         self.tool_manager._pending_detection_area = None
         if tool_name:
+            # Update camera button state when adding a tool (especially Camera Tool)
+            self._update_camera_button_state()
+            
             # Handle Save Image tool specifically
             if tool_name == "Save Image":
                 if self.settings_manager.switch_to_tool_setting_page("Save Image"):
@@ -1312,6 +1328,9 @@ class MainWindow(QMainWindow):
                     print(f"DEBUG: Tool #{selected_tool.tool_id} overlay not found")
             self.settings_manager.switch_to_tool_setting_page(selected_tool.name)
             self._load_tool_config_to_ui(selected_tool)
+            
+            # Update camera button state when editing a tool (especially Camera Tool)
+            self._update_camera_button_state()
         else:
             print("DEBUG: No tool selected for editing")
             
@@ -1382,7 +1401,8 @@ class MainWindow(QMainWindow):
                     print(f"DEBUG: Camera Source tool added successfully with ID: {added_tool.tool_id}")
                     # Update job view to show the new tool
                     self.tool_manager._update_job_view()
-                    # Update camera button state when Camera Source is added
+                    # Update camera button state to enable it now that we have a Camera Source
+                    logging.info("Camera Source tool added, updating camera button state")
                     self._update_camera_button_state()
                     
                     # Don't automatically start camera - user must choose manually
@@ -1557,6 +1577,12 @@ class MainWindow(QMainWindow):
             if added_tool:
                 print(f"DEBUG: Generic tool added: {added_tool.name}")
                 self.tool_manager._update_job_view()
+                
+                # Update camera button state if a Camera Tool was added
+                if added_tool.name == "Camera Source" or getattr(added_tool, 'tool_type', '') == "Camera Source":
+                    logging.info("Camera Source tool added, updating camera button state")
+                    self._update_camera_button_state()
+                    
             self.settings_manager.return_to_palette_page()
             return
         
@@ -1622,6 +1648,9 @@ class MainWindow(QMainWindow):
         
         # Quay lại trang palette (không phải camera setting)
         self.settings_manager.return_to_palette_page()
+        
+        # Ensure camera button state is updated when returning to palette page
+        self._update_camera_button_state()
         
     def _enable_camera_button_after_edit(self):
         """Update camera button state when leaving edit mode based on Camera Source presence"""

@@ -444,6 +444,13 @@ class ToolManager(QObject):
         print(f"DEBUG: After adding tool. Tools count: {len(current_job.tools)}")
         print(f"DEBUG: Tool added: {getattr(tool, 'display_name', tool.name)}")
         
+        # Update camera button state if this is a Camera Tool
+        if hasattr(tool, 'name') and tool.name == "Camera Source" and hasattr(self, 'parent'):
+            parent = self.parent()
+            if parent and hasattr(parent, '_update_camera_button_state'):
+                print("DEBUG: Updating camera button state after adding Camera Tool")
+                parent._update_camera_button_state()
+        
         # Kiểm tra và in danh sách tất cả các tool trong job để debug
         print("DEBUG: LIST OF ALL TOOLS IN JOB:")
         for idx, t in enumerate(current_job.tools):
