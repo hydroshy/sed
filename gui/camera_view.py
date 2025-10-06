@@ -188,6 +188,11 @@ class CameraView(QObject):
     # Tín hiệu để thông báo khi các thông số focus được tính toán
     focus_calculated = pyqtSignal(int)
     
+    # Lock cho các hoạt động zoom để tránh zoom quá nhanh
+    _zoom_lock = False
+    _last_zoom_time = 0
+    _zoom_mutex = threading.Lock()  # Thread-safe mutex for zoom operations
+    
     # Tín hiệu để thông báo cập nhật FPS
     fps_updated = pyqtSignal(float)
     
@@ -211,10 +216,13 @@ class CameraView(QObject):
         
         # Khởi tạo các biến thành viên
         self.current_frame = None
+        self.last_valid_qimage = None  # Store last valid QImage for trigger mode
+        self.in_trigger_mode = False   # Track if camera is in trigger mode
         self.zoom_level = 1.0
         self.zoom_step = 0.1
         self.rotation_angle = 0
         self.fit_on_next_frame = False
+        self._zoom_changed = False     # Flag to track if zoom level was manually changed
         
         # Method to get rotation angle
         def get_rotation_angle(self):
@@ -287,10 +295,13 @@ class CameraView(QObject):
         self.graphics_view.setScene(self.scene)
         self.pixmap_item = None
         
-        # Cấu hình thuộc tính khác
+        # Configure view properties
         self.graphics_view.setRenderHints(QPainter.SmoothPixmapTransform)
         self.graphics_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.graphics_view.setDragMode(QGraphicsView.RubberBandDrag)
+        self.graphics_view.setDragMode(QGraphicsView.NoDrag)
+        
+        # Register additional zoom and pan handlers
+        self.register_zoom_events()
         
         # Setup mouse event handling for drawing
         # Store original event handlers
@@ -441,6 +452,8 @@ class CameraView(QObject):
                 frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_GRAY2RGB)
             
             self.current_frame = frame_to_process
+            
+            # Display the frame without changing zoom level
             self._show_frame_with_zoom()
             self._calculate_fps()
             
@@ -634,212 +647,460 @@ class CameraView(QObject):
         """
         Hiển thị frame hiện tại với mức zoom và xoay đã cài đặt
         """
-        if self.current_frame is None:
-            logging.warning("No current frame to display")
+        print(f"DEBUG: [CameraView] _show_frame_with_zoom called, zoom_level={self.zoom_level}")
+        
+        # Check if we're in trigger mode
+        in_trigger_mode = self._is_in_trigger_mode()
+        
+        # If no current frame and not in trigger mode, we can't continue
+        if self.current_frame is None and not in_trigger_mode:
+            logging.warning("No current frame to display and not in trigger mode")
             return
-
-        try:
-            # Chuyển đổi frame thành QPixmap
-            h, w, ch = self.current_frame.shape
-            bytes_per_line = ch * w
-            pixel_format = 'BGR888'  # Default fallback (matches PiCamera2's natural output)
+            
+        # Handle different display scenarios
+        # Case 1: We're in trigger mode and need to use existing or create blank pixmap
+        if self.current_frame is None and in_trigger_mode:
+            print("DEBUG: [CameraView] In trigger mode with no frame")
+            
             try:
-                mw = getattr(self, 'main_window', None)
-                cm = getattr(mw, 'camera_manager', None) if mw else None
-                cs = getattr(cm, 'camera_stream', None) if cm else None
-                if cs is not None and hasattr(cs, 'get_pixel_format'):
-                    pixel_format = cs.get_pixel_format()
-                    # Debug logging disabled for performance
-                    # print(f"DEBUG: [CameraView] Got pixel format from stream: {pixel_format}")
+                # Use the last valid pixmap if available
+                if hasattr(self, 'pixmap_item') and self.pixmap_item is not None and self.pixmap_item.pixmap() and not self.pixmap_item.pixmap().isNull():
+                    print("DEBUG: [CameraView] Using existing pixmap in trigger mode")
+                    pixmap = self.pixmap_item.pixmap()
+                    
+                    # Update the scene
+                    self.scene.setSceneRect(self.pixmap_item.boundingRect())
+                    
+                # Or use the last valid QImage if available
+                elif hasattr(self, 'last_valid_qimage') and self.last_valid_qimage is not None and not self.last_valid_qimage.isNull():
+                    print("DEBUG: [CameraView] Using last_valid_qimage in trigger mode")
+                    pixmap = QPixmap.fromImage(self.last_valid_qimage)
+                    
+                    # Create or update pixmap item
+                    if self.pixmap_item is not None:
+                        self.scene.removeItem(self.pixmap_item)
+                    self.pixmap_item = QGraphicsPixmapItem(pixmap)
+                    self.scene.addItem(self.pixmap_item)
+                    
+                # Last resort: create a blank pixmap
                 else:
-                    # print(f"DEBUG: [CameraView] Could not get pixel format from stream, using default: {pixel_format}")
-                    pass
+                    print("DEBUG: [CameraView] Creating blank pixmap for trigger mode")
+                    pixmap = QPixmap(640, 480)
+                    pixmap.fill(Qt.black)
+                    
+                    # Create or update pixmap item
+                    if self.pixmap_item is not None:
+                        self.scene.removeItem(self.pixmap_item)
+                    self.pixmap_item = QGraphicsPixmapItem(pixmap)
+                    self.scene.addItem(self.pixmap_item)
+                
+                # Make sure pixmap is in scene
+                self.scene.setSceneRect(self.pixmap_item.boundingRect())
+                
+                # Apply zoom transform but don't reset zoom level
+                self.graphics_view.resetTransform()
+                self.graphics_view.scale(self.zoom_level, self.zoom_level)
+                return
             except Exception as e:
-                # print(f"DEBUG: [CameraView] Exception getting pixel format: {e}")
-                pixel_format = 'BGR888'
-            # Convert frame to RGB - PiCamera2 ALWAYS returns BGR regardless of config
-            # Only trust format for test frames (when camera not available)
-            is_test_frame = False
-            try:
-                mw = getattr(self, 'main_window', None)
-                cm = getattr(mw, 'camera_manager', None) if mw else None
-                cs = getattr(cm, 'camera_stream', None) if cm else None
-                if cs is not None:
-                    is_test_frame = not getattr(cs, 'is_camera_available', False)
-            except Exception:
-                pass
+                print(f"DEBUG: [CameraView] Error in trigger mode display: {e}")
+                # Continue to normal frame display
+
+        # Case 2: Normal display with actual frame
+        try:
+            # Process current frame if available
+            if self.current_frame is not None:
+                print("DEBUG: [CameraView] Processing actual frame")
+                h, w, ch = self.current_frame.shape
+                bytes_per_line = ch * w
                 
-            if ch == 3:
-                # Debug pixel format
-                debug_print(f"Current pixel_format: '{pixel_format}' (type: {type(pixel_format)})", "[CameraView]")
-                
-                # For both test frames and real camera frames, trust the pixel format
-                if str(pixel_format) == 'RGB888':
-                    # PiCamera2 configured as RGB888 but actually returns BGR data
-                    debug_print("PiCamera2 RGB888 config: Converting BGR->RGB", "[CameraView]")
-                    rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
-                elif str(pixel_format) == 'BGR888':
-                    # Frame is BGR, convert to RGB
-                    debug_print("Frame BGR888, converting to RGB", "[CameraView]")
-                    rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
-                else:
-                    # Unknown format, assume it needs conversion
-                    debug_print(f"Frame {pixel_format}, assuming BGR and converting", "[CameraView]")
-                    rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
-                    
-                    # print(f"DEBUG: [CameraView] Converted frame shape: {rgb_image.shape}")
-                    
-                    # Debug: Check pixel values (disabled for performance)
-                    # if h > 100 and w > 100:
-                    #     sample_pixel = self.current_frame[50, 50]  # Sample a pixel from original
-                    #     display_sample = rgb_image[50, 50]  # Sample from display data
-                    #     print(f"DEBUG: [CameraView] Original pixel at (50,50): {sample_pixel} (BGR from PiCamera2)")
-                    #     print(f"DEBUG: [CameraView] Display pixel at (50,50): {display_sample} (RGB for PyQt)")
-                    #     print(f"DEBUG: [CameraView] Color analysis - R:{display_sample[0]}, G:{display_sample[1]}, B:{display_sample[2]}")
-            elif ch == 4:
-                # Debug pixel format for 4-channel
-                debug_print(f"4-channel pixel_format: '{pixel_format}' (type: {type(pixel_format)})", "[CameraView]")
-                
-                # For 4-channel frames, check the format
-                if str(pixel_format) == 'XRGB8888':
-                    # PiCamera2 XRGB8888 actually returns BGRX data, need to convert BGRA->RGB
-                    debug_print("PiCamera2 XRGB8888 config: Converting BGRA->RGB", "[CameraView]")
-                    rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGRA2RGB)
-                else:
-                    # Unknown 4-channel format, assume BGRA and convert
-                    debug_print(f"4-channel frame (format={pixel_format}), converting BGRA->RGB", "[CameraView]")
-                    rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGRA2RGB)
-            else:
-                # Fallback for other channel counts
+                # Determine pixel format from camera stream
+                pixel_format = 'BGR888'  # Default fallback
                 try:
+                    mw = getattr(self, 'main_window', None)
+                    cm = getattr(mw, 'camera_manager', None) if mw else None
+                    cs = getattr(cm, 'camera_stream', None) if cm else None
+                    if cs is not None and hasattr(cs, 'get_pixel_format'):
+                        pixel_format = cs.get_pixel_format()
+                except Exception as e:
+                    print(f"DEBUG: [CameraView] Error getting pixel format: {e}")
+                
+                # Convert frame based on channel count and format
+                if ch == 3:  # 3-channel image (BGR or RGB)
+                    # Debug info
+                    debug_print(f"Current pixel_format: '{pixel_format}'", "[CameraView]")
+                    
+                    # Convert frame to RGB for display
                     if str(pixel_format) == 'RGB888':
-                        rgb_image = self.current_frame
-                    else:
+                        # PiCamera2 quirk: returns BGR even when set to RGB
+                        debug_print("PiCamera2 RGB888 config: Converting BGR->RGB", "[CameraView]")
                         rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
-                except Exception:
-                    rgb_image = self.current_frame
-            qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
-            pixmap = QPixmap.fromImage(qt_image)
+                    else:
+                        # Standard BGR conversion
+                        debug_print("Frame BGR888, converting to RGB", "[CameraView]")
+                        rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+                    
+                elif ch == 4:  # 4-channel image (BGRA or RGBA)
+                    # Debug info
+                    debug_print(f"4-channel pixel_format: '{pixel_format}'", "[CameraView]")
+                    
+                    # Handle 4-channel formats
+                    if str(pixel_format) == 'XRGB8888':
+                        # PiCamera2 XRGB8888 returns BGRX data
+                        debug_print("PiCamera2 XRGB8888 config: Converting BGRA->RGB", "[CameraView]")
+                        rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGRA2RGB)
+                    else:
+                        # Unknown 4-channel format, assume BGRA
+                        debug_print(f"4-channel frame, converting BGRA->RGB", "[CameraView]")
+                        rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGRA2RGB)
+                else:
+                    # Fallback for other channel counts
+                    try:
+                        rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+                    except Exception:
+                        rgb_image = self.current_frame  # Use as-is if conversion fails
+                
+                # Create Qt image and pixmap from RGB data
+                if 'rgb_image' in locals() and rgb_image is not None:
+                    qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
+                    
+                    # Store last valid QImage for trigger mode
+                    self.last_valid_qimage = qt_image.copy()
+                    
+                    # Create pixmap from QImage
+                    pixmap = QPixmap.fromImage(qt_image)
+                    
+                    # Draw FPS if enabled
+                    if self.show_fps and self.fps > 0:
+                        painter = QPainter(pixmap)
+                        font = QFont()
+                        font.setPointSize(14)
+                        painter.setFont(font)
+                        painter.setPen(QColor(0, 255, 0))  # Green color
+                        painter.drawText(10, 30, f"FPS: {self.fps:.1f}")
+                        painter.end()
+                else:
+                    # No valid RGB image - fallback to last valid image or blank
+                    if hasattr(self, 'last_valid_qimage') and self.last_valid_qimage is not None and not self.last_valid_qimage.isNull():
+                        pixmap = QPixmap.fromImage(self.last_valid_qimage)
+                        print("DEBUG: [CameraView] Using last valid QImage as fallback")
+                    elif hasattr(self, 'pixmap_item') and self.pixmap_item is not None and not self.pixmap_item.pixmap().isNull():
+                        pixmap = self.pixmap_item.pixmap()
+                        print("DEBUG: [CameraView] Using existing pixmap as fallback")
+                    else:
+                        # Create a minimal blank pixmap
+                        pixmap = QPixmap(640, 480)
+                        pixmap.fill(Qt.black)
+                        print("DEBUG: [CameraView] Created blank pixmap as fallback")
+            else:
+                # No current frame - should not happen as we already handled trigger mode case
+                print("DEBUG: [CameraView] Unexpected: No frame available in normal display path")
+                return
             
-            # Vẽ FPS lên pixmap nếu được bật
-            if self.show_fps and self.fps > 0:
-                painter = QPainter(pixmap)
-                font = QFont()
-                font.setPointSize(14)
-                painter.setFont(font)
-                painter.setPen(QColor(0, 255, 0))  # Màu xanh lá
-                painter.drawText(10, 30, f"FPS: {self.fps:.1f}")
-                painter.end()
-            
-            # Vẽ detection boxes nếu có (hiện overlay cả ở chế độ camera)
-            if self.show_detection_overlay and self.detection_results:
+            # Draw detection overlays if enabled
+            if 'pixmap' in locals() and self.show_detection_overlay and self.detection_results:
+                print("DEBUG: [CameraView] Drawing detection boxes on pixmap")
                 self._draw_detection_boxes_on_pixmap(pixmap)
 
-            # Quản lý pixmap_item
-            if self.pixmap_item is not None:
-                if self.pixmap_item.scene() is not None:
-                    self.scene.removeItem(self.pixmap_item)
-                self.pixmap_item = None
+            # Update the pixmap in the scene
+            try:
+                # Remove existing pixmap item if it exists
+                if self.pixmap_item is not None:
+                    if self.pixmap_item.scene() is not None:
+                        self.scene.removeItem(self.pixmap_item)
+                    self.pixmap_item = None
+                
+                # Create new pixmap item
+                if 'pixmap' in locals() and pixmap is not None:
+                    self.pixmap_item = QGraphicsPixmapItem(pixmap)
+                    self.pixmap_item.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
+                    
+                    # Set pixmap_item at lowest z-level so detection areas appear above
+                    self.pixmap_item.setZValue(-1)
+                    self.scene.addItem(self.pixmap_item)
 
-            self.pixmap_item = QGraphicsPixmapItem(pixmap)
-            self.pixmap_item.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
-            
-            # Đặt pixmap_item ở z-level thấp nhất để detection areas nằm trên
-            self.pixmap_item.setZValue(-1)
-            self.scene.addItem(self.pixmap_item)
+                    # Set rotation origin point to center of pixmap
+                    self.pixmap_item.setTransformOriginPoint(
+                        self.pixmap_item.boundingRect().width() / 2,
+                        self.pixmap_item.boundingRect().height() / 2
+                    )
 
-            # Đặt điểm xoay ở giữa pixmap
-            self.pixmap_item.setTransformOriginPoint(self.pixmap_item.boundingRect().width() / 2, 
-                                                  self.pixmap_item.boundingRect().height() / 2)
+                    # Apply rotation angle
+                    self.pixmap_item.setRotation(self.rotation_angle)
 
-            # Áp dụng góc xoay
-            self.pixmap_item.setRotation(self.rotation_angle)
+                    # Calculate scene rectangle to include pixmap and any detection areas
+                    scene_rect = self.pixmap_item.boundingRect()
+                    
+                    # Expand scene rect to include detection areas
+                    if hasattr(self, 'saved_areas') and self.saved_areas:
+                        for area in self.saved_areas:
+                            if area.scene() == self.scene:
+                                scene_rect = scene_rect.united(area.boundingRect())
+                    
+                    if hasattr(self, 'current_area') and self.current_area and self.current_area.scene() == self.scene:
+                        scene_rect = scene_rect.united(self.current_area.boundingRect())
+                    
+                    # Update scene rect
+                    self.scene.setSceneRect(scene_rect)
 
-            # Điều chỉnh scene rectangle để bao gồm cả pixmap và các detection areas
-            scene_rect = self.pixmap_item.boundingRect()
-            # Mở rộng scene rect để chứa các detection areas
-            if self.saved_areas:
-                for area in self.saved_areas:
-                    if area.scene() == self.scene:
-                        scene_rect = scene_rect.united(area.boundingRect())
-            if self.current_area and self.current_area.scene() == self.scene:
-                scene_rect = scene_rect.united(self.current_area.boundingRect())
-            
-            self.scene.setSceneRect(scene_rect)
+                    # Center view on pixmap for initial display or when zoomed out
+                    pixmap_center = self.pixmap_item.boundingRect().center()
+                    if (not self._has_drawn_once) or self.fit_on_next_frame or (self.zoom_level <= 1.0):
+                        self.graphics_view.centerOn(pixmap_center)
+                    
+                    # Set proper alignment
+                    self.graphics_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-            pixmap_center = self.pixmap_item.boundingRect().center()
-            if (not self._has_drawn_once) or self.fit_on_next_frame or (self.zoom_level <= 1.0):
-                self.graphics_view.centerOn(pixmap_center)
-            self.graphics_view.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-            self.graphics_view.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+                    # Set appropriate drag mode based on zoom level
+                    if not hasattr(self, 'draw_mode') or not self.draw_mode:
+                        if self.zoom_level > 1.0:
+                            self.graphics_view.setDragMode(QGraphicsView.ScrollHandDrag)
+                            self.graphics_view.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
+                        else:
+                            self.graphics_view.setDragMode(QGraphicsView.NoDrag)
+                            self.graphics_view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
 
-            if not self.draw_mode:
-                if self.zoom_level > 1.0:
-                    self.graphics_view.setDragMode(QGraphicsView.ScrollHandDrag)
-                    self.graphics_view.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
+                    # Only apply zoom transform if the zoom has been changed or it's the first frame
+                    if not hasattr(self, '_has_drawn_once') or not self._has_drawn_once or hasattr(self, '_zoom_changed') and self._zoom_changed:
+                        print("DEBUG: [CameraView] Applying zoom transform due to manual change or first frame")
+                        
+                        # Apply zoom transform
+                        self.graphics_view.resetTransform()
+                        self.graphics_view.scale(self.zoom_level, self.zoom_level)
+                        
+                        # Clear the zoom changed flag after applying zoom
+                        self._zoom_changed = False
+                    
+                    # Handle fit to view if needed
+                    if hasattr(self, 'fit_on_next_frame') and self.fit_on_next_frame:
+                        self.graphics_view.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+                        self.zoom_level = 1.0
+                        self.fit_on_next_frame = False
+                    
+                    # Mark that we've drawn at least once
+                    self._has_drawn_once = True
+                    
+                    # Log frame display
+                    print(f"DEBUG: [CameraView] Frame displayed with zoom={self.zoom_level}, rotation={self.rotation_angle}")
+                    
+                    # Update frame history with the RGB frame
+                    if 'rgb_image' in locals() and rgb_image is not None:
+                        self.update_frame_history(rgb_image)
+                    elif self.current_frame is not None and len(self.current_frame.shape) == 3:
+                        # Fallback: convert frame to RGB for history
+                        rgb_frame = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+                        self.update_frame_history(rgb_frame)
                 else:
-                    self.graphics_view.setDragMode(QGraphicsView.RubberBandDrag)
-                    self.graphics_view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
-
-            if self.fit_on_next_frame:
-                self.graphics_view.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
-                self.zoom_level = 1.0
-                self.fit_on_next_frame = False
-            else:
-                # Preserve current transform to keep user panning when zoomed
-                pass
-
-            logging.debug("Frame displayed with zoom level: %f and rotation angle: %d", 
-                        self.zoom_level, self.rotation_angle)
-            self._has_drawn_once = True
-            
-            # Update frame history once at the end with the correct RGB frame
-            if hasattr(self, 'rgb_image') and rgb_image is not None:
-                # Use the RGB-converted frame for review views
-                self.update_frame_history(rgb_image)
-            elif self.current_frame is not None and len(self.current_frame.shape) == 3:
-                # Fallback: convert frame to RGB for frame history
-                rgb_frame = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
-                self.update_frame_history(rgb_frame)
+                    print("ERROR: [CameraView] No valid pixmap to display")
+            except Exception as e:
+                logging.error(f"Error updating pixmap in scene: {e}")
         except Exception as e:
-            logging.error("Error displaying frame: %s", e)
+            logging.error(f"Error in frame display: {e}")
+            print(f"DEBUG: [CameraView] Exception in _show_frame_with_zoom: {e}")
 
+    def _is_in_trigger_mode(self):
+        """Check if camera is in trigger mode"""
+        try:
+            if hasattr(self, 'in_trigger_mode'):
+                return self.in_trigger_mode
+                
+            if hasattr(self, 'main_window') and hasattr(self.main_window, 'camera_manager'):
+                cs = self.main_window.camera_manager.camera_stream
+                if cs and hasattr(cs, 'external_trigger_enabled'):
+                    return cs.external_trigger_enabled
+        except Exception:
+            pass
+        return False
+    
+    def _apply_zoom(self, new_zoom_level):
+        """
+        Apply a specific zoom level to the view (internal method)
+        
+        This is the core implementation of zoom functionality that directly
+        manipulates the QGraphicsView transform.
+        
+        Args:
+            new_zoom_level: The absolute zoom level to apply (not incremental)
+            
+        Returns:
+            True if successful, False if an error occurred
+            
+        Note:
+            - Uses absolute transforms (resetTransform + scale) to prevent accumulated errors
+            - Updates drag mode based on zoom level to enable panning when zoomed in
+            - Ensures zoom level stays within reasonable bounds (0.25 to 5.0)
+        """
+        try:
+            print(f"DEBUG: [CameraView] Applying zoom level: {new_zoom_level}")
+            
+            # Validate zoom level within bounds
+            if new_zoom_level < 0.25:
+                print(f"DEBUG: [CameraView] Zoom level too small ({new_zoom_level}), using 0.25")
+                new_zoom_level = 0.25
+            elif new_zoom_level > 5.0:
+                print(f"DEBUG: [CameraView] Zoom level too large ({new_zoom_level}), using 5.0")
+                new_zoom_level = 5.0
+            
+            # Store the old zoom level for debugging
+            old_zoom = self.zoom_level
+            
+            # Update the zoom level
+            self.zoom_level = new_zoom_level
+            
+            # Direct approach: reset transform and apply absolute scale
+            # This prevents accumulated transform errors
+            self.graphics_view.resetTransform()
+            self.graphics_view.scale(self.zoom_level, self.zoom_level)
+            
+            # Clear the zoom changed flag after applying zoom
+            self._zoom_changed = False
+            
+            # Center on the image if we have a pixmap
+            if hasattr(self, 'pixmap_item') and self.pixmap_item is not None:
+                # Only recenter if significantly zooming in from 1.0 or zooming out to 1.0
+                if (old_zoom <= 1.0 and new_zoom_level > 1.0) or (old_zoom > 1.0 and new_zoom_level <= 1.0):
+                    self.graphics_view.centerOn(self.pixmap_item)
+                
+            print(f"DEBUG: [CameraView] Zoom applied: {old_zoom} -> {self.zoom_level}")
+            
+            # Update drag mode based on zoom level
+            if self.zoom_level > 1.0:
+                # Enable drag mode when zoomed in to allow panning
+                self.graphics_view.setDragMode(QGraphicsView.ScrollHandDrag)
+                self.graphics_view.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
+            else:
+                # Disable drag mode when at normal zoom
+                self.graphics_view.setDragMode(QGraphicsView.NoDrag)
+                self.graphics_view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+                
+            return True
+        except Exception as e:
+            print(f"DEBUG: [CameraView] Error applying zoom: {e}")
+            return False
+    
     def zoom_in(self):
         """
-        Tăng mức zoom và áp dụng
+        Increase zoom level and apply to the view
+        
+        This is the primary implementation of zoom-in functionality.
+        1. Called either directly or via CameraManager.zoom_in
+        2. Applies throttling to prevent rapid zoom operations
+        3. Schedules the actual zoom application via QTimer to ensure UI thread execution
+        4. Uses _apply_zoom to perform the actual transformation
         """
-        self.zoom_level += self.zoom_step
-        self.graphics_view.scale(1 + self.zoom_step, 1 + self.zoom_step)
+        print("DEBUG: [CameraView] zoom_in called, current level:", self.zoom_level)
+        
+        # Use PyQt's QTimer to schedule zoom operation in the main thread's event loop
+        from PyQt5.QtCore import QTimer
+        
+        # Simple throttling to prevent rapid zoom operations
+        current_time = time.time()
+        if hasattr(self, '_last_zoom_time') and (current_time - self._last_zoom_time) < 0.2:
+            print("DEBUG: [CameraView] Zoom operation too frequent, ignoring")
+            return
+            
+        self._last_zoom_time = current_time
+        
+        # Calculate new zoom level with upper limit
+        new_zoom = min(5.0, self.zoom_level + self.zoom_step)
+        
+        # Set flag to indicate zoom was manually changed
+        self._zoom_changed = True
+        
+        # Use single-shot timer to ensure operation runs on the main UI thread
+        QTimer.singleShot(10, lambda: self._apply_zoom(new_zoom))
 
     def zoom_out(self):
         """
-        Giảm mức zoom và áp dụng
+        Decrease zoom level and apply to the view
+        
+        This is the primary implementation of zoom-out functionality.
+        1. Called either directly or via CameraManager.zoom_out
+        2. Applies throttling to prevent rapid zoom operations
+        3. Schedules the actual zoom application via QTimer to ensure UI thread execution
+        4. Uses _apply_zoom to perform the actual transformation
         """
-        # Giảm mức zoom và đảm bảo không thấp hơn giá trị tối thiểu
-        new_zoom = self.zoom_level - self.zoom_step
-        if new_zoom < 0.1:
-            new_zoom = 0.1
+        print("DEBUG: [CameraView] zoom_out called, current level:", self.zoom_level)
         
-        # Calculate scale factor
-        scale_factor = new_zoom / self.zoom_level
-        self.zoom_level = new_zoom
+        # Use PyQt's QTimer to schedule zoom operation in the main thread's event loop
+        from PyQt5.QtCore import QTimer
         
-        # Apply zoom
-        self.graphics_view.scale(scale_factor, scale_factor)
+        # Simple throttling to prevent rapid zoom operations
+        current_time = time.time()
+        if hasattr(self, '_last_zoom_time') and (current_time - self._last_zoom_time) < 0.2:
+            print("DEBUG: [CameraView] Zoom operation too frequent, ignoring")
+            return
+            
+        self._last_zoom_time = current_time
+        
+        # Calculate new zoom level with lower limit
+        new_zoom = max(0.1, self.zoom_level - self.zoom_step)
+        
+        # Set flag to indicate zoom was manually changed
+        self._zoom_changed = True
+        
+        # Use single-shot timer to ensure operation runs on the main UI thread
+        QTimer.singleShot(10, lambda: self._apply_zoom(new_zoom))
+        
+    def register_zoom_events(self):
+        """Register zoom and pan event handlers"""
+        try:
+            # Make sure graphics_view is initialized
+            if not hasattr(self, 'graphics_view') or self.graphics_view is None:
+                print("DEBUG: [CameraView] Cannot register zoom events - graphics_view not initialized")
+                return False
+            
+            # Set up wheel event handling for zoom
+            if not hasattr(self, '_original_wheel_event'):
+                self._original_wheel_event = self.graphics_view.wheelEvent
+                
+                def _wheel_zoom_event(event):
+                    """Handle wheel events for zoom"""
+                    if event.modifiers() & Qt.ControlModifier:
+                        # Calculate zoom factor based on wheel delta
+                        angle_delta = event.angleDelta().y()
+                        if angle_delta > 0:
+                            # Zoom in
+                            new_zoom = min(5.0, self.zoom_level * 1.1)
+                            self._apply_zoom(new_zoom)
+                        else:
+                            # Zoom out
+                            new_zoom = max(0.1, self.zoom_level / 1.1)
+                            self._apply_zoom(new_zoom)
+                        event.accept()
+                    else:
+                        # Use original wheel behavior for scrolling
+                        self._original_wheel_event(event)
+                
+                # Install custom wheel handler
+                self.graphics_view.wheelEvent = _wheel_zoom_event
+                print("DEBUG: [CameraView] Registered wheel zoom event handler")
+            
+            return True
+        except Exception as e:
+            print(f"DEBUG: [CameraView] Error registering zoom events: {e}")
+            return False
 
     def rotate_left(self):
         """
         Xoay ngược chiều kim đồng hồ 90 độ
         """
         self.rotation_angle = (self.rotation_angle - 90) % 360
-        self._show_frame_with_zoom()
+        
+        # Apply the transform directly
+        self.graphics_view.resetTransform()
+        self.graphics_view.scale(self.zoom_level, self.zoom_level)
+        self.graphics_view.rotate(self.rotation_angle)
 
     def rotate_right(self):
         """
         Xoay theo chiều kim đồng hồ 90 độ
         """
         self.rotation_angle = (self.rotation_angle + 90) % 360
-        self._show_frame_with_zoom()
+        
+        # Apply the transform directly
+        self.graphics_view.resetTransform()
+        self.graphics_view.scale(self.zoom_level, self.zoom_level)
+        self.graphics_view.rotate(self.rotation_angle)
 
     def reset_view(self):
         """
@@ -848,7 +1109,13 @@ class CameraView(QObject):
         self.zoom_level = 1.0
         self.rotation_angle = 0
         self.fit_on_next_frame = True
-        self._show_frame_with_zoom()
+        
+        # Apply reset transform directly
+        self.graphics_view.resetTransform()
+        
+        # Center the view
+        if hasattr(self, 'scene') and self.scene is not None:
+            self.graphics_view.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
     def fit_to_view(self):
         """
@@ -1324,6 +1591,25 @@ class CameraView(QObject):
             # Update current frame for internal use
             self.current_frame = frame_for_history
             
+            # Store last valid QImage for use in trigger mode
+            if not hasattr(self, 'last_valid_qimage') or qimage is not None:
+                self.last_valid_qimage = qimage
+            
+            # Check if we're in trigger mode
+            in_trigger_mode = False
+            try:
+                if hasattr(self, 'main_window') and hasattr(self.main_window, 'camera_manager'):
+                    cs = self.main_window.camera_manager.camera_stream
+                    if cs and hasattr(cs, 'external_trigger_enabled'):
+                        in_trigger_mode = cs.external_trigger_enabled
+            except Exception:
+                pass
+            
+            # Keep track of trigger mode state
+            if hasattr(self, 'in_trigger_mode') and self.in_trigger_mode != in_trigger_mode:
+                print(f"DEBUG: [CameraView] Trigger mode changed: {in_trigger_mode}")
+            self.in_trigger_mode = in_trigger_mode
+            
             # Display the processed QImage
             self._display_qimage(qimage)
             
@@ -1361,17 +1647,16 @@ class CameraView(QObject):
                 self.graphics_view.fitInView(scene.itemsBoundingRect(), Qt.KeepAspectRatio)
                 self.fit_on_next_frame = False
             
-            # Apply current zoom level
-            if hasattr(self, 'zoom_level') and self.zoom_level != 1.0:
-                transform = self.graphics_view.transform()
-                transform.scale(self.zoom_level, self.zoom_level)
-                self.graphics_view.setTransform(transform)
+            # The zoom level should already be applied by the zoom_in/zoom_out methods
+            # Don't reapply zoom with each new frame as that causes cumulative zoom effect
+            # We only need to reset the transform and apply the current zoom if explicitly requested
+            if hasattr(self, '_zoom_changed') and self._zoom_changed:
+                self.graphics_view.resetTransform()
+                self.graphics_view.scale(self.zoom_level, self.zoom_level)
+                self._zoom_changed = False
             
-            # Apply rotation if needed
-            if hasattr(self, 'rotation_angle') and self.rotation_angle != 0:
-                transform = self.graphics_view.transform()
-                transform.rotate(self.rotation_angle)
-                self.graphics_view.setTransform(transform)
+            # Don't apply rotation on every frame - only when rotation has changed
+            # This will be handled in rotate_left and rotate_right methods directly
             
         except Exception as e:
             logging.error(f"Error displaying QImage: {e}")

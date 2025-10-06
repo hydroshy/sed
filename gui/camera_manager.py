@@ -1,10 +1,11 @@
-from PyQt5.QtCore import QObject, pyqtSlot, QThread, pyqtSignal
+from PyQt5.QtCore import QObject, pyqtSlot, QThread, pyqtSignal, QTimer
 from PyQt5.QtWidgets import QApplication, QComboBox
 from camera.camera_stream import CameraStream
 from gui.camera_view import CameraView
 import logging
 import re
 import inspect
+import time
 
 class CameraOperationThread(QThread):
     """Thread for non-blocking camera operations"""
@@ -1382,15 +1383,56 @@ class CameraManager(QObject):
         if self.camera_view:
             self.camera_view.rotate_right()
             
+    # Zoom functionality is now fully implemented in CameraView
+    # CameraManager just acts as a pass-through
+    
     def zoom_in(self):
-        """Ph  ng to"""
-        if self.camera_view:
+        """
+        Simple pass-through to camera_view's zoom_in
+        
+        This method acts as a proxy to the actual zoom implementation in CameraView.
+        
+        Zoom Flow:
+        1. MainWindow button click -> CameraManager.zoom_in
+        2. CameraManager.zoom_in -> CameraView.zoom_in
+        3. CameraView.zoom_in -> CameraView._apply_zoom (with throttling)
+        """
+        print("DEBUG: [CameraManager] zoom_in called")
+        
+        # Check if camera_view is available
+        if not self.camera_view:
+            print("DEBUG: [CameraManager] zoom_in failed - camera_view is None")
+            return
+            
+        # Direct approach - call camera_view.zoom_in directly
+        try:
             self.camera_view.zoom_in()
+        except Exception as e:
+            print(f"DEBUG: [CameraManager] Error calling camera_view.zoom_in(): {e}")
             
     def zoom_out(self):
-        """Thu nh   """
-        if self.camera_view:
+        """
+        Simple pass-through to camera_view's zoom_out
+        
+        This method acts as a proxy to the actual zoom implementation in CameraView.
+        
+        Zoom Flow:
+        1. MainWindow button click -> CameraManager.zoom_out
+        2. CameraManager.zoom_out -> CameraView.zoom_out
+        3. CameraView.zoom_out -> CameraView._apply_zoom (with throttling)
+        """
+        print("DEBUG: [CameraManager] zoom_out called")
+        
+        # Check if camera_view is available
+        if not self.camera_view:
+            print("DEBUG: [CameraManager] zoom_out failed - camera_view is None")
+            return
+        
+        # Direct approach - call camera_view.zoom_out directly
+        try:
             self.camera_view.zoom_out()
+        except Exception as e:
+            print(f"DEBUG: [CameraManager] Error calling camera_view.zoom_out(): {e}")
             
     def handle_resize_event(self):
         """X    l   s    ki   n khi c   a s    thay      i k  ch th     c"""

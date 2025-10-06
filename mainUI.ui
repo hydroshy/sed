@@ -181,8 +181,8 @@
           <widget class="QLCDNumber" name="executionTime">
            <property name="geometry">
             <rect>
-             <x>620</x>
-             <y>30</y>
+             <x>730</x>
+             <y>10</y>
              <width>81</width>
              <height>21</height>
             </rect>
@@ -292,39 +292,14 @@
             </rect>
            </property>
            <layout class="QGridLayout" name="reviewViewLayout">
-            <item row="0" column="1">
-             <widget class="QGraphicsView" name="reviewView_1"/>
-            </item>
-            <item row="0" column="0">
-             <widget class="QGraphicsView" name="reviewView_3"/>
-            </item>
             <item row="0" column="4">
              <widget class="QGraphicsView" name="reviewView_5"/>
             </item>
             <item row="0" column="3">
              <widget class="QGraphicsView" name="reviewView_4"/>
             </item>
-            <item row="0" column="2">
-             <widget class="QGraphicsView" name="reviewView_2"/>
-            </item>
-            <item row="1" column="0">
-             <widget class="QLabel" name="reviewLabel_1">
-              <property name="frameShape">
-               <enum>QFrame::Panel</enum>
-              </property>
-              <property name="text">
-               <string/>
-              </property>
-              <property name="scaledContents">
-               <bool>false</bool>
-              </property>
-              <property name="alignment">
-               <set>Qt::AlignCenter</set>
-              </property>
-             </widget>
-            </item>
-            <item row="1" column="1">
-             <widget class="QLabel" name="reviewLabel_2">
+            <item row="1" column="3">
+             <widget class="QLabel" name="reviewLabel_4">
               <property name="frameShape">
                <enum>QFrame::Panel</enum>
               </property>
@@ -355,22 +330,6 @@
               </property>
              </widget>
             </item>
-            <item row="1" column="3">
-             <widget class="QLabel" name="reviewLabel_4">
-              <property name="frameShape">
-               <enum>QFrame::Panel</enum>
-              </property>
-              <property name="text">
-               <string/>
-              </property>
-              <property name="scaledContents">
-               <bool>false</bool>
-              </property>
-              <property name="alignment">
-               <set>Qt::AlignCenter</set>
-              </property>
-             </widget>
-            </item>
             <item row="1" column="4">
              <widget class="QLabel" name="reviewLabel_5">
               <property name="frameShape">
@@ -387,26 +346,48 @@
               </property>
              </widget>
             </item>
+            <item row="1" column="1">
+             <widget class="QLabel" name="reviewLabel_2">
+              <property name="frameShape">
+               <enum>QFrame::Panel</enum>
+              </property>
+              <property name="text">
+               <string/>
+              </property>
+              <property name="scaledContents">
+               <bool>false</bool>
+              </property>
+              <property name="alignment">
+               <set>Qt::AlignCenter</set>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="2">
+             <widget class="QGraphicsView" name="reviewView_3"/>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="reviewLabel_1">
+              <property name="frameShape">
+               <enum>QFrame::Panel</enum>
+              </property>
+              <property name="text">
+               <string/>
+              </property>
+              <property name="scaledContents">
+               <bool>false</bool>
+              </property>
+              <property name="alignment">
+               <set>Qt::AlignCenter</set>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QGraphicsView" name="reviewView_2"/>
+            </item>
+            <item row="0" column="0">
+             <widget class="QGraphicsView" name="reviewView_1"/>
+            </item>
            </layout>
-          </widget>
-          <widget class="QPushButton" name="resetZoom">
-           <property name="geometry">
-            <rect>
-             <x>370</x>
-             <y>30</y>
-             <width>221</width>
-             <height>21</height>
-            </rect>
-           </property>
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="text">
-            <string>Reset zoom</string>
-           </property>
           </widget>
           <widget class="QLabel" name="executionLabel">
            <property name="geometry">
@@ -442,7 +423,7 @@
         <item>
          <widget class="QStackedWidget" name="settingStackedWidget">
           <property name="currentIndex">
-           <number>1</number>
+           <number>0</number>
           </property>
           <widget class="QWidget" name="palettePage">
            <widget class="QFrame" name="paletteFrame">

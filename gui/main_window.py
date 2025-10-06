@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import (QGraphicsView, QWidget, QStackedWidget, QComboBox, 
 from PyQt5 import uic
 import os
 import logging
+import time
 from job.job_manager import JobManager
 from gui.tool_manager import ToolManager
 from gui.settings_manager import SettingsManager
@@ -203,6 +204,17 @@ class MainWindow(QMainWindow):
         self.onlineCamera = self.findChild(QPushButton, 'onlineCamera')  # Thêm onlineCamera button
         self.zoomIn = self.findChild(QPushButton, 'zoomIn')
         self.zoomOut = self.findChild(QPushButton, 'zoomOut')
+        
+        # Cấu hình nút zoom để tắt auto-repeat và thiết lập các thuộc tính khác
+        if self.zoomIn:
+            self.zoomIn.setAutoRepeat(False)  # Disable auto-repeat
+            self.zoomIn.installEventFilter(self)  # Install event filter for advanced control
+            self.zoomIn.setProperty("zoom_cooldown", True)  # Mark as needing cooldown
+        if self.zoomOut:
+            self.zoomOut.setAutoRepeat(False)  # Disable auto-repeat
+            self.zoomOut.installEventFilter(self)  # Install event filter for advanced control
+            self.zoomOut.setProperty("zoom_cooldown", True)  # Mark as needing cooldown
+            
         self.rotateLeft = self.findChild(QPushButton, 'rotateLeft')
         self.rotateRight = self.findChild(QPushButton, 'rotateRight')
         self.x1PositionLineEdit = self.findChild(QLineEdit, 'x1PositionLineEdit')
@@ -1002,10 +1014,61 @@ class MainWindow(QMainWindow):
             self.triggerCamera.clicked.connect(self.camera_manager.on_trigger_camera_clicked)
             
         if self.zoomIn:
-            self.zoomIn.clicked.connect(self.camera_manager.zoom_in)
+            # Disconnect any existing connections first
+            try:
+                self.zoomIn.clicked.disconnect()
+            except TypeError:
+                pass  # Không có kết nối nào
+            
+            # Advanced button setup to prevent continuous zooming
+            self.zoomIn.setAutoRepeat(False)  # Disable Qt auto-repeat
+            
+            # Simple, direct zoom handler
+            def safe_zoom_in_handler():
+                print("DEBUG: [MainWindow] Zoom in button pressed")
+                
+                # Simple direct connection - CameraManager will handle all the details
+                try:
+                    if hasattr(self, 'camera_manager') and self.camera_manager:
+                        # Let CameraManager handle the zoom
+                        self.camera_manager.zoom_in()
+                    else:
+                        print("DEBUG: [MainWindow] Cannot zoom in - camera_manager not available")
+                except Exception as e:
+                    print(f"DEBUG: [MainWindow] Error in zoom_in handling: {e}")
+                
+            # Connect to our safe handler instead of directly to zoom_in
+            self.zoomIn.clicked.connect(safe_zoom_in_handler)
+            print("DEBUG: [MainWindow] zoomIn button connected with enhanced protection")
             
         if self.zoomOut:
-            self.zoomOut.clicked.connect(self.camera_manager.zoom_out)
+            # Disconnect any existing connections first
+            try:
+                self.zoomOut.clicked.disconnect()
+            except TypeError:
+                pass  # Không có kết nối nào
+                
+            # Advanced button setup to prevent continuous zooming
+            self.zoomOut.setAutoRepeat(False)  # Disable Qt auto-repeat
+            
+            # Create a more controlled connection to prevent event flooding
+            # Simple, direct zoom handler
+            def safe_zoom_out_handler():
+                print("DEBUG: [MainWindow] Zoom out button pressed")
+                
+                # Simple direct connection - CameraManager will handle all the details
+                try:
+                    if hasattr(self, 'camera_manager') and self.camera_manager:
+                        # Let CameraManager handle the zoom
+                        self.camera_manager.zoom_out()
+                    else:
+                        print("DEBUG: [MainWindow] Cannot zoom out - camera_manager not available")
+                except Exception as e:
+                    print(f"DEBUG: [MainWindow] Error in zoom_out handling: {e}")
+                
+            # Connect to our safe handler instead of directly to zoom_out
+            self.zoomOut.clicked.connect(safe_zoom_out_handler)
+            print("DEBUG: [MainWindow] zoomOut button connected with enhanced protection")
             
         if self.rotateLeft:
             self.rotateLeft.clicked.connect(self.camera_manager.rotate_left)
@@ -2324,5 +2387,38 @@ class MainWindow(QMainWindow):
                 logging.info("Delayed ClassificationToolManager setup completed")
         except Exception as e:
             logging.error(f"Error in delayed classification setup: {e}")
+
+    def eventFilter(self, obj, event):
+        """Custom event filter for UI interactions"""
+        from PyQt5.QtCore import QEvent
+        
+        try:
+            # Special handling for zoom buttons
+            if obj in (self.zoomIn, self.zoomOut):
+                if event.type() == QEvent.MouseButtonPress:
+                    # Just log the press event for debugging
+                    print(f"DEBUG: [MainWindow] Button press detected: {obj.objectName()}")
+                    
+                    # Set timestamp for debounce checking
+                    current_time = time.time()
+                    obj.setProperty("last_press_time", current_time)
+                    
+                    # Let the normal event handling proceed
+                    return False
+                    
+                elif event.type() == QEvent.MouseButtonRelease:
+                    # On release, log but don't interfere with normal handling
+                    last_press = obj.property("last_press_time")
+                    if last_press is not None:
+                        press_duration = time.time() - last_press
+                        print(f"DEBUG: [MainWindow] Button released after {press_duration:.3f}s: {obj.objectName()}")
+                    
+                    # Let the normal event handling proceed (including the clicked signal)
+                    return False
+        except Exception as e:
+            print(f"DEBUG: [MainWindow] Error in eventFilter: {e}")
+            
+        # Default behavior: let event propagate
+        return super().eventFilter(obj, event)
 
 

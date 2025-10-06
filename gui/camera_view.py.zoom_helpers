@@ -1,0 +1,38 @@
+def register_zoom_events(self):
+    """Register zoom and pan event handlers"""
+    try:
+        # Make sure graphics_view is initialized
+        if not hasattr(self, 'graphics_view') or self.graphics_view is None:
+            print("DEBUG: [CameraView] Cannot register zoom events - graphics_view not initialized")
+            return False
+        
+        # Set up wheel event handling for zoom
+        if not hasattr(self, '_original_wheel_event'):
+            self._original_wheel_event = self.graphics_view.wheelEvent
+            
+            def _wheel_zoom_event(event):
+                """Handle wheel events for zoom"""
+                if event.modifiers() & Qt.ControlModifier:
+                    # Calculate zoom factor based on wheel delta
+                    angle_delta = event.angleDelta().y()
+                    if angle_delta > 0:
+                        # Zoom in
+                        new_zoom = min(5.0, self.zoom_level * 1.1)
+                        self._apply_zoom(new_zoom)
+                    else:
+                        # Zoom out
+                        new_zoom = max(0.1, self.zoom_level / 1.1)
+                        self._apply_zoom(new_zoom)
+                    event.accept()
+                else:
+                    # Use original wheel behavior for scrolling
+                    self._original_wheel_event(event)
+            
+            # Install custom wheel handler
+            self.graphics_view.wheelEvent = _wheel_zoom_event
+            print("DEBUG: [CameraView] Registered wheel zoom event handler")
+        
+        return True
+    except Exception as e:
+        print(f"DEBUG: [CameraView] Error registering zoom events: {e}")
+        return False
