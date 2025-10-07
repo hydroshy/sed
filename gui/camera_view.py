@@ -218,7 +218,7 @@ class CameraView(QObject):
         self.current_frame = None
         self.last_valid_qimage = None  # Store last valid QImage for trigger mode
         self.in_trigger_mode = False   # Track if camera is in trigger mode
-        self.zoom_level = 1.0
+        self.zoom_level = 1.1  # Default zoom level tăng 1 mức zoom_in
         self.zoom_step = 0.1
         self.rotation_angle = 0
         self.fit_on_next_frame = False
@@ -329,6 +329,11 @@ class CameraView(QObject):
         print(f"DEBUG: [CameraView] Setting display mode to: {mode}, tool_id: {tool_id}")
         self.display_mode = mode
         self.display_tool_id = tool_id
+        
+        # Đảm bảo giữ mức zoom là 1.1 khi thay đổi display mode
+        self.zoom_level = 1.1
+        self._zoom_changed = True
+        print(f"DEBUG: [CameraView] Đã đặt zoom_level = 1.1 trong set_display_mode")
         
         # Configure display based on mode
         if mode == "camera":
@@ -873,7 +878,7 @@ class CameraView(QObject):
                     # Handle fit to view if needed
                     if hasattr(self, 'fit_on_next_frame') and self.fit_on_next_frame:
                         self.graphics_view.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
-                        self.zoom_level = 1.0
+                        self.zoom_level = 1.1  # Đặt mức zoom mặc định cao hơn 1 mức
                         self.fit_on_next_frame = False
                     
                     # Mark that we've drawn at least once
@@ -1105,23 +1110,42 @@ class CameraView(QObject):
     def reset_view(self):
         """
         Đặt lại mức zoom và xoay về mặc định
-        """
-        self.zoom_level = 1.0
-        self.rotation_angle = 0
-        self.fit_on_next_frame = True
         
-        # Apply reset transform directly
+        Phương thức này reset hoàn toàn view về trạng thái mặc định:
+        - Đặt zoom_level về 1.1
+        - Đặt góc xoay về 0
+        - Reset transform
+        - Căn giữa hình ảnh
+        """
+        print("DEBUG: [CameraView] reset_view called")
+        
+        # Đặt lại các thông số
+        self.zoom_level = 1.1  # Reset về mức zoom mặc định đã được tăng 1 mức
+        self.rotation_angle = 0
+        self._zoom_changed = True  # Đảm bảo transform được áp dụng
+        
+        # Reset transform trực tiếp
         self.graphics_view.resetTransform()
         
-        # Center the view
-        if hasattr(self, 'scene') and self.scene is not None:
+        # Đặt lại chế độ drag khi zoom về mặc định
+        self.graphics_view.setDragMode(QGraphicsView.NoDrag)
+        self.graphics_view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+        
+        # Căn giữa hình ảnh
+        if hasattr(self, 'scene') and self.scene is not None and self.scene.sceneRect().isValid():
             self.graphics_view.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+            self.fit_on_next_frame = False
+        else:
+            self.fit_on_next_frame = True
+            
+        print(f"DEBUG: [CameraView] View reset to zoom={self.zoom_level}, rotation={self.rotation_angle}")
 
     def fit_to_view(self):
         """
         Phóng to/thu nhỏ để vừa khung nhìn
         """
         self.fit_on_next_frame = True
+        self.zoom_level = 1.1  # Đảm bảo mức zoom đúng ngay cả khi fit to view
         self._show_frame_with_zoom()
 
     def get_current_frame(self):
@@ -1140,6 +1164,7 @@ class CameraView(QObject):
         # Nếu đang ở chế độ fit, fit lại khi resize
         if self.fit_on_next_frame:
             self.graphics_view.fitInView(self.graphics_view.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+            self.zoom_level = 1.1  # Đảm bảo mức zoom mặc định được duy trì
             self.fit_on_next_frame = False
             
     def toggle_fps_display(self, show_fps):

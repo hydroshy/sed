@@ -89,9 +89,9 @@
            <property name="geometry">
             <rect>
              <x>20</x>
-             <y>60</y>
+             <y>70</y>
              <width>931</width>
-             <height>551</height>
+             <height>541</height>
             </rect>
            </property>
            <property name="sizePolicy">
@@ -181,8 +181,8 @@
           <widget class="QLCDNumber" name="executionTime">
            <property name="geometry">
             <rect>
-             <x>730</x>
-             <y>10</y>
+             <x>620</x>
+             <y>40</y>
              <width>81</width>
              <height>21</height>
             </rect>
@@ -203,7 +203,7 @@
           <widget class="QPushButton" name="zoomIn">
            <property name="geometry">
             <rect>
-             <x>370</x>
+             <x>290</x>
              <y>10</y>
              <width>101</width>
              <height>21</height>
@@ -222,7 +222,7 @@
           <widget class="QPushButton" name="zoomOut">
            <property name="geometry">
             <rect>
-             <x>490</x>
+             <x>410</x>
              <y>10</y>
              <width>101</width>
              <height>21</height>
@@ -266,8 +266,8 @@
            </property>
            <property name="geometry">
             <rect>
-             <x>180</x>
-             <y>10</y>
+             <x>20</x>
+             <y>40</y>
              <width>141</width>
              <height>23</height>
             </rect>
@@ -286,12 +286,12 @@
            <property name="geometry">
             <rect>
              <x>20</x>
-             <y>620</y>
+             <y>630</y>
              <width>931</width>
-             <height>161</height>
+             <height>151</height>
             </rect>
            </property>
-           <layout class="QGridLayout" name="reviewViewLayout">
+           <layout class="QGridLayout" name="reviewViewLayout" rowstretch="3,1">
             <item row="0" column="4">
              <widget class="QGraphicsView" name="reviewView_5"/>
             </item>
@@ -412,6 +412,25 @@
            </property>
            <property name="alignment">
             <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+          <widget class="QPushButton" name="zoomReset">
+           <property name="geometry">
+            <rect>
+             <x>290</x>
+             <y>40</y>
+             <width>221</width>
+             <height>21</height>
+            </rect>
+           </property>
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="text">
+            <string>Zoom reset</string>
            </property>
           </widget>
          </widget>

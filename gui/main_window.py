@@ -204,6 +204,7 @@ class MainWindow(QMainWindow):
         self.onlineCamera = self.findChild(QPushButton, 'onlineCamera')  # Thêm onlineCamera button
         self.zoomIn = self.findChild(QPushButton, 'zoomIn')
         self.zoomOut = self.findChild(QPushButton, 'zoomOut')
+        self.zoomReset = self.findChild(QPushButton, 'zoomReset')
         
         # Cấu hình nút zoom để tắt auto-repeat và thiết lập các thuộc tính khác
         if self.zoomIn:
@@ -214,6 +215,10 @@ class MainWindow(QMainWindow):
             self.zoomOut.setAutoRepeat(False)  # Disable auto-repeat
             self.zoomOut.installEventFilter(self)  # Install event filter for advanced control
             self.zoomOut.setProperty("zoom_cooldown", True)  # Mark as needing cooldown
+        if self.zoomReset:
+            self.zoomReset.setAutoRepeat(False)  # Disable auto-repeat
+            self.zoomReset.installEventFilter(self)  # Install event filter for advanced control
+            self.zoomReset.setProperty("zoom_cooldown", True)  # Mark as needing cooldown
             
         self.rotateLeft = self.findChild(QPushButton, 'rotateLeft')
         self.rotateRight = self.findChild(QPushButton, 'rotateRight')
@@ -1075,6 +1080,34 @@ class MainWindow(QMainWindow):
             
         if self.rotateRight:
             self.rotateRight.clicked.connect(self.camera_manager.rotate_right)
+            
+        if self.zoomReset:
+            # Disconnect any existing connections first
+            try:
+                self.zoomReset.clicked.disconnect()
+            except TypeError:
+                pass  # Không có kết nối nào
+                
+            # Advanced button setup to prevent continuous clicking
+            self.zoomReset.setAutoRepeat(False)  # Disable Qt auto-repeat
+            
+            # Simple, direct zoom reset handler
+            def safe_zoom_reset_handler():
+                print("DEBUG: [MainWindow] Zoom reset button pressed")
+                
+                # Simple direct connection - CameraManager will handle all the details
+                try:
+                    if hasattr(self, 'camera_manager') and self.camera_manager:
+                        # Let CameraManager handle the zoom reset
+                        self.camera_manager.reset_view()
+                    else:
+                        print("DEBUG: [MainWindow] Cannot reset zoom - camera_manager not available")
+                except Exception as e:
+                    print(f"DEBUG: [MainWindow] Error in zoom_reset handling: {e}")
+                
+            # Connect to our safe handler instead of directly to reset_view
+            self.zoomReset.clicked.connect(safe_zoom_reset_handler)
+            print("DEBUG: [MainWindow] zoomReset button connected with enhanced protection")
 
         # Camera pixel format combo box: apply immediately when selection changes
         try:

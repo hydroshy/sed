@@ -152,6 +152,12 @@ class CameraManager(QObject):
         
         # Kh   i t   o camera view v   i main_window reference
         self.camera_view = CameraView(camera_view_widget, self.main_window)
+        # Đảm bảo zoom level mặc định là 1.1
+        if self.camera_view:
+            self.camera_view.zoom_level = 1.1
+            if hasattr(self.camera_view, '_zoom_changed'):
+                self.camera_view._zoom_changed = True
+            print("DEBUG: [CameraManager] Đã đặt zoom_level = 1.1 trong setup")
         self.camera_stream.frame_ready.connect(self.camera_view.display_frame)
         # Rebind frame_ready to route through our handler so we can run the job pipeline
         try:
@@ -211,6 +217,14 @@ class CameraManager(QObject):
             if name == 'Camera Source' or getattr(tool, '__class__', type('X',(),{})).__name__ == 'CameraTool':
                 tool.camera_manager = self
                 self._camera_tool_ref = tool
+                
+                # Đảm bảo CameraView hiển thị với mức zoom mặc định là 1.1 khi thêm CameraTool
+                if self.camera_view:
+                    self.camera_view.zoom_level = 1.1
+                    if hasattr(self.camera_view, '_zoom_changed'):
+                        self.camera_view._zoom_changed = True
+                    print("DEBUG: [CameraManager] Đã đặt zoom_level = 1.1 trong register_tool")
+                
                 return True
         except Exception as e:
             logging.warning(f"Error registering tool: {e}")
@@ -376,6 +390,11 @@ class CameraManager(QObject):
             # Clear camera view display areas
             if self.camera_view:
                 self.camera_view.clear_all_areas()
+                # Đảm bảo zoom level vẫn được đặt về giá trị mặc định 1.1
+                self.camera_view.zoom_level = 1.1
+                if hasattr(self.camera_view, '_zoom_changed'):
+                    self.camera_view._zoom_changed = True
+                print("DEBUG: [CameraManager] Đã đặt zoom_level = 1.1 trong stop_camera_for_apply")
                 
             # Refresh source output combo to show updated pipeline
             self.refresh_source_output_combo()
@@ -1433,6 +1452,29 @@ class CameraManager(QObject):
             self.camera_view.zoom_out()
         except Exception as e:
             print(f"DEBUG: [CameraManager] Error calling camera_view.zoom_out(): {e}")
+            
+    def reset_view(self):
+        """
+        Simple pass-through to camera_view's reset_view
+        
+        This method acts as a proxy to the actual reset implementation in CameraView.
+        
+        Reset Flow:
+        1. MainWindow button click -> CameraManager.reset_view
+        2. CameraManager.reset_view -> CameraView.reset_view
+        """
+        print("DEBUG: [CameraManager] reset_view called")
+        
+        # Check if camera_view is available
+        if not self.camera_view:
+            print("DEBUG: [CameraManager] reset_view failed - camera_view is None")
+            return
+        
+        # Direct approach - call camera_view.reset_view directly
+        try:
+            self.camera_view.reset_view()
+        except Exception as e:
+            print(f"DEBUG: [CameraManager] Error calling camera_view.reset_view(): {e}")
             
     def handle_resize_event(self):
         """X    l   s    ki   n khi c   a s    thay      i k  ch th     c"""
