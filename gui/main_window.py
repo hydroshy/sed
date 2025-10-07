@@ -592,7 +592,7 @@ class MainWindow(QMainWindow):
         # Force mode to Live on startup (do not start camera)
         try:
             if hasattr(self.camera_manager, 'on_live_camera_mode_clicked'):
-                self.camera_manager.on_live_camera_mode_clicked()
+                self.camera_manager.on_live_camera_mode_clicked(from_init=True)
         except Exception as e:
             logging.error(f"Failed to set default live mode: {e}")
         

@@ -206,6 +206,9 @@ class CameraManager(QObject):
         
         # Disable UI initially
         self.set_ui_enabled(False)
+        
+        # Ensure camera mode UI is properly initialized (với trigger button disabled)
+        self.update_camera_mode_ui()
 
     def register_tool(self, tool):
         """Register Camera Source tool (cache reference during pending/edit).
@@ -524,9 +527,14 @@ class CameraManager(QObject):
             
         if self.trigger_camera_btn:
             self.trigger_camera_btn.clicked.connect(self.on_trigger_camera_clicked)
-            # Enable the button immediately without requiring Camera Source tool
-            self.trigger_camera_btn.setEnabled(True)
-            self.trigger_camera_btn.setToolTip("Trigger single frame capture")
+            # Vô hiệu hóa nút ngay khi khởi động và làm cho nó trông rõ ràng là bị vô hiệu hóa
+            self.trigger_camera_btn.setEnabled(False)
+            self.trigger_camera_btn.setText("Trigger Camera")
+            self.trigger_camera_btn.setStyleSheet("background-color: #cccccc; color: #888888;")  # Gray when disabled
+            self.trigger_camera_btn.setToolTip("Start camera first")
+            
+            # Đảm bảo các thay đổi được áp dụng ngay lập tức
+            self.trigger_camera_btn.repaint()
             
         # Connect new camera mode buttons
         if self.live_camera_mode:
@@ -614,15 +622,17 @@ class CameraManager(QObject):
         """B   t/t   t to  n b    UI camera"""
         self.ui_enabled = enabled
         
-        # Camera buttons
+        # Camera buttons - Chỉ kích hoạt các nút khác, KHÔNG kích hoạt trigger_camera_btn
         if self.live_camera_btn:
             self.live_camera_btn.setEnabled(enabled)
-        if self.trigger_camera_btn:
-            self.trigger_camera_btn.setEnabled(enabled)
+        # trigger_camera_btn được quản lý trong update_camera_mode_ui
         if self.live_camera_mode:
             self.live_camera_mode.setEnabled(enabled)
         if self.trigger_camera_mode:
             self.trigger_camera_mode.setEnabled(enabled)
+            
+        # Đảm bảo UI mode camera được cập nhật đúng
+        self.update_camera_mode_ui()
             
         # Settings controls
         self.set_settings_controls_enabled(enabled and not self._is_auto_exposure)
@@ -1312,24 +1322,25 @@ class CameraManager(QObject):
             # Update UI first for immediate feedback
             if enabled:
                 self.current_mode = 'trigger'
-                if self.trigger_camera_btn:
-                    self.trigger_camera_btn.setChecked(True)
-                if self.live_camera_btn:
-                    self.live_camera_btn.setChecked(False)
                 if self.trigger_camera_mode:
                     self.trigger_camera_mode.setChecked(True)
                 if self.live_camera_mode:
                     self.live_camera_mode.setChecked(False)
             else:
                 self.current_mode = 'live'
-                if self.trigger_camera_btn:
-                    self.trigger_camera_btn.setChecked(False)
-                if self.live_camera_btn:
-                    self.live_camera_btn.setChecked(True)
                 if self.trigger_camera_mode:
                     self.trigger_camera_mode.setChecked(False)
                 if self.live_camera_mode:
                     self.live_camera_mode.setChecked(True)
+                    
+            # CRITICAL: Đảm bảo nút trigger được vô hiệu hóa đúng cách khi chuyển sang live mode
+            if not enabled and self.trigger_camera_btn:
+                # Ngay lập tức vô hiệu hóa nút trigger khi chuyển sang chế độ live
+                self.trigger_camera_btn.setEnabled(False)
+                self.trigger_camera_btn.setProperty("forcedDisabled", True)
+                self.trigger_camera_btn.setStyleSheet("background-color: #cccccc; color: #888888;")  # Gray when disabled
+                self.trigger_camera_btn.repaint()  # Force immediate UI update
+                print("DEBUG: [CameraManager] Immediately disabled trigger button when switching to live mode")
             
             # Update camera hardware in background thread to prevent UI blocking
             if self.camera_stream and hasattr(self.camera_stream, 'set_trigger_mode'):
@@ -1344,6 +1355,7 @@ class CameraManager(QObject):
                 self.operation_thread.operation_completed.connect(self._on_trigger_mode_completed)
                 self.operation_thread.start()
             
+            # Cập nhật toàn bộ UI CHÍNH THỨC sau khi đã thiết lập trạng thái
             self.update_camera_mode_ui()
             return True
         except Exception as e:
@@ -1354,7 +1366,25 @@ class CameraManager(QObject):
         """Handle completion of trigger mode change operation"""
         if not success:
             logging.warning(f"Trigger mode operation failed: {message}")
-        # UI is already updated, no additional action needed
+            # Hiển thị thông báo lỗi cho người dùng nếu cần
+            self._show_camera_error(f"Failed to change camera mode: {message}")
+        
+        # Luôn cập nhật lại UI để đảm bảo UI được hiển thị đúng trạng thái
+        # Điều này đặc biệt quan trọng nếu hardware mode change thất bại
+        try:
+            current_mode = self.current_mode if self.current_mode else 'live'
+            print(f"DEBUG: [CameraManager] Trigger mode operation completed, refreshing UI for mode: {current_mode}")
+            
+            # Đặc biệt đảm bảo nút trigger bị vô hiệu hóa trong chế độ live
+            if current_mode == 'live' and self.trigger_camera_btn:
+                self.trigger_camera_btn.setEnabled(False)
+                self.trigger_camera_btn.setStyleSheet("background-color: #cccccc; color: #888888;")  # Gray when disabled
+                self.trigger_camera_btn.repaint()  # Force immediate UI update
+            
+            # Cập nhật toàn bộ UI
+            self.update_camera_mode_ui()
+        except Exception as e:
+            logging.error(f"Error updating UI after trigger mode completion: {e}")
     
     def set_format_async(self, pixel_format):
         """
@@ -1740,10 +1770,20 @@ class CameraManager(QObject):
         camera_is_running = False
         editing_camera_tool = self._is_editing_camera_tool()
         
-        # Kiểm tra chế độ camera hiện tại
-        current_mode = self.current_mode
-        if current_mode is None:
-            current_mode = 'live'
+        # Kiểm tra chế độ camera hiện tại - ưu tiên lấy từ camera_tool trước
+        camera_tool = self.find_camera_tool()
+        if camera_tool:
+            current_mode = camera_tool.get_camera_mode()
+        else:
+            # Fallback to local mode with default
+            current_mode = self.current_mode
+            if current_mode is None:
+                current_mode = 'live'
+                
+        # Kiểm tra và ngăn chặn kích hoạt khi ở chế độ live (trừ khi đang edit)
+        if current_mode == 'live' and not editing_camera_tool:
+            print(f"DEBUG: [CameraManager] Cannot trigger in LIVE mode (editing={editing_camera_tool})")
+            return False
         
         if self.camera_stream:
             try:
@@ -1787,18 +1827,61 @@ class CameraManager(QObject):
             
         return False
     
+    def is_camera_running(self):
+        """Kiểm tra xem camera có đang chạy hay không"""
+        camera_running = False
+        if self.camera_stream:
+            try:
+                camera_running = (hasattr(self.camera_stream, 'is_running') and 
+                                 self.camera_stream.is_running())
+            except Exception:
+                pass
+        return camera_running
+        
     def on_trigger_camera_clicked(self):
         """X    l   khi click Trigger Camera button - kích hoạt GPIO camera trigger"""
         print("DEBUG: [CameraManager] Trigger camera button clicked")
         
-        # Gọi hàm kích hoạt GPIO độc lập
-        self.activate_gpio_trigger()
+        # Kiểm tra nút có thực sự được kích hoạt hay không
+        button_is_enabled = True
+        if self.trigger_camera_btn and hasattr(self.trigger_camera_btn, 'isEnabled'):
+            button_is_enabled = self.trigger_camera_btn.isEnabled()
+            print(f"DEBUG: [CameraManager] Trigger button enabled state: {button_is_enabled}")
+            
+            # Force update của button state để đảm bảo UI hiển thị đúng
+            if not button_is_enabled:
+                self.trigger_camera_btn.setEnabled(False)
+                self.trigger_camera_btn.repaint()
+                return
+        
+        # Kiểm tra chế độ hiện tại - chỉ kích hoạt GPIO khi ở chế độ trigger
+        camera_tool = self.find_camera_tool()
+        current_mode = 'live'  # Default to live
+        
+        if camera_tool:
+            current_mode = camera_tool.get_camera_mode()
+        else:
+            # Fallback to local mode
+            current_mode = self.current_mode if self.current_mode else 'live'
+            
+        print(f"DEBUG: [CameraManager] Camera running: {self.is_camera_running()}, Editing Camera Source: {self._is_editing_camera_tool()}, Mode: {current_mode}")
+            
+        # Chỉ kích hoạt GPIO khi ở chế độ trigger và nút được kích hoạt
+        if current_mode == 'trigger' and button_is_enabled:
+            # Gọi hàm kích hoạt GPIO độc lập
+            self.activate_gpio_trigger()
+        else:
+            print("DEBUG: [CameraManager] Ignore trigger button click in live mode or button disabled")
         
         # Kh  ng thay      i giao di   n ng     i d  ng, ch    g   i update       l  m m   i UI n   u c   n
         self.update_camera_mode_ui()
     
     def update_camera_mode_ui(self):
         """C   p nh   t UI theo camera mode hi   n t   i - sync with CameraTool"""
+        # Luôn đảm bảo nút trigger có tên không đổi
+        if self.trigger_camera_btn:
+            self.trigger_camera_btn.setText("Trigger Camera")
+        
         # Get current mode from CameraTool if available
         camera_tool = self.find_camera_tool()
         if camera_tool:
@@ -1812,18 +1895,29 @@ class CameraManager(QObject):
             print(f"DEBUG: [CameraManager] Using local mode (no CameraTool): {current_mode}")
         
         # Kiểm tra camera có đang chạy không
-        camera_is_running = False
+        camera_is_running = self.is_camera_running()
         editing_camera_tool = self._is_editing_camera_tool()
         
-        if self.camera_stream:
-            try:
-                camera_is_running = (hasattr(self.camera_stream, 'is_running') and 
-                                    self.camera_stream.is_running())
-            except Exception:
-                pass
+        # Kiểm tra có camera tool hay không
+        has_camera_tool = camera_tool is not None
         
-        # Luôn cho phép kích hoạt nút trigger khi đang edit Camera Source, ngay cả khi camera chưa chạy
-        trigger_enabled = camera_is_running or editing_camera_tool
+        # Quy tắc đơn giản để xác định khi nào nút trigger được kích hoạt:
+        # 1. PHẢI đang ở chế độ 'trigger' (không phải 'live')
+        # 2. PHẢI có camera tool
+        # 3. PHẢI có camera đang chạy
+        # HOẶC đang trong chế độ chỉnh sửa Camera Tool (cho phép test)
+        
+        # Mặc định vô hiệu hóa nút trigger
+        trigger_enabled = False
+        
+        # Chỉ kích hoạt nút trong những điều kiện cụ thể
+        if current_mode == 'trigger' and has_camera_tool and (camera_is_running or editing_camera_tool):
+            trigger_enabled = True
+        else:
+            # Trong mọi trường hợp khác (live mode, không có camera tool, camera không chạy), vô hiệu hóa nút
+            trigger_enabled = False
+            
+        print(f"DEBUG: [CameraManager] Trigger enabled: {trigger_enabled}, mode: {current_mode}, camera running: {camera_is_running}")
         
         is_camera_btn_checked = self.live_camera_btn and self.live_camera_btn.isChecked()
         print(f"DEBUG: [CameraManager] Camera is running: {camera_is_running}, editing Camera Source: {editing_camera_tool}, button checked: {is_camera_btn_checked}")
@@ -1844,15 +1938,28 @@ class CameraManager(QObject):
                 self.live_camera_btn.setEnabled(True)  # Always enabled in live mode
                 self.live_camera_btn.blockSignals(False)
                 
-                # Trigger camera button - bật khi camera đang chạy hoặc đang edit Camera Source
-                self.trigger_camera_btn.setEnabled(trigger_enabled)
-                self.trigger_camera_btn.setText("Capture Photo")
-                if not trigger_enabled:
-                    self.trigger_camera_btn.setStyleSheet("background-color: #cccccc")  # Gray when disabled
-                elif editing_camera_tool:
-                    self.trigger_camera_btn.setStyleSheet("background-color: #4caf50")  # Green when editing Camera Source
+                # Trigger camera button - luôn giữ nguyên tên là "Trigger Camera" và luôn vô hiệu hóa trong chế độ live
+                # CHÚ Ý: Trong chế độ Live mode, nút trigger LUÔN bị vô hiệu hóa không có ngoại lệ
+                # Xóa ngoại lệ trường hợp đặc biệt editing CameraTool để đảm bảo nhất quán
+                
+                # Trường hợp thông thường: luôn vô hiệu hóa trong chế độ live
+                self.trigger_camera_btn.setText("Trigger Camera")  # Giữ nguyên tên
+                
+                # Sử dụng nhiều phương pháp để đảm bảo nút bị vô hiệu hóa
+                self.trigger_camera_btn.setEnabled(False)  # Vô hiệu hóa nút
+                self.trigger_camera_btn.setProperty("forcedDisabled", True)  # Thêm property tùy chỉnh
+                
+                # Làm cho nút có vẻ ngoài bị vô hiệu hóa rõ rệt
+                self.trigger_camera_btn.setStyleSheet("background-color: #cccccc; color: #888888;")  # Gray bg + text
+                print("DEBUG: [CameraManager] Live mode - trigger button DISABLED (no exceptions)")
+                
+                # Set appropriate tooltip based on conditions
+                if not camera_tool:
+                    self.trigger_camera_btn.setToolTip("Need to add Camera Tool first")
+                elif not camera_is_running:
+                    self.trigger_camera_btn.setToolTip("Start camera first")
                 else:
-                    self.trigger_camera_btn.setStyleSheet("")
+                    self.trigger_camera_btn.setToolTip("Not available in Live Camera Mode")
                 
                 # Update mode buttons
                 if self.live_camera_mode:
@@ -1867,19 +1974,27 @@ class CameraManager(QObject):
                     self.trigger_camera_mode.blockSignals(False)
                     
             elif current_mode == 'trigger':
-                # Trigger mode UI - bật khi camera đang chạy hoặc đang edit Camera Source
+                # Trigger mode UI - Luôn giữ nguyên tên và chỉ kích hoạt khi đủ điều kiện
+                self.trigger_camera_btn.setText("Trigger Camera")  # Giữ nguyên tên
                 self.trigger_camera_btn.setEnabled(trigger_enabled)
-                self.trigger_camera_btn.setText("Trigger Capture")
+                
                 if not trigger_enabled:
-                    self.trigger_camera_btn.setStyleSheet("background-color: #cccccc")  # Gray when disabled
-                elif editing_camera_tool:
-                    self.trigger_camera_btn.setStyleSheet("background-color: #4caf50")  # Green when editing Camera Source
+                    # Gray khi vô hiệu hóa + tooltip giải thích lý do
+                    self.trigger_camera_btn.setStyleSheet("background-color: #cccccc; color: #888888;")  # Gray bg + text
+                    if not camera_tool:
+                        self.trigger_camera_btn.setToolTip("Need to add Camera Tool first")
+                    elif not camera_is_running:
+                        self.trigger_camera_btn.setToolTip("Start camera first")
+                    else:
+                        self.trigger_camera_btn.setToolTip("Camera not ready")
                 else:
+                    # Kích hoạt và hiển thị màu cam khi ở chế độ trigger
                     self.trigger_camera_btn.setStyleSheet("background-color: #ffa62b")  # Orange
+                    self.trigger_camera_btn.setToolTip("Trigger camera to capture")
                 
                 # Live camera button state depends on if camera is running
                 self.live_camera_btn.blockSignals(True)
-                if is_camera_btn_checked:
+                if camera_is_running or is_camera_btn_checked:
                     self.live_camera_btn.setChecked(True)
                     self.live_camera_btn.setText("Stop Camera")
                     self.live_camera_btn.setStyleSheet("background-color: #ff6b6b")  # Red
@@ -1911,8 +2026,8 @@ class CameraManager(QObject):
                 self.live_camera_btn.blockSignals(False)
                 
                 self.trigger_camera_btn.setEnabled(False)  # Disabled when no camera running
-                self.trigger_camera_btn.setText("Capture Photo")
-                self.trigger_camera_btn.setStyleSheet("")
+                self.trigger_camera_btn.setText("Trigger Camera")  # Giữ tên không đổi
+                self.trigger_camera_btn.setStyleSheet("background-color: #cccccc")  # Gray when disabled
                 
                 # Default to live mode button checked
                 if self.live_camera_mode:
@@ -1965,9 +2080,17 @@ class CameraManager(QObject):
         except Exception:
             pass
     
-    def on_live_camera_mode_clicked(self):
+    def on_live_camera_mode_clicked(self, from_init=False):
         """X    l   khi click Live Camera Mode button - delegate to CameraTool"""
-        print("DEBUG: [CameraManager] Live camera mode button clicked")
+        print(f"DEBUG: [CameraManager] Live camera mode button clicked (from_init={from_init})")
+        
+        # Lưu lại mode trước đó để biết nếu đang chuyển từ trigger sang live
+        previous_mode = self.current_mode
+        was_in_trigger_mode = (previous_mode == 'trigger')
+        
+        # Lưu trạng thái để các hàm khác biết đang được gọi từ __init__ hay không
+        self._from_init = from_init
+        self.previous_mode = previous_mode
         
         # Find the Camera Source tool and delegate mode change to it
         camera_tool = self.find_camera_tool()
@@ -1976,6 +2099,14 @@ class CameraManager(QObject):
             success = camera_tool.set_camera_mode("live")
             if success:
                 print("DEBUG: [CameraManager] Live mode set successfully via CameraTool")
+                # Nếu đang chuyển từ trigger sang live và camera chưa chạy, tự động bật camera
+                if was_in_trigger_mode and self.camera_stream and hasattr(self.camera_stream, 'is_running'):
+                    camera_running = self.camera_stream.is_running()
+                    if not camera_running:
+                        print("DEBUG: [CameraManager] Auto-starting camera when switching from trigger to live mode")
+                        self._start_camera_stream()
+                        if self.live_camera_btn:
+                            self.live_camera_btn.setChecked(True)
             else:
                 print("DEBUG: [CameraManager] Failed to set live mode via CameraTool")
         else:
@@ -1985,6 +2116,9 @@ class CameraManager(QObject):
 
         # Persist preference
         self.preferred_mode = 'live'
+
+        # Force update UI to ensure trigger button is disabled
+        self.update_camera_mode_ui()
 
         # Ensure mutual exclusivity like AE/Manual buttons
         if self.live_camera_mode:
@@ -2042,6 +2176,9 @@ class CameraManager(QObject):
         # Persist preference
         self.preferred_mode = 'trigger'
 
+        # Force update UI to ensure trigger button is enabled if conditions are met
+        self.update_camera_mode_ui()
+        
         # Ensure mutual exclusivity like AE/Manual buttons
         if self.trigger_camera_mode:
             try:
@@ -2121,6 +2258,17 @@ class CameraManager(QObject):
         # Kiểm tra xem có đang edit Camera Source không
         editing_camera_tool = self._is_editing_camera_tool()
         
+        # Khi chuyển từ chế độ trigger sang live, tự động kích hoạt camera nếu cần
+        # Nhưng không tự động kích hoạt khi được gọi từ MainWindow.__init__
+        if self.camera_stream and hasattr(self.camera_stream, 'is_running') and not self.camera_stream.is_running():
+            # Không tự động kích hoạt khi đang được gọi từ MainWindow.__init__
+            from_init = getattr(self, '_from_init', False)
+            if not from_init and getattr(self, 'previous_mode', None) == 'trigger':
+                print("DEBUG: [CameraManager] Auto-starting camera when switching from trigger to live mode")
+                self._start_camera_stream()
+                if self.live_camera_btn:
+                    self.live_camera_btn.setChecked(True)
+        
         # Luôn kích hoạt chế độ live, bất kể có đang chỉnh sửa hay không
         logging.info("Enabling job execution in live mode")
         self.job_enabled = True
@@ -2131,14 +2279,16 @@ class CameraManager(QObject):
         print("DEBUG: [CameraManager] Setting trigger mode to FALSE for live mode")
         self.set_trigger_mode(False)
         
-        # Nếu đang trong chế độ edit Camera Source, tùy chỉnh UI
+        # Log trạng thái edit để debug
         if editing_camera_tool:
             print("DEBUG: [CameraManager] Editing Camera Source in live mode")
-            # Đảm bảo nút trigger vẫn được kích hoạt
-            if self.trigger_camera_btn:
-                self.trigger_camera_btn.setEnabled(True)
-                self.trigger_camera_btn.setText("Capture Photo (Edit Mode)")
-                self.trigger_camera_btn.setStyleSheet("background-color: #4caf50")  # Green in edit mode
+            
+        # Trong chế độ live, nút trigger LUÔN bị vô hiệu hóa, bất kể có đang edit hay không
+        if self.trigger_camera_btn:
+            self.trigger_camera_btn.setEnabled(False)
+            self.trigger_camera_btn.setText("Trigger Camera")
+            self.trigger_camera_btn.setStyleSheet("background-color: #cccccc; color: #888888;")  # Gray when disabled
+            print("DEBUG: [CameraManager] Live mode - forcing trigger button disabled (no exceptions)")
         
         # Luôn cập nhật UI
         self.update_camera_mode_ui()
