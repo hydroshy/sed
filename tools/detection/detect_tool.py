@@ -12,6 +12,7 @@ import cv2
 from pathlib import Path
 
 from tools.base_tool import BaseTool, ToolConfig
+from .model_manager import ModelManager
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,12 @@ class DetectTool(BaseTool):
         self.last_detections = []
         self.execution_enabled = True
         
+        # Performance optimization
+        self._last_image_shape = None
+        self._last_letterbox_cache = None
+        self._session_input_details = None
+        self._session_output_details = None
+        
         # Legacy compatibility
         self.model_name = None
         self.detect_job = None
@@ -72,17 +79,44 @@ class DetectTool(BaseTool):
     
     def _letterbox_fast(self, bgr: np.ndarray, size: int = 640, color=(114, 114, 114), stride: int = 32) -> Tuple[np.ndarray, float, Tuple[int, int]]:
         """
-        Fast letterbox resize + pad (from testonnx.py)
-        Returns: (padded_image, scale_ratio, (pad_left, pad_top))
+        Fast letterbox resize + pad with caching
+        
+        Args:
+            bgr: Input BGR image
+            size: Target size
+            color: Padding color
+            stride: Stride for alignment
+            
+        Returns:
+            Tuple containing:
+            - padded_image: Resized and padded image
+            - scale_ratio: Scale ratio used for resizing
+            - (pad_left, pad_top): Padding offsets
         """
-        h, w = bgr.shape[:2]
-        r = min(size / h, size / w)  # Scale ratio
+        current_shape = bgr.shape[:2]
+        
+        # Check cache
+        if (self._last_image_shape == current_shape and 
+            self._last_letterbox_cache is not None and 
+            self._last_letterbox_cache[0].shape == (size, size, 3)):
+            return self._last_letterbox_cache
+            
+        # Calculate scale ratio
+        h, w = current_shape
+        r = min(size / h, size / w)
         
         # Calculate new dimensions
         nh, nw = int(round(h * r)), int(round(w * r))
         
-        # Resize image
-        img = cv2.resize(bgr, (nw, nh), interpolation=cv2.INTER_LINEAR)
+        # Ensure dimensions are divisible by stride
+        nh = int(np.round(nh / stride) * stride)
+        nw = int(np.round(nw / stride) * stride)
+        
+        # Fast resize
+        if bgr.flags['C_CONTIGUOUS']:
+            img = cv2.resize(bgr, (nw, nh), interpolation=cv2.INTER_LINEAR)
+        else:
+            img = cv2.resize(np.ascontiguousarray(bgr), (nw, nh), interpolation=cv2.INTER_LINEAR)
         
         # Calculate padding
         top = (size - nh) // 2
@@ -90,51 +124,73 @@ class DetectTool(BaseTool):
         bottom = size - nh - top
         right = size - nw - left
         
-        # Apply padding
-        img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)
+        # Fast pad using preallocated array
+        padded = np.full((size, size, 3), color, dtype=np.uint8)
+        padded[top:top+nh, left:left+nw] = img
         
-        return img, r, (left, top)
+        # Update cache
+        self._last_image_shape = current_shape
+        self._last_letterbox_cache = (padded, r, (left, top))
+        
+        return self._last_letterbox_cache
     
     def _nms_numpy_fast(self, boxes: np.ndarray, scores: np.ndarray, iou_thres: float = 0.45) -> np.ndarray:
         """
-        Fast numpy-based NMS (from testonnx.py)
+        Optimized numpy-based NMS with vectorized operations
+        
         Args:
             boxes: Nx4 array [x1, y1, x2, y2]
             scores: N array of confidence scores
             iou_thres: IoU threshold for NMS
+            
         Returns:
             Array of indices to keep
         """
         if len(boxes) == 0:
             return np.array([], dtype=np.int64)
             
+        # Ensure contiguous arrays for better performance
+        if not boxes.flags['C_CONTIGUOUS']:
+            boxes = np.ascontiguousarray(boxes)
+        if not scores.flags['C_CONTIGUOUS']:
+            scores = np.ascontiguousarray(scores)
+            
         x1, y1, x2, y2 = boxes.T
-        areas = (x2 - x1).clip(min=0) * (y2 - y1).clip(min=0)
-        order = scores.argsort()[::-1]
         
+        # Precompute areas using vectorized operations
+        areas = np.multiply(
+            np.maximum(0, x2 - x1),
+            np.maximum(0, y2 - y1)
+        )
+        
+        # Get indices sorted by score
+        order = scores.argsort()[::-1]
         keep = []
+        
         while order.size > 0:
+            # Keep highest scoring box
             i = order[0]
             keep.append(i)
             
             if order.size == 1:
                 break
                 
-            # Calculate IoU with remaining boxes
+            # Compute IoU using vectorized operations
             xx1 = np.maximum(x1[i], x1[order[1:]])
             yy1 = np.maximum(y1[i], y1[order[1:]])
             xx2 = np.minimum(x2[i], x2[order[1:]])
             yy2 = np.minimum(y2[i], y2[order[1:]])
             
-            w = (xx2 - xx1).clip(min=0)
-            h = (yy2 - yy1).clip(min=0)
-            inter = w * h
+            # Compute areas of intersection
+            inter = np.maximum(0, xx2 - xx1) * np.maximum(0, yy2 - yy1)
             
-            union = areas[i] + areas[order[1:]] - inter + 1e-6
-            iou = inter / union
+            # Compute IoU
+            union = areas[i] + areas[order[1:]] - inter
+            iou = np.divide(inter, union, out=np.zeros_like(inter), where=union > 0)
             
-            # Keep boxes with IoU below threshold
-            order = order[1:][iou <= iou_thres]
+            # Get boxes with IoU below threshold
+            mask = iou <= iou_thres
+            order = order[1:][mask]
         
         return np.array(keep, dtype=np.int64)
     
@@ -201,53 +257,129 @@ class DetectTool(BaseTool):
         raise ValueError(f"Unknown output format with shape: {arr.shape}")
     
     def initialize_detection(self) -> bool:
-        """Initialize ONNX model for detection"""
+        """
+        Initialize ONNX model and cache important parameters
+        Returns:
+            bool: True if initialization successful
+        """
         if not ONNX_AVAILABLE:
             logger.error("ONNX Runtime not available")
             return False
-        
+            
         try:
-            # Get configuration with debug logging
-            logger.info(f"DetectTool config keys: {list(self.config.to_dict().keys())}")
-            
-            self.model_path = self.config.get('model_path')
-            self.class_names = self.config.get('class_names', [])
-            self.selected_classes = self.config.get('selected_classes', [])
-            self.confidence_threshold = self.config.get('confidence_threshold', 0.5)
-            self.nms_threshold = self.config.get('nms_threshold', 0.45)
-            self.imgsz = self.config.get('imgsz', 640)
-            
-            # Debug logging
-            logger.info(f"DetectTool config debug:")
-            logger.info(f"  - model_path: {self.model_path}")
-            logger.info(f"  - class_names: {self.class_names}")
-            logger.info(f"  - selected_classes: {self.selected_classes}")
-            logger.info(f"  - confidence_threshold: {self.confidence_threshold}")
-            
-            # Legacy compatibility
-            if not self.model_path:
-                self.model_path = self.config.get('model_name', '')  # Fallback to model_name
-                logger.info(f"  - Using legacy model_name: {self.model_path}")
-            
-            if not self.model_path or not Path(self.model_path).exists():
-                logger.error(f"Model path not found: {self.model_path}")
+            # Load and validate configuration
+            if not self._load_config():
                 return False
-            
-            # Initialize ONNX session
-            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if "CUDAExecutionProvider" in ort.get_available_providers() else ["CPUExecutionProvider"]
-            self.session = ort.InferenceSession(self.model_path, providers=providers)
-            self.input_name = self.session.get_inputs()[0].name
-            
+                
+            # Initialize ONNX session with optimizations
+            if not self._initialize_onnx_session():
+                return False
+                
+            # Cache session parameters
+            if not self._cache_session_parameters():
+                return False
+                
             self.is_initialized = True
-            self.model_name = Path(self.model_path).stem  # Legacy compatibility
-            
-            logger.info(f"DetectTool {self.display_name} initialized - Model: {Path(self.model_path).name}")
+            logger.info(f"DetectTool {self.display_name} initialized successfully")
             logger.info(f"Classes: {len(self.class_names)} - Selected: {len(self.selected_classes)}")
             
             return True
             
         except Exception as e:
             logger.error(f"Error initializing DetectTool {self.display_name}: {e}")
+            return False
+            
+    def _load_config(self) -> bool:
+        """Load and validate configuration"""
+        try:
+            # Get configuration
+            self.model_path = self.config.get('model_path') or self.config.get('model_name', '')
+            self.class_names = self.config.get('class_names', [])
+            self.selected_classes = self.config.get('selected_classes', [])
+            self.confidence_threshold = self.config.get('confidence_threshold', 0.5)
+            self.nms_threshold = self.config.get('nms_threshold', 0.45)
+            self.imgsz = self.config.get('imgsz', 640)
+            
+            # Validate model path
+            if not self.model_path or not Path(self.model_path).exists():
+                logger.error(f"Model path not found: {self.model_path}")
+                return False
+                
+            # Validate configuration values
+            if not isinstance(self.imgsz, int) or self.imgsz <= 0:
+                logger.error(f"Invalid input size: {self.imgsz}")
+                return False
+                
+            if not 0 <= self.confidence_threshold <= 1:
+                logger.error(f"Invalid confidence threshold: {self.confidence_threshold}")
+                return False
+                
+            if not 0 <= self.nms_threshold <= 1:
+                logger.error(f"Invalid NMS threshold: {self.nms_threshold}")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error loading config: {e}")
+            return False
+            
+    def _initialize_onnx_session(self) -> bool:
+        """Initialize ONNX session with optimizations"""
+        try:
+            # Select optimal providers
+            providers = (["CUDAExecutionProvider", "CPUExecutionProvider"] 
+                       if "CUDAExecutionProvider" in ort.get_available_providers() 
+                       else ["CPUExecutionProvider"])
+            
+            # Set graph optimization level
+            sess_options = ort.SessionOptions()
+            sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            
+            # Enable parallel execution
+            sess_options.enable_cpu_mem_arena = True
+            sess_options.enable_mem_pattern = True
+            
+            # Initialize session
+            self.session = ort.InferenceSession(
+                self.model_path,
+                providers=providers,
+                sess_options=sess_options
+            )
+            
+            self.input_name = self.session.get_inputs()[0].name
+            self.model_name = Path(self.model_path).stem
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error initializing ONNX session: {e}")
+            return False
+            
+    def _cache_session_parameters(self) -> bool:
+        """Cache important session parameters"""
+        try:
+            # Cache input details
+            input_details = self.session.get_inputs()[0]
+            self._session_input_details = {
+                'name': input_details.name,
+                'shape': input_details.shape,
+                'type': input_details.type
+            }
+            
+            # Cache output details
+            self._session_output_details = []
+            for output in self.session.get_outputs():
+                self._session_output_details.append({
+                    'name': output.name,
+                    'shape': output.shape,
+                    'type': output.type
+                })
+                
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error caching session parameters: {e}")
             return False
     
     def process(self, image: np.ndarray, context: Optional[Dict[str, Any]] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
@@ -283,28 +415,8 @@ class DetectTool(BaseTool):
                         'status': 'initialization_failed'
                     }
             
-            # Get detection region
-            detection_region = self.config.get('detection_region')
-            if context and 'detection_region' in context:
-                detection_region = context['detection_region']
-            
-            # Also check detection_area for UI compatibility
-            if not detection_region:
-                detection_region = self.config.get('detection_area')
-            
-            # Prepare detection frame
-            detection_frame = image
-            region_offset = (0, 0)
-            
-            if detection_region:
-                x1, y1, x2, y2 = detection_region
-                height, width = image.shape[:2]
-                x1 = max(0, min(x1, width))
-                y1 = max(0, min(y1, height))
-                x2 = max(x1, min(x2, width))
-                y2 = max(y1, min(y2, height))
-                detection_frame = image[y1:y2, x1:x2]
-                region_offset = (x1, y1)
+            # Get and prepare detection region
+            detection_frame, region_offset, detection_region = self._prepare_detection_region(image, context)
             
             # Fast preprocessing
             preprocessed, scale, (pad_x, pad_y) = self._letterbox_fast(detection_frame, self.imgsz)
@@ -412,6 +524,57 @@ class DetectTool(BaseTool):
                 'error': str(e)
             }
     
+    def _prepare_detection_region(self, image: np.ndarray, context: Optional[Dict[str, Any]] = None) -> Tuple[np.ndarray, Tuple[int, int], Optional[Tuple[int, int, int, int]]]:
+        """
+        Prepare detection region for processing
+        
+        Args:
+            image: Input image
+            context: Optional context with detection region override
+            
+        Returns:
+            Tuple containing:
+            - detection_frame: Image cropped to detection region if specified
+            - region_offset: (x, y) offset of detection region
+            - detection_region: Validated detection region coordinates or None
+        """
+        # Get detection region from context or config
+        detection_region = None
+        if context and 'detection_region' in context:
+            detection_region = context['detection_region']
+        else:
+            detection_region = self.config.get('detection_region') or self.config.get('detection_area')
+            
+        # Default values for full image
+        detection_frame = image
+        region_offset = (0, 0)
+        
+        if detection_region:
+            try:
+                x1, y1, x2, y2 = detection_region
+                height, width = image.shape[:2]
+                
+                # Validate and clip coordinates
+                x1 = max(0, min(int(x1), width))
+                y1 = max(0, min(int(y1), height))
+                x2 = max(x1, min(int(x2), width))
+                y2 = max(y1, min(int(y2), height))
+                
+                # Only create detection region if it has valid size
+                if x2 > x1 and y2 > y1:
+                    detection_frame = image[y1:y2, x1:x2]
+                    region_offset = (x1, y1)
+                    detection_region = (x1, y1, x2, y2)
+                else:
+                    logger.warning(f"Invalid detection region size: {x2-x1}x{y2-y1}")
+                    detection_region = None
+                    
+            except (ValueError, TypeError, IndexError) as e:
+                logger.error(f"Error processing detection region: {e}")
+                detection_region = None
+                
+        return detection_frame, region_offset, detection_region
+
     def _draw_detections(self, image: np.ndarray, detections: List[Dict[str, Any]], detection_region: Optional[Tuple[int, int, int, int]] = None) -> np.ndarray:
         """Draw detection results on image"""
         try:
@@ -507,6 +670,19 @@ class DetectTool(BaseTool):
         # Legacy compatibility
         self.detect_job = None
         logger.info(f"DetectTool {self.display_name} cleaned up")
+
+# Factory function for creating DetectTool with default configuration
+def create_detect_tool(config: Optional[Dict[str, Any]] = None) -> DetectTool:
+    """
+    Tạo một DetectTool mới với cấu hình cơ bản
+    
+    Args:
+        config: Cấu hình cho công cụ phát hiện
+        
+    Returns:
+        DetectTool instance
+    """
+    return DetectTool("Detect Tool", config)
 
 # Factory function for creating DetectTool from DetectToolManager config
 def create_detect_tool_from_manager_config(manager_config: Dict[str, Any], tool_id: Optional[int] = None) -> DetectTool:

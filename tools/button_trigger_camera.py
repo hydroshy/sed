@@ -7,9 +7,19 @@ Button Trigger Camera
 Module để kích hoạt camera thông qua GPIO pin 17 trên Raspberry Pi
 sử dụng thư viện gpiozero.
 
-Version: 1.1
-- Thêm chế độ kiểm tra camera đang hoạt động
-- Thêm hàm độc lập để kích hoạt từ bất kỳ đâu
+NOTE: Trigger mode hiện tại đã được thay đổi để sử dụng capture_request() 
+thay vì GPIO trigger. Module này được giữ lại để tham khảo hoặc để quay lại 
+GPIO trigger nếu cần.
+
+Hiện tại:
+- CameraManager.activate_capture_request() sử dụng CameraStream.capture_single_frame_request()
+- capture_single_frame_request() sử dụng picamera2.capture_request() 
+- Không cần GPIO trigger hay sysfs parameters nữa
+
+Version: 1.2 (Legacy)
+- Tối ưu hóa API: xóa hàm initialize_trigger() không cần thiết
+- Cải thiện quản lý tài nguyên GPIO
+- Tự động dọn dẹp sau mỗi lần trigger
 - Hỗ trợ gpiozero và fallback sang RPi.GPIO
 """
 
@@ -70,7 +80,7 @@ except ImportError:
 class CameraTrigger:
     """Class quản lý việc kích hoạt camera qua GPIO sử dụng gpiozero"""
     
-    def __init__(self, gpio_pin=17, pulse_us=3000, inverted=True):
+    def __init__(self, gpio_pin=17, pulse_us=10000, inverted=False):
         """Khởi tạo GPIO trigger
         
         Args:
@@ -223,28 +233,13 @@ class CameraTrigger:
 # Biến toàn cục để lưu trữ đối tượng trigger
 _camera_trigger = None
 
-def initialize_trigger(gpio_pin=17, pulse_us=3000, inverted=True):
-    """Hàm helper để khởi tạo trigger một cách dễ dàng
+def trigger_camera(gpio_pin=17, pulse_us=10000, inverted=False, blocking=False):
+    """Kích hoạt camera thông qua GPIO
     
     Args:
         gpio_pin: Số GPIO pin sử dụng (mặc định là 17)
         pulse_us: Độ rộng xung tính bằng µs (microseconds)
         inverted: Chế độ hoạt động (True = ngược, False = thường)
-        
-    Returns:
-        CameraTrigger: Đối tượng trigger đã khởi tạo
-    """
-    global _camera_trigger
-    
-    if _camera_trigger is None:
-        _camera_trigger = CameraTrigger(gpio_pin, pulse_us, inverted)
-        
-    return _camera_trigger
-
-def trigger_camera(blocking=False):
-    """Kích hoạt camera thông qua GPIO
-    
-    Args:
         blocking: Nếu True, hàm sẽ chờ cho đến khi trigger hoàn tất
                  Nếu False, trigger sẽ được thực hiện trong thread riêng
     
@@ -253,17 +248,34 @@ def trigger_camera(blocking=False):
     """
     global _camera_trigger
     
-    # Khởi tạo trigger nếu chưa có
-    if _camera_trigger is None:
-        _camera_trigger = CameraTrigger()
+    # Dọn dẹp trigger cũ nếu có
+    if _camera_trigger is not None:
+        _camera_trigger.cleanup()
+        _camera_trigger = None
+    
+    # Tạo trigger mới với cấu hình được yêu cầu
+    _camera_trigger = CameraTrigger(gpio_pin, pulse_us, inverted)
     
     # Thực hiện trigger
     if blocking:
         # Chế độ chặn - chờ cho đến khi hoàn tất
-        return _camera_trigger.fire_trigger()
+        result = _camera_trigger.fire_trigger()
+        # Dọn dẹp sau khi hoàn tất
+        _camera_trigger.cleanup()
+        _camera_trigger = None
+        return result
     else:
         # Chế độ không chặn - thực hiện trong thread riêng
-        thread = threading.Thread(target=_camera_trigger.fire_trigger)
+        def trigger_and_cleanup():
+            try:
+                result = _camera_trigger.fire_trigger()
+                return result
+            finally:
+                # Dọn dẹp sau khi trigger xong
+                if _camera_trigger:
+                    _camera_trigger.cleanup()
+        
+        thread = threading.Thread(target=trigger_and_cleanup)
         thread.daemon = True  # Thread sẽ tự kết thúc khi ứng dụng đóng
         thread.start()
         return True

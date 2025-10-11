@@ -87,7 +87,17 @@ class CameraTool(BaseTool):
         self.target_fps = self.config.get("target_fps", 10.0)
         
         # Reference to the main camera manager - will be set by main window
-        self.camera_manager = None
+        self._camera_manager = None
+        
+    @property
+    def camera_manager(self):
+        """Get the camera manager reference"""
+        return self._camera_manager
+        
+    @camera_manager.setter
+    def camera_manager(self, value):
+        """Set the camera manager reference"""
+        self._camera_manager = value
         
         # Trigger mode properties
         self.trigger_ready = False  # Flag to indicate if camera is ready for triggering
@@ -646,24 +656,44 @@ class CameraTool(BaseTool):
             Tuple of (processed_image, result_context)
         """
         try:
-            # Get current frame from camera manager if available
+            # Initialize frame variable
             current_frame = None
             
-            # Try to get frame from main window's camera manager
-            if hasattr(self, 'camera_manager') and self.camera_manager:
+            # First try to get frame from input context if it exists
+            if context and "input_frame" in context:
+                current_frame = context["input_frame"]
+                logger.debug(f"CameraTool: Using frame from context, shape={current_frame.shape}")
+                
+            # If no frame in context and camera manager exists, try to get from camera stream
+            if current_frame is None and hasattr(self, 'camera_manager') and self.camera_manager:
                 try:
-                    # Get current frame from camera stream
+                    # Get frame from camera stream if available
                     if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
-                        if hasattr(self.camera_manager.camera_stream, 'get_current_frame'):
-                            current_frame = self.camera_manager.camera_stream.get_current_frame()
-                            if current_frame is not None:
-                                logger.debug(f"CameraTool: Got frame from camera_stream, shape={current_frame.shape}")
+                        camera_stream = self.camera_manager.camera_stream
                         
-                        # Alternative: try to capture directly
-                        if current_frame is None and hasattr(self.camera_manager.camera_stream, 'capture_frame'):
-                            current_frame = self.camera_manager.camera_stream.capture_frame()
+                        # Try to get the latest frame first (this should work for both live and trigger modes)
+                        if hasattr(camera_stream, 'get_latest_frame'):
+                            current_frame = camera_stream.get_latest_frame()
                             if current_frame is not None:
-                                logger.debug(f"CameraTool: Captured frame directly, shape={current_frame.shape}")
+                                logger.debug(f"CameraTool: Got latest frame from camera_stream, shape={current_frame.shape}")
+                        
+                        # If no latest frame, try getting current frame
+                        if current_frame is None and hasattr(camera_stream, 'get_current_frame'):
+                            current_frame = camera_stream.get_current_frame()
+                            if current_frame is not None:
+                                logger.debug(f"CameraTool: Got current frame from camera_stream, shape={current_frame.shape}")
+                        
+                        # If still no frame, try direct access to latest_frame
+                        if current_frame is None and hasattr(camera_stream, 'latest_frame') and camera_stream.latest_frame is not None:
+                            current_frame = camera_stream.latest_frame.copy()
+                            if current_frame is not None:
+                                logger.debug(f"CameraTool: Got frame directly from latest_frame, shape={current_frame.shape}")
+                        
+                        # Last resort: try to capture a new frame
+                        if current_frame is None and hasattr(camera_stream, 'capture_frame'):
+                            current_frame = camera_stream.capture_frame()
+                            if current_frame is not None:
+                                logger.debug(f"CameraTool: Captured new frame, shape={current_frame.shape}")
                 except Exception as e:
                     logger.warning(f"CameraTool: Failed to get frame from camera_manager: {e}")
             

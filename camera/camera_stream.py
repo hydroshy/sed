@@ -5,6 +5,7 @@ Provides CameraStream class for interacting with camera hardware
 
 import os
 import time
+import threading
 import traceback
 from PyQt5.QtCore import QObject, QThread, QTimer, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import QMessageBox
@@ -172,6 +173,14 @@ class CameraStream(QObject):
         # AWB state
         self._awb_enable = True
         self._colour_gains = (1.8, 1.8)
+        
+        # Single shot trigger control
+        self._single_shot_lock = threading.Lock()
+        self._cooldown_s = 0.25  # 250ms cooldown between triggers
+        self._last_trigger_time = 0.0
+        
+        # Trigger mode state - when True, prevent live streaming
+        self._in_trigger_mode = False
         
         if not has_picamera2:
             print("DEBUG: [CameraStream] picamera2 not available, using stub implementation")
@@ -544,130 +553,149 @@ class CameraStream(QObject):
         self.frame_ready.emit(frame)
     
     def set_trigger_mode(self, enabled):
-        """Enable/disable external hardware trigger and reconfigure Picamera2.
+        """Set trigger mode - now uses capture_request() instead of hardware GPIO trigger.
 
-        - Sets IMX296 sysfs trigger parameter (requires privileges).
-        - Configures Picamera2 to external trigger (video pipeline) and uses non-blocking polling.
-        - Arms once; does not reconfigure per trigger.
+        When enabled:
+        - Camera continues running in preview mode
+        - Frames are only captured when capture_single_frame_request() is called
+        - No more GPIO/sysfs interaction needed
+        
+        When disabled:
+        - Camera returns to continuous live streaming mode
         """
-        success_hw = True
-        print(f"DEBUG: [CameraStream] set_trigger_mode({enabled}) called")
+        print(f"DEBUG: [CameraStream] set_trigger_mode({enabled}) called - using capture_request mode")
         
         try:
-            value = "1" if enabled else "0"
-            cmd = f"echo {value} | sudo -S tee /sys/module/imx296/parameters/trigger_mode"
-            print(f"DEBUG: [CameraStream] Setting IMX296 trigger_mode={value} with command: {cmd}")
-            import subprocess
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            # Simply update internal state - no more hardware GPIO/sysfs interaction
+            self.external_trigger_enabled = bool(enabled)
+            self._in_trigger_mode = bool(enabled)  # Set trigger mode flag
+            self._last_sensor_ts = 0
             
-            # Check if command succeeded
-            if result.returncode == 0:
-                print(f"DEBUG: [CameraStream] Successfully set IMX296 trigger_mode={value}")
-                success_hw = True
-            else:
-                print(f"DEBUG: [CameraStream] Failed to set IMX296 trigger_mode: {result.stderr}")
-                success_hw = False
+            print(f"DEBUG: [CameraStream] Trigger mode set to: {enabled}")
+            print("DEBUG: [CameraStream] Note: Using capture_request() mode - no GPIO trigger needed")
+            
+            # If camera is not available, just update state
+            if not self.is_camera_available:
+                print("DEBUG: [CameraStream] Camera not available - state updated only")
+                return True
+            
+            # Ensure camera is initialized
+            if not hasattr(self, 'picam2') or self.picam2 is None:
+                print("DEBUG: [CameraStream] Camera not initialized")
+                return True  # State is updated, camera will be configured when needed
+            
+            # Check if camera is currently running
+            was_live = bool(getattr(self, 'is_live', False))
+            print(f"DEBUG: [CameraStream] Camera was running: {was_live}")
+            
+            if enabled:
+                # Entering trigger mode
+                print("DEBUG: [CameraStream] Entering trigger mode - stopping live streaming")
                 
-                # Try alternative command without -S flag (assume sudo is already configured)
-                try:
-                    alt_cmd = f"echo {value} | sudo tee /sys/module/imx296/parameters/trigger_mode"
-                    print(f"DEBUG: [CameraStream] Trying alternative command (without -S): {alt_cmd}")
-                    alt_result = subprocess.run(alt_cmd, shell=True, capture_output=True, text=True)
-                    if alt_result.returncode == 0:
-                        print(f"DEBUG: [CameraStream] Alternative command succeeded")
-                        success_hw = True
+                # FIRST: Stop live streaming immediately to prevent continuous frames
+                if was_live:
+                    self._stop_live_streaming()
+                    print("DEBUG: [CameraStream] Stopped live streaming for trigger mode")
+                
+                # SECOND: Ensure camera is configured and started for capture_request calls
+                # but NOT streaming continuously
+                if not self.picam2.started:
+                    print("DEBUG: [CameraStream] Starting camera for trigger mode (no streaming)")
+                    if not hasattr(self, 'preview_config') or not self.preview_config:
+                        self.preview_config = self.picam2.create_preview_configuration(
+                            main={"size": (1920, 1080), "format": "RGB888"},
+                            queue=False,           # không lấy khung cũ
+                            buffer_count=2
+                        )
+                    
+                    # Apply current camera settings
+                    if "controls" not in self.preview_config:
+                        self.preview_config["controls"] = {}
+                    
+                    # Apply exposure settings
+                    if not self._is_auto_exposure:
+                        self.preview_config["controls"]["ExposureTime"] = self.current_exposure
+                        self.preview_config["controls"]["AeEnable"] = False
                     else:
-                        print(f"DEBUG: [CameraStream] Alternative command also failed: {alt_result.stderr}")
-                        # Try pkexec as last resort
-                        pkexec_cmd = f"pkexec bash -c 'echo {value} > /sys/module/imx296/parameters/trigger_mode'"
-                        print(f"DEBUG: [CameraStream] Trying pkexec command: {pkexec_cmd}")
-                        pkexec_result = subprocess.run(pkexec_cmd, shell=True, capture_output=True, text=True)
-                        if pkexec_result.returncode == 0:
-                            print(f"DEBUG: [CameraStream] pkexec command succeeded")
-                            success_hw = True
-                        else:
-                            print(f"DEBUG: [CameraStream] pkexec command failed: {pkexec_result.stderr}")
-                except Exception as alt_e:
-                    print(f"DEBUG: [CameraStream] Error with alternative commands: {alt_e}")
-            
-            # Verify the setting by reading back the value
-            try:
-                verify_cmd = "cat /sys/module/imx296/parameters/trigger_mode"
-                verify_result = subprocess.run(verify_cmd, shell=True, capture_output=True, text=True)
-                if verify_result.returncode == 0:
-                    actual_value = verify_result.stdout.strip()
-                    expected_value = value
-                    print(f"DEBUG: [CameraStream] Verification: expected={expected_value}, actual={actual_value}")
-                    if actual_value == expected_value:
-                        print(f"DEBUG: [CameraStream] Trigger mode setting verified successfully")
-                        success_hw = True
-                    else:
-                        print(f"DEBUG: [CameraStream] WARNING: Trigger mode verification failed!")
-                        success_hw = False
+                        self.preview_config["controls"]["AeEnable"] = True
+                    
+                    # Apply gain settings
+                    self.preview_config["controls"]["AnalogueGain"] = self.current_gain
+                    
+                    # Configure and start camera but DON'T start streaming
+                    self.picam2.configure(self.preview_config)
+                    self.picam2.start(show_preview=False)  # Start camera but no preview
+                    print("DEBUG: [CameraStream] Camera started in trigger mode (ready for capture_request)")
                 else:
-                    print(f"DEBUG: [CameraStream] Could not verify trigger mode: {verify_result.stderr}")
-            except Exception as verify_e:
-                print(f"DEBUG: [CameraStream] Error verifying trigger mode: {verify_e}")
+                    print("DEBUG: [CameraStream] Camera already started - stopping any streaming")
+                    # If camera is already started, make sure streaming is stopped
+                    self._stop_live_streaming()
+                
+                print("DEBUG: [CameraStream] Trigger mode ready - camera will only capture on demand")
+                    
+            else:
+                # Exiting trigger mode - return to live streaming if it was active before
+                print("DEBUG: [CameraStream] Exiting trigger mode")
+                
+                # Reset trigger mode flag to allow live streaming
+                self._in_trigger_mode = False
+                
+                if was_live:
+                    print("DEBUG: [CameraStream] Restoring live streaming mode")
+                    # Restart live streaming
+                    self._start_live_streaming()
+                else:
+                    print("DEBUG: [CameraStream] Camera remains in stopped state")
+            
+            print(f"DEBUG: [CameraStream] set_trigger_mode completed successfully: {enabled}")
+            return True
                 
         except Exception as e:
-            print(f"DEBUG: [CameraStream] Error writing IMX296 trigger sysfs: {e}")
-            success_hw = False
-
-        # Always update internal state
-        self.external_trigger_enabled = bool(enabled)
-        self._last_sensor_ts = 0
-        print(f"DEBUG: [CameraStream] Internal state updated: external_trigger_enabled = {self.external_trigger_enabled}")
-        
-        if not self.picam2:
-            print(f"DEBUG: [CameraStream] No picam2 instance available, returning")
-            return success_hw
-
-        # Check if camera is currently running
-        was_live = bool(getattr(self, 'is_live', False))
-        print(f"DEBUG: [CameraStream] Camera was running: {was_live}")
-        
-        if was_live:
-            # Stop the camera before changing modes
-            try:
-                print(f"DEBUG: [CameraStream] Stopping camera before mode change")
-                if hasattr(self, 'stop_live'):
-                    self.stop_live()
-                elif hasattr(self.picam2, 'stop'):
-                    self.picam2.stop()
-            except Exception as e:
-                print(f"DEBUG: [CameraStream] Error stopping camera: {e}")
+            print(f"DEBUG: [CameraStream] Error in set_trigger_mode: {e}")
+            # Update state anyway
+            self.external_trigger_enabled = bool(enabled)
+            return False
+    
+    def _stop_live_streaming(self):
+        """Helper method to stop live streaming completely"""
+        try:
+            # Stop timer-based streaming
+            if hasattr(self, 'timer') and self.timer:
+                self.timer.stop()
+                print("DEBUG: [CameraStream] Timer stopped")
             
-            # Restart camera in appropriate mode
-            try:
-                if enabled:
-                    print("DEBUG: [CameraStream] Setting up camera in trigger mode")
-                    # Configure for still capture if available
-                    if hasattr(self, 'still_config') and self.still_config:
-                        print("DEBUG: [CameraStream] Configuring with still_config for trigger mode")
-                        self.picam2.configure(self.still_config)
-                    
-                    # In trigger mode, just start camera but DON'T start continuous streaming
-                    # Camera will capture only when external trigger signal received
-                    if not self.picam2.started:
-                        self.picam2.start()
-                        print("DEBUG: [CameraStream] Camera started in trigger mode (waiting for external trigger)")
-                    
-                    # Stop any live streaming if it was running
-                    if hasattr(self, 'is_live') and self.is_live:
-                        self.stop_live()
-                        print("DEBUG: [CameraStream] Stopped live streaming for trigger mode")
-                else:
-                    print("DEBUG: [CameraStream] Restarting camera in live mode (no trigger)")
-                    # Configure for preview if available
-                    if hasattr(self, 'preview_config') and self.preview_config:
-                        print("DEBUG: [CameraStream] Configuring with preview_config for live mode")
-                        self.picam2.configure(self.preview_config)
-                    self.start_live()  # Trigger already disabled above
-            except Exception as e:
-                print(f"DEBUG: [CameraStream] Error restarting camera: {e}")
-                success_hw = False
+            # Stop threaded worker
+            if hasattr(self, '_live_worker') and self._live_worker:
+                self._live_worker.stop()
+                print("DEBUG: [CameraStream] Live worker stopped")
+            
+            # Stop thread if running
+            if hasattr(self, '_live_thread') and self._live_thread and self._live_thread.isRunning():
+                self._live_thread.quit()
+                self._live_thread.wait(1000)  # Wait up to 1 second
+                print("DEBUG: [CameraStream] Live thread stopped")
+            
+            # Clear live state
+            self.is_live = False
+            print("DEBUG: [CameraStream] Live streaming stopped completely")
+        except Exception as e:
+            print(f"DEBUG: [CameraStream] Error stopping live streaming: {e}")
+    
+    def _start_live_streaming(self):
+        """Helper method to start live streaming"""
+        try:
+            if self._use_threaded_live:
+                self._start_live_worker()
+            else:
+                if hasattr(self, 'timer') and self.timer:
+                    self.timer.start(100)  # 10 FPS
+            
+            self.is_live = True
+            print("DEBUG: [CameraStream] Live streaming started")
+        except Exception as e:
+            print(f"DEBUG: [CameraStream] Error starting live streaming: {e}")
 
-        return success_hw
+
         
     def process_frame(self):
         """Process a new frame from the camera"""
@@ -754,8 +782,10 @@ class CameraStream(QObject):
             else:
                 self.picam2.start(show_preview=False)
             
-            # Start threaded live capturing or fallback timer
-            if getattr(self, '_use_threaded_live', False):
+            # Start threaded live capturing or fallback timer ONLY if not in trigger mode
+            if getattr(self, '_in_trigger_mode', False):
+                print("DEBUG: [CameraStream] In trigger mode - NOT starting live streaming")
+            elif getattr(self, '_use_threaded_live', False):
                 print(f"DEBUG: [CameraStream] Starting threaded live worker at {self._target_fps} FPS")
                 if hasattr(self, 'timer') and self.timer.isActive():
                     self.timer.stop()
@@ -831,8 +861,10 @@ class CameraStream(QObject):
             print("DEBUG: [CameraStream] Starting camera for preview streaming")
             self.picam2.start(show_preview=False)
             
-            # Start threaded live capturing or fallback timer
-            if getattr(self, '_use_threaded_live', False):
+            # Start threaded live capturing or fallback timer ONLY if not in trigger mode
+            if getattr(self, '_in_trigger_mode', False):
+                print("DEBUG: [CameraStream] In trigger mode - NOT starting preview streaming")
+            elif getattr(self, '_use_threaded_live', False):
                 print(f"DEBUG: [CameraStream] Starting threaded preview worker at {self._target_fps} FPS")
                 if hasattr(self, 'timer') and self.timer.isActive():
                     self.timer.stop()
@@ -1201,6 +1233,150 @@ class CameraStream(QObject):
             return self.latest_frame.copy() if self.latest_frame is not None else None
         except Exception:
             return self.latest_frame
+    
+    def capture_single_frame_request(self):
+        """
+        Capture a single frame using capture_request() method with cooldown protection.
+        
+        Uses threading lock and cooldown to ensure only one frame is captured per trigger,
+        preventing multiple frames when button is pressed.
+        
+        Returns:
+            numpy.ndarray: Captured frame, or None if capture failed or cooldown active
+        """
+        print("DEBUG: [CameraStream] capture_single_frame_request called")
+        
+        # Check cooldown and acquire lock (non-blocking)
+        now = time.monotonic()
+        if now - self._last_trigger_time < self._cooldown_s:
+            print(f"DEBUG: [CameraStream] Trigger ignored - cooldown active ({self._cooldown_s}s)")
+            return None
+            
+        if not self._single_shot_lock.acquire(False):
+            print("DEBUG: [CameraStream] Trigger ignored - already processing")
+            return None
+        
+        # Update last trigger time immediately after acquiring lock
+        self._last_trigger_time = now
+        
+        try:
+            if not self.is_camera_available:
+                print("DEBUG: [CameraStream] Camera not available, generating test frame")
+                # Generate a test frame for testing without camera
+                import numpy as np
+                test_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                # Add some pattern to distinguish from regular test frames
+                test_frame[100:200, 100:200] = [255, 0, 0]  # Red square
+                self.latest_frame = test_frame
+                self.frame_ready.emit(test_frame)
+                return test_frame
+                
+            # Ensure camera is initialized
+            if not hasattr(self, 'picam2') or self.picam2 is None:
+                print("DEBUG: [CameraStream] Camera not initialized, reinitializing...")
+                if not self._safe_init_picamera():
+                    print("DEBUG: [CameraStream] Camera reinitialization failed")
+                    return None
+                print("DEBUG: [CameraStream] Camera reinitialized for capture_request")
+            
+            # Ensure camera is started (configured and running)
+            if not self.picam2.started:
+                print("DEBUG: [CameraStream] Camera not started, starting preview...")
+                # Use preview config for continuous capture_request mode
+                if not hasattr(self, 'preview_config') or not self.preview_config:
+                    self.preview_config = self.picam2.create_preview_configuration(
+                        main={"size": (1920, 1080), "format": "RGB888"},
+                        queue=False,           # không lấy khung cũ
+                        buffer_count=2
+                    )
+                    print("DEBUG: [CameraStream] Created preview config for capture_request")
+                
+                # Apply current settings to preview config
+                if "controls" not in self.preview_config:
+                    self.preview_config["controls"] = {}
+                
+                # Apply exposure settings
+                if not self._is_auto_exposure:
+                    self.preview_config["controls"]["ExposureTime"] = self.current_exposure
+                    self.preview_config["controls"]["AeEnable"] = False
+                else:
+                    self.preview_config["controls"]["AeEnable"] = True
+                
+                # Apply gain settings
+                self.preview_config["controls"]["AnalogueGain"] = self.current_gain
+                
+                # Apply AWB settings
+                if self._awb_enable:
+                    self.preview_config["controls"]["AwbEnable"] = True
+                else:
+                    self.preview_config["controls"]["AwbEnable"] = False
+                    self.preview_config["controls"]["ColourGains"] = self._colour_gains
+                
+                print(f"DEBUG: [CameraStream] Preview config - Exposure: {self.current_exposure}μs, Gain: {self.current_gain}, AE: {self._is_auto_exposure}")
+                
+                # Configure and start camera
+                self.picam2.configure(self.preview_config)
+                self.picam2.start(show_preview=False)  # Start without preview display
+                print("DEBUG: [CameraStream] Camera started for capture_request mode")
+            
+            print("DEBUG: [CameraStream] Calling capture_request() - waiting for next frame...")
+            
+            # Use capture_request() to get a completed request
+            # This blocks until a request is completed with frame and metadata
+            request = self.picam2.capture_request()
+            
+            if request is None:
+                print("DEBUG: [CameraStream] capture_request returned None")
+                return None
+            
+            try:
+                # Get the main stream frame from the request
+                # Usually 'main' stream contains the primary image
+                frame = request.make_array("main")
+                
+                if frame is None:
+                    print("DEBUG: [CameraStream] No frame in main stream")
+                    return None
+                
+                print(f"DEBUG: [CameraStream] Frame captured via capture_request: {frame.shape}")
+                
+                # Get metadata if needed
+                metadata = request.get_metadata()
+                if metadata:
+                    print(f"DEBUG: [CameraStream] Frame metadata: ExposureTime={metadata.get('ExposureTime', 'N/A')}, AnalogueGain={metadata.get('AnalogueGain', 'N/A')}")
+                
+                # Store frame and emit signal
+                self.latest_frame = frame.copy()  # Make a copy since we'll release the request
+                
+                # Emit frame to UI
+                self.frame_ready.emit(self.latest_frame)
+                
+                return self.latest_frame
+                
+            finally:
+                # IMPORTANT: Always release the request to return buffers to pipeline
+                request.release()
+                print("DEBUG: [CameraStream] Request released")
+                
+        except Exception as e:
+            print(f"DEBUG: [CameraStream] Error in capture_single_frame_request: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+        finally:
+            # Always release the lock
+            self._single_shot_lock.release()
+            print("DEBUG: [CameraStream] Single shot lock released")
+    
+    def set_trigger_cooldown(self, cooldown_seconds=0.25):
+        """
+        Set the cooldown time between trigger captures.
+        
+        Args:
+            cooldown_seconds: Minimum time between captures in seconds (default 0.25s)
+        """
+        self._cooldown_s = float(cooldown_seconds)
+        print(f"DEBUG: [CameraStream] Trigger cooldown set to {self._cooldown_s}s")
     
     def trigger_capture(self):
         """

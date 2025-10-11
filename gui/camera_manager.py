@@ -1764,8 +1764,8 @@ class CameraManager(QObject):
             print(f"DEBUG: [CameraManager] Exception stopping camera stream: {e}")
             return False
     
-    def activate_gpio_trigger(self):
-        """Hàm độc lập để kích hoạt GPIO camera trigger, có thể gọi từ bất kỳ đâu"""
+    def activate_capture_request(self):
+        """Capture a single frame using capture_request() instead of GPIO trigger"""
         # Kiểm tra xem camera có đang hoạt động không hoặc đang edit CameraTool
         camera_is_running = False
         editing_camera_tool = self._is_editing_camera_tool()
@@ -1792,38 +1792,49 @@ class CameraManager(QObject):
             except Exception:
                 pass
         
-        # Luôn cho phép kích hoạt GPIO khi đang edit Camera Source, bất kể chế độ nào
+        # Luôn cho phép kích hoạt capture khi đang edit Camera Source, bất kể chế độ nào
         if editing_camera_tool:
             # Khi đang edit Camera Source, luôn cho phép trigger
             # Nếu camera chưa chạy, thử bắt đầu camera trước
             if not camera_is_running and hasattr(self, '_start_camera_stream'):
                 try:
-                    print("DEBUG: [CameraManager] Auto-starting camera stream for trigger in edit mode")
+                    print("DEBUG: [CameraManager] Auto-starting camera stream for capture in edit mode")
                     self._start_camera_stream()
                 except Exception as e:
-                    print(f"DEBUG: [CameraManager] Error auto-starting camera for edit mode trigger: {e}")
-        # Nếu không đang edit, chỉ trigger khi camera đang chạy
+                    print(f"DEBUG: [CameraManager] Error auto-starting camera for edit mode capture: {e}")
+        # Nếu không đang edit, chỉ capture khi camera đang chạy hoặc có thể start được
         elif not camera_is_running:
-            print("DEBUG: [CameraManager] Camera is not running and not editing Camera Source, ignoring GPIO trigger")
-            return False
+            print("DEBUG: [CameraManager] Camera is not running, trying to start for capture_request")
+            # Try to start camera for capture_request
+            if hasattr(self, '_start_camera_stream'):
+                try:
+                    self._start_camera_stream()
+                except Exception as e:
+                    print(f"DEBUG: [CameraManager] Error starting camera for capture: {e}")
+                    return False
             
-        # Import module trigger camera
+        # Use capture_request instead of GPIO trigger
         try:
-            from tools.button_trigger_camera import trigger_camera
+            if not self.camera_stream:
+                print("DEBUG: [CameraManager] No camera stream available")
+                return False
             
-            # Kích hoạt camera qua GPIO pin 17 (non-blocking)
-            print("DEBUG: [CameraManager] Triggering GPIO pin 17 for camera")
+            # Use the new capture_single_frame_request method
+            print("DEBUG: [CameraManager] Calling capture_single_frame_request()")
             print(f"DEBUG: [CameraManager] Camera running: {camera_is_running}, Editing Camera Source: {editing_camera_tool}, Mode: {current_mode}")
-            trigger_camera(blocking=False)
-            print("DEBUG: [CameraManager] GPIO trigger activated")
-            return True
             
-        except ImportError as e:
-            print(f"DEBUG: [CameraManager] Error importing button_trigger_camera module: {e}")
-            self._show_camera_error("Camera GPIO trigger module not available. Please check installation.")
+            frame = self.camera_stream.capture_single_frame_request()
+            
+            if frame is not None:
+                print("DEBUG: [CameraManager] Frame captured successfully via capture_request")
+                return True
+            else:
+                print("DEBUG: [CameraManager] No frame captured via capture_request")
+                return False
+                
         except Exception as e:
-            print(f"DEBUG: [CameraManager] Error triggering GPIO: {e}")
-            self._show_camera_error(f"Error triggering GPIO: {str(e)}")
+            print(f"DEBUG: [CameraManager] Error in capture_single_frame_request: {e}")
+            self._show_camera_error(f"Error capturing frame: {str(e)}")
             
         return False
     
@@ -1866,10 +1877,10 @@ class CameraManager(QObject):
             
         print(f"DEBUG: [CameraManager] Camera running: {self.is_camera_running()}, Editing Camera Source: {self._is_editing_camera_tool()}, Mode: {current_mode}")
             
-        # Chỉ kích hoạt GPIO khi ở chế độ trigger và nút được kích hoạt
+        # Chỉ kích hoạt capture_request khi ở chế độ trigger và nút được kích hoạt
         if current_mode == 'trigger' and button_is_enabled:
-            # Gọi hàm kích hoạt GPIO độc lập
-            self.activate_gpio_trigger()
+            # Gọi hàm capture frame sử dụng capture_request()
+            self.activate_capture_request()
         else:
             print("DEBUG: [CameraManager] Ignore trigger button click in live mode or button disabled")
         
