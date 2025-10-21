@@ -157,7 +157,7 @@ class CameraManager(QObject):
             self.camera_view.zoom_level = 1.1
             if hasattr(self.camera_view, '_zoom_changed'):
                 self.camera_view._zoom_changed = True
-            print("DEBUG: [CameraManager] Đã đặt zoom_level = 1.1 trong setup")
+            print("DEBUG: [CameraManager] Set zoom_level = 1.1 in setup")
         self.camera_stream.frame_ready.connect(self.camera_view.display_frame)
         # Rebind frame_ready to route through our handler so we can run the job pipeline
         try:

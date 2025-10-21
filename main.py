@@ -92,9 +92,13 @@ def main():
         logging.getLogger().setLevel(logging.DEBUG)
         logger.debug("Debug logging enabled")
         
-        # Set debug mode in debug utils
-        from utils.debug_utils import set_debug_mode
-        set_debug_mode(True)
+        try:
+            from utils.debug_utils import set_debug_mode
+            set_debug_mode(True)
+            logger.debug("Debug utils loaded successfully")
+        except ImportError as e:
+            logger.warning(f"Could not import debug_utils: {e}")
+            logger.warning("Continuing without debug mode")
     
     # Force Qt platform if specified
     if args.platform:

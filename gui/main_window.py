@@ -2,7 +2,8 @@ from PyQt5.QtGui import QCloseEvent
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QGraphicsView, QWidget, QStackedWidget, QComboBox, QPushButton, 
                             QSlider, QLineEdit, QProgressBar, QLCDNumber, QTabWidget, QListView, 
-                            QTreeView, QMainWindow, QSpinBox, QDoubleSpinBox, QTableView, QVBoxLayout)
+                            QTreeView, QMainWindow, QSpinBox, QDoubleSpinBox, QTableView, QVBoxLayout,
+                            QLabel, QListWidget)
 from PyQt5 import uic
 import os
 import logging
@@ -64,6 +65,10 @@ class MainWindow(QMainWindow):
         self.job_manager = JobManager()
         self.detect_tool_manager = DetectToolManager(self)
         self.classification_tool_manager = ClassificationToolManager(self)
+        
+        # Khởi tạo TCP controller manager
+        from gui.tcp_controller_manager import TCPControllerManager
+        self.tcp_controller = TCPControllerManager(self)
         
         # Load UI từ file .ui
         ui_path = os.path.join(os.path.dirname(__file__), '..', 'mainUI.ui')
@@ -192,6 +197,8 @@ class MainWindow(QMainWindow):
         
     def _find_widgets(self):
         """Tìm tất cả các widget cần thiết từ UI file"""
+        # Add refresh button to controller tab
+        from gui.controller_ui_helper import update_controller_tab
         # Camera view widgets
         self.cameraView = self.findChild(QGraphicsView, 'cameraView')
         self.focusBar = self.findChild(QProgressBar, 'focusBar')
@@ -279,9 +286,65 @@ class MainWindow(QMainWindow):
         # Frame size control widgets
         self.widthCameraFrameSpinBox = self.findChild(QSpinBox, 'widthCameraFrameSpinBox')
         self.heightCameraFrameSpinBox = self.findChild(QSpinBox, 'heightCameraFrameSpinBox')
+
+        # Controller widgets - debug widget hierarchy
+        logging.info("Searching for controller widgets...")
+        
+        # Tìm settingStackedWidget
+        self.settingStackedWidget = self.findChild(QStackedWidget, 'settingStackedWidget')
+        if self.settingStackedWidget:
+            logging.info("Found settingStackedWidget")
+            # In ra tất cả các widget con của settingStackedWidget
+            for i in range(self.settingStackedWidget.count()):
+                widget = self.settingStackedWidget.widget(i)
+                logging.info(f"StackedWidget page {i}: {widget.objectName() if widget else 'None'}")
+        else:
+            logging.error("settingStackedWidget not found!")
+
+        # Tìm palettePage
+        self.palettePage = self.findChild(QWidget, 'palettePage')
+        if self.palettePage:
+            logging.info("Found palettePage")
+            
+            # Tìm paletteTab trong palettePage
+            self.paletteTab = self.palettePage.findChild(QTabWidget, 'paletteTab')
+            if self.paletteTab:
+                logging.info("Found paletteTab")
+                # In ra tất cả các tab
+                for i in range(self.paletteTab.count()):
+                    widget = self.paletteTab.widget(i)
+                    logging.info(f"Tab {i}: {widget.objectName() if widget else 'None'} - {self.paletteTab.tabText(i)}")
+                    
+                # Tìm controllerTab trong paletteTab
+                self.controllerTab = self.paletteTab.findChild(QWidget, 'controllerTab')
+                if self.controllerTab:
+                    logging.info("Found controllerTab")
+                    # Tìm các widget con TCP trong controllerTab
+                    self.connectButton = self.controllerTab.findChild(QPushButton, 'connectButton')
+                    self.statusLabel = self.controllerTab.findChild(QLabel, 'statusLabel')
+                    self.messageList = self.controllerTab.findChild(QListWidget, 'messageListWidget')
+                    self.ipEdit = self.controllerTab.findChild(QLineEdit, 'ipLineEdit')
+                    self.portEdit = self.controllerTab.findChild(QLineEdit, 'portLineEdit')
+                    self.messageEdit = self.controllerTab.findChild(QLineEdit, 'messageLineEdit')
+                    self.sendButton = self.controllerTab.findChild(QPushButton, 'sendButton')
+                    
+                    # Log tất cả các widget TCP đã tìm thấy
+                    logging.info(f"TCP Controller widgets found: "
+                              f"connectButton={self.connectButton is not None}, "
+                              f"statusLabel={self.statusLabel is not None}, "
+                              f"messageList={self.messageList is not None}, "
+                              f"ipEdit={self.ipEdit is not None}, "
+                              f"portEdit={self.portEdit is not None}, "
+                              f"messageEdit={self.messageEdit is not None}, "
+                              f"sendButton={self.sendButton is not None}")
+                else:
+                    logging.error("controllerTab not found in paletteTab!")
+            else:
+                logging.error("paletteTab not found in palettePage!")
+        else:
+            logging.error("palettePage not found!")
         
         # Job management widgets
-        self.paletteTab = self.findChild(QTabWidget, 'paletteTab')
         self.jobTab = self.findChild(QTreeView, 'jobTab')
         self.jobView = self.findChild(QTreeView, 'jobView')
         self.removeJob = self.findChild(QPushButton, 'removeJob')
@@ -387,6 +450,58 @@ class MainWindow(QMainWindow):
         if self.classificationComboBox:
             logging.info(f"classificationComboBox address: {hex(id(self.classificationComboBox))}")
         
+    def _setup_tcp_controller(self):
+        """Thiết lập TCP Controller Manager với các widgets đã tìm thấy"""
+        try:
+            # Kiểm tra xem tất cả các widget TCP có được tìm thấy không
+            required_widgets = {
+                'ipLineEdit': self.ipEdit,
+                'portLineEdit': self.portEdit,
+                'connectButton': self.connectButton,
+                'statusLabel': self.statusLabel,
+                'messageListWidget': self.messageList,
+                'messageLineEdit': self.messageEdit,
+                'sendButton': self.sendButton
+            }
+            
+            # Log trạng thái của tất cả các widget
+            for name, widget in required_widgets.items():
+                found = widget is not None
+                logging.info(f"TCP Widget '{name}': {'✓ Found' if found else '✗ Not Found'}")
+                if widget:
+                    logging.info(f"  - Type: {type(widget).__name__}")
+                    logging.info(f"  - ObjectName: {widget.objectName()}")
+                    logging.info(f"  - Enabled: {widget.isEnabled()}")
+                    logging.info(f"  - Visible: {widget.isVisible()}")
+            
+            # Kiểm tra xem tất cả các widget bắt buộc có được tìm thấy không
+            missing_widgets = [name for name, widget in required_widgets.items() if widget is None]
+            
+            if missing_widgets:
+                logging.error(f"Missing TCP widgets: {', '.join(missing_widgets)}")
+                logging.error("TCP Controller setup will be skipped!")
+                return False
+            
+            # Thiết lập TCP Controller
+            logging.info("Setting up TCP Controller with all required widgets...")
+            self.tcp_controller.setup(
+                self.ipEdit,
+                self.portEdit,
+                self.connectButton,
+                self.statusLabel,
+                self.messageList,
+                self.messageEdit,
+                self.sendButton
+            )
+            logging.info("✓ TCP Controller setup completed successfully")
+            return True
+            
+        except Exception as e:
+            logging.error(f"Error setting up TCP Controller: {str(e)}")
+            import traceback
+            logging.error(traceback.format_exc())
+            return False
+
     def _setup_managers(self):
         """Thiết lập và kết nối các manager"""
         # Setup ToolManager
@@ -443,6 +558,27 @@ class MainWindow(QMainWindow):
             colour_gain_b_edit=self.colourGainBEdit
         )
         
+        # Setup ControllerManager if available and all components exist
+        if (hasattr(self, 'controller_manager') and
+            hasattr(self, 'deviceComboBox') and
+            hasattr(self, 'baudRateComboBox') and
+            hasattr(self, 'connectButton') and
+            hasattr(self, 'statusLabel')):
+            
+            self.controller_manager.setup(
+                self.deviceComboBox,
+                self.baudRateComboBox, 
+                self.connectButton,
+                self.statusLabel,
+                refresh_button=getattr(self, 'refreshButton', None)
+            )
+            logging.info("ControllerManager setup completed successfully")
+        else:
+            logging.error("Controller UI components missing during setup")
+        
+        # Setup TCP Controller Manager
+        self._setup_tcp_controller()
+
         # Link CameraManager with SettingsManager for synchronization
         self.camera_manager.set_settings_manager(self.settings_manager)
         
