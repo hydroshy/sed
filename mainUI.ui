@@ -673,7 +673,7 @@
                <property name="geometry">
                 <rect>
                  <x>10</x>
-                 <y>340</y>
+                 <y>380</y>
                  <width>91</width>
                  <height>21</height>
                 </rect>
@@ -746,6 +746,32 @@
                </property>
                <property name="text">
                 <string>Send</string>
+               </property>
+              </widget>
+              <widget class="QCheckBox" name="checkBox">
+               <property name="geometry">
+                <rect>
+                 <x>10</x>
+                 <y>340</y>
+                 <width>91</width>
+                 <height>21</height>
+                </rect>
+               </property>
+               <property name="text">
+                <string>Delay Trigger</string>
+               </property>
+              </widget>
+              <widget class="QDoubleSpinBox" name="delayTriggerTime">
+               <property name="geometry">
+                <rect>
+                 <x>110</x>
+                 <y>340</y>
+                 <width>71</width>
+                 <height>21</height>
+                </rect>
+               </property>
+               <property name="maximum">
+                <double>100.000000000000000</double>
                </property>
               </widget>
              </widget>

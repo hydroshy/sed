@@ -1,12 +1,16 @@
 from PyQt5.QtWidgets import QWidget, QPushButton, QLabel, QLineEdit, QListWidget
 from PyQt5.QtCore import Qt
 from controller.tcp_controller import TCPController
+from gui.tcp_optimized_trigger import OptimizedTCPControllerManager
 import logging
 
 class TCPControllerManager:
     def __init__(self, main_window):
         self.main_window = main_window
         self.tcp_controller = TCPController()
+        
+        # ✅ OPTIMIZATION: Initialize optimized trigger handler
+        self.optimized_manager = None
         
         # UI components
         self.ip_edit: QLineEdit = None
@@ -45,6 +49,16 @@ class TCPControllerManager:
             
             # Connect signals with debug
             try:
+                # ✅ OPTIMIZATION: Initialize optimized trigger handler
+                if hasattr(self.main_window, 'camera_manager'):
+                    self.optimized_manager = OptimizedTCPControllerManager(
+                        self.tcp_controller,
+                        self.main_window.camera_manager
+                    )
+                    logging.info("✓ Optimized TCP trigger handler initialized")
+                else:
+                    logging.warning("Camera manager not found, optimized handler disabled")
+                
                 # Connect TCP controller signals
                 self.tcp_controller.connection_status_changed.connect(self._on_connection_status)
                 self.tcp_controller.message_received.connect(self._on_message_received)
@@ -250,3 +264,29 @@ class TCPControllerManager:
                 
         except Exception as e:
             logging.error(f"Error in _check_and_trigger_camera_if_needed: {e}", exc_info=True)
+    
+    def cleanup(self):
+        """
+        Clean up TCP controller and optimized handler resources
+        Called during application shutdown to prevent threading hangs
+        """
+        try:
+            # Cleanup optimized trigger handler first
+            if self.optimized_manager:
+                try:
+                    self.optimized_manager.cleanup()
+                except Exception as e:
+                    logging.debug(f"Error cleaning up optimized manager: {e}")
+            
+            # Cleanup TCP controller
+            if self.tcp_controller:
+                try:
+                    if hasattr(self.tcp_controller, 'disconnect'):
+                        self.tcp_controller.disconnect()
+                except Exception as e:
+                    logging.debug(f"Error disconnecting TCP controller: {e}")
+            
+            logging.info("✓ TCPControllerManager cleanup completed")
+        
+        except Exception as e:
+            logging.error(f"Error during TCPControllerManager cleanup: {e}")

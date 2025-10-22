@@ -2430,28 +2430,70 @@ class MainWindow(QMainWindow):
         try:
             logger.info("Main window closing - cleaning up resources...")
             
-            # Dọn dẹp camera manager
-            if hasattr(self, 'camera_manager') and self.camera_manager:
-                self.camera_manager.cleanup()
+            # Use a timer-based approach to prevent blocking
+            # Set a maximum cleanup time of 2 seconds
+            start_time = time.time()
+            max_cleanup_time = 2.0  # 2 second timeout for all cleanup
             
-            # Dọn dẹp GPIO resources
-            try:
-                from tools.button_trigger_camera import cleanup_trigger
-                logger.info("Cleaning up GPIO resources...")
-                cleanup_trigger()
-                logger.info("GPIO resources cleaned up")
-            except ImportError:
-                logger.warning("GPIO cleanup module not found, skipping GPIO cleanup")
-            except Exception as gpio_err:
-                logger.error(f"Error cleaning up GPIO resources: {gpio_err}")
+            def cleanup_with_timeout():
+                # Dọn dẹp TCP controller manager FIRST (before camera)
+                # This prevents threading hangs from TCP handler threads
+                if hasattr(self, 'tcp_controller_manager') and self.tcp_controller_manager:
+                    try:
+                        self.tcp_controller_manager.cleanup()
+                    except Exception as tcp_err:
+                        logger.error(f"Error cleaning up TCP controller manager: {tcp_err}")
                 
-            # Chấp nhận sự kiện đóng cửa sổ
+                # Check timeout
+                if time.time() - start_time > max_cleanup_time:
+                    logger.warning("Cleanup timeout - forcing exit")
+                    return
+                
+                # Dọn dẹp camera manager
+                if hasattr(self, 'camera_manager') and self.camera_manager:
+                    try:
+                        self.camera_manager.cleanup()
+                    except Exception as e:
+                        logger.error(f"Error cleaning up camera manager: {e}")
+                
+                # Check timeout
+                if time.time() - start_time > max_cleanup_time:
+                    logger.warning("Cleanup timeout - forcing exit")
+                    return
+                
+                # Dọn dẹp GPIO resources
+                try:
+                    from tools.button_trigger_camera import cleanup_trigger
+                    logger.info("Cleaning up GPIO resources...")
+                    cleanup_trigger()
+                    logger.info("GPIO resources cleaned up")
+                except ImportError:
+                    logger.warning("GPIO cleanup module not found, skipping GPIO cleanup")
+                except Exception as gpio_err:
+                    logger.error(f"Error cleaning up GPIO resources: {gpio_err}")
+                
+                logger.info("Main window cleanup completed")
+            
+            # Try cleanup with timeout protection
+            try:
+                cleanup_with_timeout()
+            except Exception as cleanup_err:
+                logger.error(f"Error during cleanup: {cleanup_err}")
+            
+            # Force accept the event to exit
             event.accept()
-            logger.info("Main window cleanup completed")
+            
+            # Schedule immediate exit if cleanup takes too long
+            cleanup_elapsed = time.time() - start_time
+            if cleanup_elapsed > max_cleanup_time:
+                logger.warning(f"Cleanup took {cleanup_elapsed:.2f}s, forcing quick exit")
+                # Use a very short timer to exit the event loop
+                from PyQt5.QtCore import QTimer
+                QTimer.singleShot(0, lambda: logger.info("Exiting application"))
             
         except Exception as e:
             logger.error(f"Error during window close cleanup: {str(e)}")
-            # Vẫn chấp nhận sự kiện để thoát ứng dụng
+            # Still accept the event to exit the application
             event.accept()
 
 

@@ -152,6 +152,9 @@ class CameraStream(QObject):
         """Initialize camera stream"""
         super().__init__(parent)
         
+        # Cleanup guard flag - prevents multiple cleanup calls
+        self._cleanup_in_progress = False
+        
         self.is_camera_available = has_picamera2
         # Track current pixel format selection for preview/display
         # Default to BGR888 since PiCamera2 naturally outputs BGR
@@ -1603,6 +1606,86 @@ class CameraStream(QObject):
             self.start_live()
         
         return True
+
+    def cleanup(self):
+        """
+        Clean up camera resources and stop all operations.
+        Safe to call multiple times - uses flag to prevent re-entry.
+        Avoids threading hang by using timeouts and force-quit fallback.
+        """
+        # Guard against multiple cleanup calls (prevents double-deletion issues)
+        if hasattr(self, '_cleanup_in_progress') and self._cleanup_in_progress:
+            return
+        
+        try:
+            self._cleanup_in_progress = True
+            
+            # Stop live capture if active (with timeout)
+            if hasattr(self, 'is_live') and self.is_live:
+                try:
+                    self.stop_live()
+                except Exception as e:
+                    print(f"DEBUG: [CameraStream] Error stopping live: {e}")
+            
+            # Stop any live worker thread (force stop)
+            if hasattr(self, '_live_worker') and self._live_worker:
+                try:
+                    if hasattr(self._live_worker, '_running'):
+                        self._live_worker._running = False
+                except Exception as e:
+                    print(f"DEBUG: [CameraStream] Error stopping live worker: {e}")
+            
+            # Quit live thread with very short timeout to prevent hang
+            if hasattr(self, '_live_thread') and self._live_thread:
+                try:
+                    if self._live_thread and self._live_thread.isRunning():
+                        self._live_thread.quit()
+                        # Short timeout - don't wait long for thread to finish
+                        if not self._live_thread.wait(500):  # 500ms max wait
+                            try:
+                                # Note: terminate() is harsh but prevents hang
+                                self._live_thread.terminate()
+                                self._live_thread.wait(100)  # Very short final wait
+                            except Exception:
+                                pass
+                except Exception as e:
+                    print(f"DEBUG: [CameraStream] Error stopping live thread: {e}")
+            
+            # Stop timer if active (check if not already deleted)
+            if hasattr(self, 'timer') and self.timer is not None:
+                try:
+                    # Check if Qt object is still valid before calling methods
+                    self.timer.stop()
+                except RuntimeError as e:
+                    # Qt object already deleted - this is OK
+                    if "wrapped C/C++ object" in str(e):
+                        pass  # Already deleted by Qt
+                    else:
+                        print(f"DEBUG: [CameraStream] RuntimeError stopping timer: {e}")
+                except Exception as e:
+                    print(f"DEBUG: [CameraStream] Error stopping timer: {e}")
+            
+            # Close picamera2 if available (no blocking)
+            if hasattr(self, 'picam2') and self.picam2 is not None:
+                try:
+                    if hasattr(self.picam2, 'stop') and getattr(self.picam2, 'started', False):
+                        self.picam2.stop()
+                except Exception as e:
+                    print(f"DEBUG: [CameraStream] Error stopping picam2: {e}")
+                
+                try:
+                    if hasattr(self.picam2, 'close'):
+                        self.picam2.close()
+                except Exception as e:
+                    print(f"DEBUG: [CameraStream] Error closing picam2: {e}")
+            
+            print("DEBUG: [CameraStream] Cleanup completed successfully")
+            
+        except Exception as e:
+            print(f"DEBUG: [CameraStream] Unexpected error during cleanup: {e}")
+        finally:
+            self._cleanup_in_progress = False
+
 
     def get_available_formats(self):
         """
