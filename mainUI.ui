@@ -748,7 +748,7 @@
                 <string>Send</string>
                </property>
               </widget>
-              <widget class="QCheckBox" name="checkBox">
+              <widget class="QCheckBox" name="delayTriggerCheckBox">
                <property name="geometry">
                 <rect>
                  <x>10</x>
@@ -771,7 +771,123 @@
                 </rect>
                </property>
                <property name="maximum">
-                <double>100.000000000000000</double>
+                <double>1000.000000000000000</double>
+               </property>
+               <property name="value">
+                <double>15.000000000000000</double>
+               </property>
+              </widget>
+             </widget>
+             <widget class="QWidget" name="lightControllerTab">
+              <attribute name="title">
+               <string>Light Controller</string>
+              </attribute>
+              <widget class="QListWidget" name="msgListWidgetLightController">
+               <property name="geometry">
+                <rect>
+                 <x>10</x>
+                 <y>90</y>
+                 <width>431</width>
+                 <height>191</height>
+                </rect>
+               </property>
+              </widget>
+              <widget class="QLabel" name="statusLabelLightController">
+               <property name="geometry">
+                <rect>
+                 <x>10</x>
+                 <y>50</y>
+                 <width>91</width>
+                 <height>21</height>
+                </rect>
+               </property>
+               <property name="frameShape">
+                <enum>QFrame::WinPanel</enum>
+               </property>
+               <property name="text">
+                <string/>
+               </property>
+              </widget>
+              <widget class="QLabel" name="portLightControllerLabel">
+               <property name="geometry">
+                <rect>
+                 <x>270</x>
+                 <y>10</y>
+                 <width>61</width>
+                 <height>21</height>
+                </rect>
+               </property>
+               <property name="text">
+                <string>Port</string>
+               </property>
+              </widget>
+              <widget class="QPushButton" name="connectButtonLightController">
+               <property name="geometry">
+                <rect>
+                 <x>350</x>
+                 <y>50</y>
+                 <width>91</width>
+                 <height>23</height>
+                </rect>
+               </property>
+               <property name="text">
+                <string>Connect</string>
+               </property>
+              </widget>
+              <widget class="QLineEdit" name="msgLineEditLightController">
+               <property name="geometry">
+                <rect>
+                 <x>10</x>
+                 <y>290</y>
+                 <width>331</width>
+                 <height>21</height>
+                </rect>
+               </property>
+              </widget>
+              <widget class="QLineEdit" name="portLineEditLightController">
+               <property name="geometry">
+                <rect>
+                 <x>340</x>
+                 <y>10</y>
+                 <width>101</width>
+                 <height>21</height>
+                </rect>
+               </property>
+              </widget>
+              <widget class="QLabel" name="lightControllerLabel">
+               <property name="geometry">
+                <rect>
+                 <x>10</x>
+                 <y>10</y>
+                 <width>61</width>
+                 <height>21</height>
+                </rect>
+               </property>
+               <property name="text">
+                <string>Device</string>
+               </property>
+              </widget>
+              <widget class="QPushButton" name="sendButtonLightController">
+               <property name="geometry">
+                <rect>
+                 <x>350</x>
+                 <y>290</y>
+                 <width>91</width>
+                 <height>21</height>
+                </rect>
+               </property>
+               <property name="text">
+                <string>Send</string>
+               </property>
+              </widget>
+              <widget class="QLineEdit" name="ipLineEditLightController">
+               <property name="geometry">
+                <rect>
+                 <x>70</x>
+                 <y>10</y>
+                 <width>181</width>
+                 <height>21</height>
+                </rect>
                </property>
               </widget>
              </widget>

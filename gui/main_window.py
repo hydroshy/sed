@@ -337,6 +337,31 @@ class MainWindow(QMainWindow):
                               f"portEdit={self.portEdit is not None}, "
                               f"messageEdit={self.messageEdit is not None}, "
                               f"sendButton={self.sendButton is not None}")
+                    
+                    # 💡 NEW: Find Light Controller widgets
+                    self.lightControllerTab = self.paletteTab.findChild(QWidget, 'lightControllerTab')
+                    if self.lightControllerTab:
+                        logging.info("Found lightControllerTab")
+                        # Find all light controller widgets
+                        self.ipLineEditLightController = self.lightControllerTab.findChild(QLineEdit, 'ipLineEditLightController')
+                        self.portLineEditLightController = self.lightControllerTab.findChild(QLineEdit, 'portLineEditLightController')
+                        self.connectButtonLightController = self.lightControllerTab.findChild(QPushButton, 'connectButtonLightController')
+                        self.statusLabelLightController = self.lightControllerTab.findChild(QLabel, 'statusLabelLightController')
+                        self.msgListWidgetLightController = self.lightControllerTab.findChild(QListWidget, 'msgListWidgetLightController')
+                        self.msgLineEditLightController = self.lightControllerTab.findChild(QLineEdit, 'msgLineEditLightController')
+                        self.sendButtonLightController = self.lightControllerTab.findChild(QPushButton, 'sendButtonLightController')
+                        
+                        # Log all light controller widgets found
+                        logging.info(f"💡 Light Controller widgets found: "
+                                  f"ipEdit={self.ipLineEditLightController is not None}, "
+                                  f"portEdit={self.portLineEditLightController is not None}, "
+                                  f"connectButton={self.connectButtonLightController is not None}, "
+                                  f"statusLabel={self.statusLabelLightController is not None}, "
+                                  f"messageList={self.msgListWidgetLightController is not None}, "
+                                  f"messageEdit={self.msgLineEditLightController is not None}, "
+                                  f"sendButton={self.sendButtonLightController is not None}")
+                    else:
+                        logging.warning("💡 lightControllerTab not found in paletteTab!")
                 else:
                     logging.error("controllerTab not found in paletteTab!")
             else:
@@ -494,6 +519,36 @@ class MainWindow(QMainWindow):
                 self.sendButton
             )
             logging.info("✓ TCP Controller setup completed successfully")
+            
+            # 💡 NEW: Setup Light Controller if widgets are found
+            light_widgets = {
+                'ipLineEditLightController': self.ipLineEditLightController,
+                'portLineEditLightController': self.portLineEditLightController,
+                'connectButtonLightController': self.connectButtonLightController,
+                'statusLabelLightController': self.statusLabelLightController,
+                'msgListWidgetLightController': self.msgListWidgetLightController,
+                'msgLineEditLightController': self.msgLineEditLightController,
+                'sendButtonLightController': self.sendButtonLightController
+            }
+            
+            missing_light_widgets = [name for name, widget in light_widgets.items() if widget is None]
+            
+            if not missing_light_widgets:
+                logging.info("💡 Setting up Light Controller with all required widgets...")
+                self.tcp_controller.setup_light_controller(
+                    self.ipLineEditLightController,
+                    self.portLineEditLightController,
+                    self.connectButtonLightController,
+                    self.statusLabelLightController,
+                    self.msgListWidgetLightController,
+                    self.msgLineEditLightController,
+                    self.sendButtonLightController
+                )
+                logging.info("✓ 💡 Light Controller setup completed successfully")
+            else:
+                logging.warning(f"💡 Missing light controller widgets: {', '.join(missing_light_widgets)}")
+                logging.warning("💡 Light controller setup will be skipped!")
+            
             return True
             
         except Exception as e:
@@ -1305,6 +1360,60 @@ class MainWindow(QMainWindow):
             
         # Add Camera Source to tool combo box if not already present
         self._add_camera_source_to_combo_box()
+        
+        # Delay Trigger checkbox and spinbox connection
+        self._setup_delay_trigger_controls()
+    
+    def _setup_delay_trigger_controls(self):
+        """
+        Setup delay trigger checkbox and spinbox controls
+        - Checkbox: Enable/disable delay trigger feature
+        - Spinbox: Set delay time in milliseconds
+        """
+        try:
+            delay_checkbox = getattr(self, 'delayTriggerCheckBox', None)
+            delay_spinbox = getattr(self, 'delayTriggerTime', None)
+            
+            if not delay_checkbox or not delay_spinbox:
+                logging.warning("⚠️ Delay trigger widgets not found in UI")
+                return
+            
+            # Set initial spinbox state (disabled by default)
+            delay_spinbox.setEnabled(False)
+            delay_spinbox.setDecimals(1)  # Allow 1 decimal place (0.1ms precision)
+            delay_spinbox.setMinimum(0.0)
+            delay_spinbox.setMaximum(1000.0)
+            delay_spinbox.setSingleStep(0.1)
+            delay_spinbox.setValue(0.0)
+            
+            # Set suffix to show unit (ms)
+            delay_spinbox.setSuffix(" ms")
+            
+            # Connect checkbox to enable/disable spinbox
+            delay_checkbox.stateChanged.connect(lambda state: self._on_delay_trigger_toggled(state, delay_spinbox))
+            
+            logging.info("✓ Delay trigger controls setup successfully")
+            
+        except Exception as e:
+            logging.error(f"✗ Error setting up delay trigger controls: {e}", exc_info=True)
+    
+    def _on_delay_trigger_toggled(self, state, spinbox):
+        """
+        Handle delay trigger checkbox toggle
+        - state: 2 (checked) or 0 (unchecked)
+        - spinbox: The delayTriggerTime widget
+        """
+        try:
+            is_checked = state == 2  # Qt.Checked = 2
+            spinbox.setEnabled(is_checked)
+            
+            if is_checked:
+                logging.info(f"✓ Delay trigger enabled - delay: {spinbox.value():.1f}ms")
+            else:
+                logging.info("✓ Delay trigger disabled")
+                
+        except Exception as e:
+            logging.error(f"✗ Error toggling delay trigger: {e}", exc_info=True)
     
     def _add_camera_source_to_combo_box(self):
         """Ensure common tools exist in the tool combo box"""

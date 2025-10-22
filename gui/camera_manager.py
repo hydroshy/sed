@@ -1850,8 +1850,11 @@ class CameraManager(QObject):
         return camera_running
         
     def on_trigger_camera_clicked(self):
-        """X    l   khi click Trigger Camera button - kích hoạt GPIO camera trigger"""
+        """Xử lý khi click Trigger Camera button - kích hoạt GPIO camera trigger"""
         print("DEBUG: [CameraManager] Trigger camera button clicked")
+        
+        # 💡 NEW: Send TR1 command to light controller if connected
+        self._send_trigger_to_light_controller()
         
         # Kiểm tra nút có thực sự được kích hoạt hay không
         button_is_enabled = True
@@ -1884,7 +1887,7 @@ class CameraManager(QObject):
         else:
             print("DEBUG: [CameraManager] Ignore trigger button click in live mode or button disabled")
         
-        # Kh  ng thay      i giao di   n ng     i d  ng, ch    g   i update       l  m m   i UI n   u c   n
+        # Không thay đổi giao diện người dùng, chỉ gọi update để làm mới UI nếu cần
         self.update_camera_mode_ui()
     
     def update_camera_mode_ui(self):
@@ -2510,6 +2513,40 @@ class CameraManager(QObject):
                 return tool
                 
         return None
+    
+    def _send_trigger_to_light_controller(self):
+        """💡 Send TR1 command to light controller when trigger button is clicked"""
+        try:
+            # Get tcp_controller from main_window
+            if not hasattr(self.main_window, 'tcp_controller'):
+                logging.debug("💡 tcp_controller not found in main_window")
+                return
+            
+            tcp_manager = self.main_window.tcp_controller
+            
+            # Check if light controller exists and is connected
+            if not hasattr(tcp_manager, 'light_controller'):
+                logging.debug("💡 light_controller not found in tcp_manager")
+                return
+            
+            light_controller = tcp_manager.light_controller
+            
+            # Send TR1 command if connected
+            if light_controller.is_connected:
+                success = light_controller.send_message("TR1\r")
+                if success:
+                    logging.info("💡 Sent TR1 command to light controller")
+                    print("DEBUG: [CameraManager] ✓ TR1 sent to light controller")
+                else:
+                    logging.warning("💡 Failed to send TR1 command to light controller")
+                    print("DEBUG: [CameraManager] ✗ Failed to send TR1 to light controller")
+            else:
+                logging.debug("💡 Light controller not connected, skipping TR1 command")
+                print("DEBUG: [CameraManager] Light controller not connected")
+                
+        except Exception as e:
+            logging.error(f"💡 Error sending TR1 to light controller: {str(e)}")
+            print(f"DEBUG: [CameraManager] Error sending TR1: {e}")
     
     def on_apply_settings_clicked(self):
         """Apply any pending camera settings and resync UI (safe stub)."""

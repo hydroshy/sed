@@ -179,7 +179,7 @@ class CameraStream(QObject):
         
         # Single shot trigger control
         self._single_shot_lock = threading.Lock()
-        self._cooldown_s = 0.25  # 250ms cooldown between triggers
+        self._cooldown_s = 0.01  # ⚠️ TESTING: Cooldown disabled (was 0.25 = 250ms)
         self._last_trigger_time = 0.0
         
         # Trigger mode state - when True, prevent live streaming
