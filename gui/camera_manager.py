@@ -80,6 +80,9 @@ class CameraManager(QObject):
         
         # Thread management for non-blocking operations
         self.operation_thread = None
+        
+        # Trigger capture flag to prevent double job execution
+        self._trigger_capturing = False
     
     def cleanup(self):
         """Clean up camera manager resources including threads"""
@@ -288,6 +291,15 @@ class CameraManager(QObject):
         Drops incoming frames while processing to keep UI responsive.
         """
         try:
+            # Detect trigger capture mode - will run job but will skip subsequent live frames
+            trigger_capturing = getattr(self, '_trigger_capturing', False)
+            # Count calls for debugging
+            self._frame_call_count = getattr(self, '_frame_call_count', 0) + 1
+            if trigger_capturing:
+                print(f"DEBUG: [CameraManager] _on_frame_from_camera called during TRIGGER CAPTURE (call #{self._frame_call_count}) - processing job for trigger frame")
+            else:
+                print(f"DEBUG: [CameraManager] _on_frame_from_camera called - _trigger_capturing=False (call #{self._frame_call_count}), processing live frame")
+            
             # If we're waiting for the first frame after (re)start, clear the flag and sync UI
             if getattr(self, '_waiting_first_frame', False):
                 self._waiting_first_frame = False
@@ -340,7 +352,12 @@ class CameraManager(QObject):
                 except Exception:
                     pass
                 initial_context = {"force_save": True, "pixel_format": str(pixel_format)}
-                processed_image, _ = job_manager.run_current_job(frame, context=initial_context)
+                print(f"DEBUG: [CameraManager] RUNNING JOB PIPELINE (trigger_capturing={getattr(self, '_trigger_capturing', False)})")
+                processed_image, job_results = job_manager.run_current_job(frame, context=initial_context)
+                print(f"DEBUG: [CameraManager] JOB PIPELINE COMPLETED")
+                
+                # Update execution label with OK/NG status
+                self._update_execution_label(job_results)
                 
                 if self.camera_view:
                     self.camera_view.display_frame(processed_image if processed_image is not None else frame)
@@ -520,12 +537,22 @@ class CameraManager(QObject):
         
         # K   t n   i signals
         if self.live_camera_btn:
+            # Disconnect any existing connections to prevent duplicate triggers
+            try:
+                self.live_camera_btn.clicked.disconnect()
+            except TypeError:
+                pass  # No connections to disconnect
             self.live_camera_btn.clicked.connect(self.on_live_camera_clicked)
             # Enable the button immediately without requiring Camera Source tool
             self.live_camera_btn.setEnabled(True)
             self.live_camera_btn.setToolTip("Start live camera preview")
             
         if self.trigger_camera_btn:
+            # Disconnect any existing connections to prevent duplicate triggers
+            try:
+                self.trigger_camera_btn.clicked.disconnect()
+            except TypeError:
+                pass  # No connections to disconnect
             self.trigger_camera_btn.clicked.connect(self.on_trigger_camera_clicked)
             # Vô hiệu hóa nút ngay khi khởi động và làm cho nó trông rõ ràng là bị vô hiệu hóa
             self.trigger_camera_btn.setEnabled(False)
@@ -538,6 +565,11 @@ class CameraManager(QObject):
             
         # Connect new camera mode buttons
         if self.live_camera_mode:
+            # Disconnect any existing connections to prevent duplicate triggers
+            try:
+                self.live_camera_mode.clicked.disconnect()
+            except TypeError:
+                pass  # No connections to disconnect
             self.live_camera_mode.clicked.connect(self.on_live_camera_mode_clicked)
             # Enable the button immediately without requiring Camera Source tool
             self.live_camera_mode.setEnabled(True)
@@ -546,6 +578,11 @@ class CameraManager(QObject):
             self.live_camera_mode.setChecked(True)
             
         if self.trigger_camera_mode:
+            # Disconnect any existing connections to prevent duplicate triggers
+            try:
+                self.trigger_camera_mode.clicked.disconnect()
+            except TypeError:
+                pass  # No connections to disconnect
             self.trigger_camera_mode.clicked.connect(self.on_trigger_camera_mode_clicked)
             # Enable the button immediately without requiring Camera Source tool
             self.trigger_camera_mode.setEnabled(True)
@@ -1765,7 +1802,7 @@ class CameraManager(QObject):
             return False
     
     def activate_capture_request(self):
-        """Capture a single frame using capture_request() instead of GPIO trigger"""
+        """Capture a single frame using capture_request()"""
         # Kiểm tra xem camera có đang hoạt động không hoặc đang edit CameraTool
         camera_is_running = False
         editing_camera_tool = self._is_editing_camera_tool()
@@ -1813,7 +1850,7 @@ class CameraManager(QObject):
                     print(f"DEBUG: [CameraManager] Error starting camera for capture: {e}")
                     return False
             
-        # Use capture_request instead of GPIO trigger
+        # Use capture_request for frame capture
         try:
             if not self.camera_stream:
                 print("DEBUG: [CameraManager] No camera stream available")
@@ -1824,10 +1861,8 @@ class CameraManager(QObject):
             print("DEBUG: [CameraManager] Calling capture_single_frame_request()")
             print(f"DEBUG: [CameraManager] Camera running: {camera_is_running}, Editing Camera Source: {editing_camera_tool}, Mode: {current_mode}")
             
-            # 💡 Send TR1 IMMEDIATELY before capture_request (this starts the frame acquisition)
-            print("DEBUG: [CameraManager] Sending TR1 to light controller NOW (before capture)")
-            self._send_trigger_to_light_controller()
-            
+            # 💡 TR1 already sent in on_trigger_camera_clicked() before delay trigger
+            # No need to send again here - just capture the frame
             frame = self.camera_stream.capture_single_frame_request()
             
             if frame is not None:
@@ -1855,8 +1890,27 @@ class CameraManager(QObject):
         return camera_running
         
     def on_trigger_camera_clicked(self):
-        """Xử lý khi click Trigger Camera button - kích hoạt GPIO camera trigger"""
-        print("DEBUG: [CameraManager] Trigger camera button clicked at", time.time())
+        """Xử lý khi click Trigger Camera button - kích hoạt camera trigger"""
+        current_time = time.time()
+        print("DEBUG: [CameraManager] Trigger camera button clicked at", current_time)
+        
+        # GUARD: Block if trigger is currently processing
+        if getattr(self, '_trigger_processing', False):
+            print(f"DEBUG: [CameraManager] BLOCKED: Trigger already processing, ignoring click")
+            return
+        
+        # GUARD: Prevent rapid double-clicks
+        # Check if last trigger was less than 500ms ago (increased to 500ms to prevent double execution)
+        last_trigger = getattr(self, '_last_ui_trigger_time', 0.0)
+        time_since_last = (current_time - last_trigger) * 1000  # Convert to ms
+        if time_since_last < 500:  # Less than 500ms since last trigger
+            print(f"DEBUG: [CameraManager] BLOCKED: Trigger clicked too fast ({time_since_last:.1f}ms since last). Ignoring.")
+            return
+        self._last_ui_trigger_time = current_time
+        
+        # Set processing flag to block subsequent clicks
+        self._trigger_processing = True
+        print("DEBUG: [CameraManager] SET _trigger_processing = True")
         
         # Kiểm tra nút có thực sự được kích hoạt hay không
         button_is_enabled = True
@@ -1868,6 +1922,7 @@ class CameraManager(QObject):
             if not button_is_enabled:
                 self.trigger_camera_btn.setEnabled(False)
                 self.trigger_camera_btn.repaint()
+                self._trigger_processing = False
                 return
         
         # Kiểm tra chế độ hiện tại - chỉ kích hoạt GPIO khi ở chế độ trigger
@@ -1884,8 +1939,23 @@ class CameraManager(QObject):
             
         # Chỉ kích hoạt capture_request khi ở chế độ trigger và nút được kích hoạt
         if current_mode == 'trigger' and button_is_enabled:
-            # 💡 TIMING FIX: Send TR1 FIRST (signal light to turn on), THEN capture
+            # � COOLDOWN FIX: Reset cooldown BEFORE sending TR1
+            # Disable trigger button to prevent multiple clicks during processing
+            if self.trigger_camera_btn:
+                self.trigger_camera_btn.setEnabled(False)
+                self.trigger_camera_btn.repaint()
+                print("DEBUG: [CameraManager] Trigger button DISABLED to prevent multiple clicks")
+
+            # This ensures the TR1 signal is sent at t=0, not counted against cooldown
+            if self.camera_stream and hasattr(self.camera_stream, '_last_trigger_time'):
+                self.camera_stream._last_trigger_time = 0.0
+                print("DEBUG: [CameraManager]  Cooldown reset - ready to capture")
+            
+            # �💡 TIMING FIX: Send TR1 FIRST (signal light to turn on), THEN capture
             print("DEBUG: [CameraManager] Sending TR1 trigger signal to light...")
+            # Mark trigger time in camera stream for frame timestamp validation
+            if self.camera_stream:
+                self.camera_stream.set_trigger_sent_time()
             self._send_trigger_to_light_controller()
             
             # ⏱️ CHECK DELAY TRIGGER: Lấy delay từ controllerTab
@@ -1896,9 +1966,31 @@ class CameraManager(QObject):
             
             # Gọi hàm capture frame sử dụng capture_request()
             print("DEBUG: [CameraManager] Now capturing frame...")
+            # Set flag to trigger job execution for captured frame
+            print("DEBUG: [CameraManager] >>> SETTING _trigger_capturing = True")
+            self._trigger_capturing = True
             self.activate_capture_request()
+            
+            # Wait briefly to allow frame processing through job pipeline
+            time.sleep(0.2)  # 200ms to allow job processing
+            
+            # Clear trigger capturing flag after capture and processing is done
+            print("DEBUG: [CameraManager] >>> CLEARING _trigger_capturing = False")
+            self._trigger_capturing = False
+
+            # Re-enable trigger button after processing complete
+            if self.trigger_camera_btn:
+                self.trigger_camera_btn.setEnabled(True)
+                self.trigger_camera_btn.repaint()
+                print("DEBUG: [CameraManager] Trigger button RE-ENABLED after processing")
+            
+            # Clear processing flag to allow next trigger
+            self._trigger_processing = False
+            print("DEBUG: [CameraManager] CLEARED _trigger_processing = False")
         else:
             print("DEBUG: [CameraManager] Ignore trigger button click in live mode or button disabled")
+            # Clear processing flag if we couldn't trigger
+            self._trigger_processing = False
         
         # Không thay đổi giao diện người dùng, chỉ gọi update để làm mới UI nếu cần
         self.update_camera_mode_ui()
@@ -2532,14 +2624,14 @@ class CameraManager(QObject):
         try:
             # Get tcp_controller from main_window
             if not hasattr(self.main_window, 'tcp_controller'):
-                logging.debug("💡 tcp_controller not found in main_window")
+                logging.debug(" tcp_controller not found in main_window")
                 return
             
             tcp_manager = self.main_window.tcp_controller
             
             # Check if light controller exists and is connected
             if not hasattr(tcp_manager, 'light_controller'):
-                logging.debug("💡 light_controller not found in tcp_manager")
+                logging.debug(" light_controller not found in tcp_manager")
                 return
             
             light_controller = tcp_manager.light_controller
@@ -2550,17 +2642,17 @@ class CameraManager(QObject):
                 # Send just "TR1" - the send_message() will add newline automatically
                 success = light_controller.send_message("TR1\r")
                 if success:
-                    logging.info("💡 Sent TR1 trigger command to light controller")
+                    logging.info(" Sent TR1 trigger command to light controller")
                     print("DEBUG: [CameraManager] ✓ TR1 trigger sent to light controller")
                 else:
-                    logging.warning("💡 Failed to send TR1 trigger command to light controller")
+                    logging.warning(" Failed to send TR1 trigger command to light controller")
                     print("DEBUG: [CameraManager] ✗ Failed to send TR1 trigger to light controller")
             else:
-                logging.debug("💡 Light controller not connected, skipping TR1 trigger command")
+                logging.debug(" Light controller not connected, skipping TR1 trigger command")
                 print("DEBUG: [CameraManager] Light controller not connected - skipping TR1")
                 
         except Exception as e:
-            logging.error(f"💡 Error sending TR1 trigger to light controller: {str(e)}")
+            logging.error(f" Error sending TR1 trigger to light controller: {str(e)}")
             print(f"DEBUG: [CameraManager] Error sending TR1 trigger: {e}")
     
     def _get_delay_trigger_value(self):
@@ -2599,6 +2691,125 @@ class CameraManager(QObject):
             logging.error(f"⏱️ Error getting delay trigger value: {e}")
             print(f"DEBUG: [CameraManager] Error getting delay trigger: {e}")
             return 0.0
+    
+    def _update_execution_label(self, job_results):
+        """
+        Update executionLabel with OK/NG status based on job results
+        
+        Args:
+            job_results: Dict returned from job.run()
+        """
+        try:
+            # Get main window reference
+            if not hasattr(self, 'main_window') or not self.main_window:
+                return
+            
+            # Get executionLabel
+            execution_label = getattr(self.main_window, 'executionLabel', None)
+            if not execution_label:
+                print("DEBUG: [CameraManager] executionLabel not found")
+                return
+            
+            # Default to NG if no result tool result
+            status = "NG"
+            status_color = "#f44336"  # Red for NG
+            
+            # Check if job_results contains result tool results
+            if isinstance(job_results, dict):
+                # Look for result tool result
+                result_tool_result = job_results.get('Result Tool', {})
+                
+                # Check for NG/OK status from result tool
+                if isinstance(result_tool_result, dict):
+                    ng_ok_result = result_tool_result.get('ng_ok_result', None)
+                    
+                    if ng_ok_result == 'OK':
+                        status = "OK"
+                        status_color = "#4caf50"  # Green for OK
+                    elif ng_ok_result == 'NG':
+                        status = "NG"
+                        status_color = "#f44336"  # Red for NG
+                    else:
+                        # No NG/OK result yet, default to NG
+                        status = "NG"
+                        status_color = "#f44336"
+            
+            # Update label text and style
+            execution_label.setText(status)
+            execution_label.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {status_color};
+                    color: white;
+                    font-weight: bold;
+                    font-size: 16px;
+                    border-radius: 4px;
+                }}
+            """)
+            
+            print(f"DEBUG: [CameraManager] Execution status: {status}")
+            
+        except Exception as e:
+            logging.error(f"Error updating execution label: {e}")
+            print(f"DEBUG: [CameraManager] Error updating execution label: {e}")
+    
+    def set_ng_ok_reference_from_current_detections(self):
+        """
+        Set NG/OK reference detections from current job execution
+        This is called when user clicks "Set Reference" button or trigger with OK frame
+        """
+        try:
+            # Get current job
+            if not hasattr(self, 'main_window') or not self.main_window:
+                print("DEBUG: [CameraManager] main_window not available")
+                return False
+            
+            job_manager = self.main_window.job_manager
+            current_job = job_manager.get_current_job()
+            
+            if not current_job:
+                print("DEBUG: [CameraManager] No current job")
+                return False
+            
+            # Find detect tool and result tool in job
+            detect_tool = None
+            result_tool = None
+            for tool in current_job.tools:
+                if hasattr(tool, 'name'):
+                    if 'detect' in tool.name.lower():
+                        detect_tool = tool
+                    elif 'result' in tool.name.lower():
+                        result_tool = tool
+            
+            if not detect_tool:
+                print("DEBUG: [CameraManager] No DetectTool found in job")
+                return False
+            
+            if not result_tool:
+                print("DEBUG: [CameraManager] No ResultTool found in job - need to add ResultTool to job pipeline")
+                return False
+            
+            # Get last detections from detect tool
+            last_detections = detect_tool.get_last_detections()
+            
+            if not last_detections:
+                print("DEBUG: [CameraManager] No detections to set as reference")
+                return False
+            
+            # Set reference on ResultTool (not DetectTool)
+            result_tool.set_reference_detections(last_detections)
+            
+            print(f"DEBUG: [CameraManager] NG/OK Reference set on ResultTool with {len(last_detections)} objects")
+            # Show success message
+            if hasattr(self, 'main_window') and hasattr(self.main_window, 'statusbar'):
+                self.main_window.statusbar().showMessage(f"✓ Reference set: {len(last_detections)} objects", 3000)
+            
+            return True
+            
+        except Exception as e:
+            logging.error(f"Error setting NG/OK reference: {e}")
+            print(f"DEBUG: [CameraManager] Error setting NG/OK reference: {e}")
+            return False
+    
     
     def on_apply_settings_clicked(self):
         """Apply any pending camera settings and resync UI (safe stub)."""

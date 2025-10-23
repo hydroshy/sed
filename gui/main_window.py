@@ -2570,17 +2570,6 @@ class MainWindow(QMainWindow):
                     logger.warning("Cleanup timeout - forcing exit")
                     return
                 
-                # Dọn dẹp GPIO resources
-                try:
-                    from tools.button_trigger_camera import cleanup_trigger
-                    logger.info("Cleaning up GPIO resources...")
-                    cleanup_trigger()
-                    logger.info("GPIO resources cleaned up")
-                except ImportError:
-                    logger.warning("GPIO cleanup module not found, skipping GPIO cleanup")
-                except Exception as gpio_err:
-                    logger.error(f"Error cleaning up GPIO resources: {gpio_err}")
-                
                 logger.info("Main window cleanup completed")
             
             # Try cleanup with timeout protection

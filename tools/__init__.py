@@ -16,22 +16,9 @@ if not logging.getLogger().hasHandlers():
     logging.basicConfig(level=logging.INFO, 
                       format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-# Force reload module button_trigger_camera nếu đã import trước đó
-if 'tools.button_trigger_camera' in sys.modules:
-    try:
-        # Đảm bảo mọi tài nguyên GPIO được giải phóng trước khi reload
-        if hasattr(sys.modules['tools.button_trigger_camera'], 'cleanup_trigger'):
-            try:
-                sys.modules['tools.button_trigger_camera'].cleanup_trigger()
-                logging.info("Cleaned up GPIO resources before reloading button_trigger_camera")
-            except Exception as e:
-                logging.warning(f"Error cleaning up before reload: {e}")
-        
-        # Reload module
-        importlib.reload(sys.modules['tools.button_trigger_camera'])
-        logging.info("Reloaded button_trigger_camera module successfully")
-    except Exception as e:
-        logging.error(f"Error reloading button_trigger_camera: {e}")
-
-# Xuất các modules quan trọng để dễ sử dụng
-from . import button_trigger_camera
+# Import main tool classes
+try:
+    from .base_tool import BaseTool, ToolConfig
+    from .result_tool import ResultTool
+except ImportError as e:
+    logging.warning(f"Error importing tool modules: {e}")

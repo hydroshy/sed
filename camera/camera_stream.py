@@ -179,8 +179,9 @@ class CameraStream(QObject):
         
         # Single shot trigger control
         self._single_shot_lock = threading.Lock()
-        self._cooldown_s = 0.1  # ⚠️ TESTING: Cooldown disabled (was 0.25 = 250ms)
+        self._cooldown_s = 0.25  # ⚠️ TESTING: Cooldown disabled (was 0.25 = 250ms)
         self._last_trigger_time = 0.0
+        self._trigger_sent_time = 0.0  # 💡 Track when trigger signal was sent for synchronization
         
         # Trigger mode state - when True, prevent live streaming
         self._in_trigger_mode = False
@@ -1341,12 +1342,15 @@ class CameraStream(QObject):
                     print("DEBUG: [CameraStream] No frame in main stream")
                     return None
                 
-                print(f"DEBUG: [CameraStream] Frame captured via capture_request: {frame.shape}")
+                print(f"DEBUG: [CameraStream] SYNCHRONIZED FRAME captured: {frame.shape} (immediate capture)")
                 
-                # Get metadata if needed
+                # Get metadata to validate frame timing
                 metadata = request.get_metadata()
                 if metadata:
-                    print(f"DEBUG: [CameraStream] Frame metadata: ExposureTime={metadata.get('ExposureTime', 'N/A')}, AnalogueGain={metadata.get('AnalogueGain', 'N/A')}")
+                    # Use system time for comparison, not sensor timestamp (they use different epoch)
+                    capture_time = time.time()
+                    time_since_trigger = (capture_time - self._trigger_sent_time) * 1000  # Convert to ms
+                    print(f"DEBUG: [CameraStream] Frame metadata: ExposureTime={metadata.get('ExposureTime', 'N/A')}, AnalogueGain={metadata.get('AnalogueGain', 'N/A')}, delta_trigger={time_since_trigger:.1f}ms")
                 
                 # Store frame and emit signal
                 self.latest_frame = frame.copy()  # Make a copy since we'll release the request
@@ -1701,6 +1705,14 @@ class CameraStream(QObject):
         # Trả về danh sách định dạng đã thu thập trong _safe_init_picamera
         return self._available_formats.copy() if hasattr(self, '_available_formats') and self._available_formats else ["BGGR10", "BGGR12", "BGGR8", "YUV420"]
 
+    def set_trigger_sent_time(self):
+        """
+        🎯 Mark when trigger signal was sent.
+        Used to validate frame timestamps for synchronization.
+        """
+        self._trigger_sent_time = time.time()
+        print(f"DEBUG: [CameraStream] Trigger sent time marked: {self._trigger_sent_time:.6f}")
+    
     def is_running(self):
         """
         Kiểm tra xem camera có đang chạy không

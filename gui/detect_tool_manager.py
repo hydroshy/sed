@@ -111,6 +111,19 @@ class DetectToolManager:
                     current_job.add_tool(detect_tool)
                     print(f"DEBUG: Added DetectTool to job: {current_job.name}, tool count: {len(current_job.tools)}")
                     logging.info(f"Added DetectTool to job: {current_job.name}")
+                    
+                    # Create and add ResultTool after DetectTool
+                    try:
+                        from tools.result_tool import ResultTool
+                        result_tool = ResultTool("Result Tool", tool_id=len(current_job.tools))
+                        result_tool.setup_config()
+                        current_job.add_tool(result_tool)
+                        print(f"DEBUG: Added ResultTool to job: {current_job.name}, tool count: {len(current_job.tools)}")
+                        logging.info(f"Added ResultTool to job: {current_job.name}")
+                    except Exception as e:
+                        print(f"DEBUG: Failed to add ResultTool: {e}")
+                        logging.error(f"Failed to add ResultTool: {e}")
+                    
                     return True
                 else:
                     print("DEBUG: No current job available")
