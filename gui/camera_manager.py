@@ -1819,9 +1819,14 @@ class CameraManager(QObject):
                 print("DEBUG: [CameraManager] No camera stream available")
                 return False
             
-            # Use the new capture_single_frame_request method
+            # 💡 TIMING FIX: Send light trigger EXACTLY when capture_request is called
+            # This ensures light has maximum time to stabilize before frame is available
             print("DEBUG: [CameraManager] Calling capture_single_frame_request()")
             print(f"DEBUG: [CameraManager] Camera running: {camera_is_running}, Editing Camera Source: {editing_camera_tool}, Mode: {current_mode}")
+            
+            # 💡 Send TR1 IMMEDIATELY before capture_request (this starts the frame acquisition)
+            print("DEBUG: [CameraManager] Sending TR1 to light controller NOW (before capture)")
+            self._send_trigger_to_light_controller()
             
             frame = self.camera_stream.capture_single_frame_request()
             
@@ -1851,10 +1856,7 @@ class CameraManager(QObject):
         
     def on_trigger_camera_clicked(self):
         """Xử lý khi click Trigger Camera button - kích hoạt GPIO camera trigger"""
-        print("DEBUG: [CameraManager] Trigger camera button clicked")
-        
-        # 💡 NEW: Send TR1 command to light controller if connected
-        self._send_trigger_to_light_controller()
+        print("DEBUG: [CameraManager] Trigger camera button clicked at", time.time())
         
         # Kiểm tra nút có thực sự được kích hoạt hay không
         button_is_enabled = True
@@ -1882,7 +1884,18 @@ class CameraManager(QObject):
             
         # Chỉ kích hoạt capture_request khi ở chế độ trigger và nút được kích hoạt
         if current_mode == 'trigger' and button_is_enabled:
+            # 💡 TIMING FIX: Send TR1 FIRST (signal light to turn on), THEN capture
+            print("DEBUG: [CameraManager] Sending TR1 trigger signal to light...")
+            self._send_trigger_to_light_controller()
+            
+            # ⏱️ CHECK DELAY TRIGGER: Lấy delay từ controllerTab
+            delay_ms = self._get_delay_trigger_value()
+            if delay_ms > 0:
+                print(f"DEBUG: [CameraManager] ⏱️ Waiting {delay_ms:.1f}ms before capture (delay trigger enabled)...")
+                time.sleep(delay_ms / 1000.0)  # Convert ms to seconds
+            
             # Gọi hàm capture frame sử dụng capture_request()
+            print("DEBUG: [CameraManager] Now capturing frame...")
             self.activate_capture_request()
         else:
             print("DEBUG: [CameraManager] Ignore trigger button click in live mode or button disabled")
@@ -2531,22 +2544,61 @@ class CameraManager(QObject):
             
             light_controller = tcp_manager.light_controller
             
-            # Send TR1 command if connected
+            # 💡 TIMING: Send TR1 command if connected
+            # Note: tcp_light_controller.send_message() automatically adds \n
             if light_controller.is_connected:
+                # Send just "TR1" - the send_message() will add newline automatically
                 success = light_controller.send_message("TR1\r")
                 if success:
-                    logging.info("💡 Sent TR1 command to light controller")
-                    print("DEBUG: [CameraManager] ✓ TR1 sent to light controller")
+                    logging.info("💡 Sent TR1 trigger command to light controller")
+                    print("DEBUG: [CameraManager] ✓ TR1 trigger sent to light controller")
                 else:
-                    logging.warning("💡 Failed to send TR1 command to light controller")
-                    print("DEBUG: [CameraManager] ✗ Failed to send TR1 to light controller")
+                    logging.warning("💡 Failed to send TR1 trigger command to light controller")
+                    print("DEBUG: [CameraManager] ✗ Failed to send TR1 trigger to light controller")
             else:
-                logging.debug("💡 Light controller not connected, skipping TR1 command")
-                print("DEBUG: [CameraManager] Light controller not connected")
+                logging.debug("💡 Light controller not connected, skipping TR1 trigger command")
+                print("DEBUG: [CameraManager] Light controller not connected - skipping TR1")
                 
         except Exception as e:
-            logging.error(f"💡 Error sending TR1 to light controller: {str(e)}")
-            print(f"DEBUG: [CameraManager] Error sending TR1: {e}")
+            logging.error(f"💡 Error sending TR1 trigger to light controller: {str(e)}")
+            print(f"DEBUG: [CameraManager] Error sending TR1 trigger: {e}")
+    
+    def _get_delay_trigger_value(self):
+        """⏱️ Lấy giá trị delay trigger từ controllerTab UI
+        
+        Returns:
+            float: Delay time in milliseconds (0 if disabled or not found)
+        """
+        try:
+            # Tìm widgets trong main_window
+            if not hasattr(self, 'main_window') or not self.main_window:
+                return 0.0
+            
+            # Lấy delay trigger checkbox
+            delay_checkbox = getattr(self.main_window, 'delayTriggerCheckBox', None)
+            if not delay_checkbox:
+                print("DEBUG: [CameraManager] ⏱️ delayTriggerCheckBox not found")
+                return 0.0
+            
+            # Kiểm tra xem delay trigger có được enable không
+            if not delay_checkbox.isChecked():
+                print("DEBUG: [CameraManager] ⏱️ Delay trigger disabled")
+                return 0.0
+            
+            # Lấy delay time spinbox
+            delay_spinbox = getattr(self.main_window, 'delayTriggerTime', None)
+            if not delay_spinbox:
+                print("DEBUG: [CameraManager] ⏱️ delayTriggerTime spinbox not found")
+                return 0.0
+            
+            delay_ms = float(delay_spinbox.value())
+            print(f"DEBUG: [CameraManager] ⏱️ Delay trigger enabled with {delay_ms:.1f}ms delay")
+            return delay_ms
+            
+        except Exception as e:
+            logging.error(f"⏱️ Error getting delay trigger value: {e}")
+            print(f"DEBUG: [CameraManager] Error getting delay trigger: {e}")
+            return 0.0
     
     def on_apply_settings_clicked(self):
         """Apply any pending camera settings and resync UI (safe stub)."""
