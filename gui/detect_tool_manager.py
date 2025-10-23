@@ -80,16 +80,18 @@ class DetectToolManager:
     
     def apply_detect_tool_to_job(self):
         """Apply current detect tool configuration to job manager"""
-        print("DEBUG: apply_detect_tool_to_job called")
+        print("=" * 80)
+        print("DEBUG: apply_detect_tool_to_job called - STARTING DETECT TOOL APPLICATION")
+        print("=" * 80)
         try:
             # Create detect tool
             detect_tool = self.create_detect_tool_job()
             if not detect_tool:
-                print("DEBUG: Failed to create DetectTool job")
+                print("ERROR: Failed to create DetectTool job")
                 logging.error("Failed to create DetectTool job")
                 return False
             
-            print(f"DEBUG: DetectTool created successfully: {detect_tool.name}")
+            print(f"SUCCESS: DetectTool created: {detect_tool.name}")
             
             # Add to job manager via main window
             if hasattr(self.main_window, 'job_manager'):
@@ -97,19 +99,20 @@ class DetectToolManager:
                 job_manager = self.main_window.job_manager
                 current_job = job_manager.get_current_job()
                 
-                print(f"DEBUG: Current job: {current_job}")
+                print(f"DEBUG: Current job found: {current_job.name if current_job else 'None'}")
+                print(f"DEBUG: Current job tools count: {len(current_job.tools) if current_job else 'N/A'}")
                 
                 if current_job is None:
                     # Create new job with detect tool
                     from job.job_manager import Job
                     job_manager.add_job(Job("Detection Job"))
                     current_job = job_manager.get_current_job()
-                    print(f"DEBUG: Created new job: {current_job}")
+                    print(f"DEBUG: Created NEW job: {current_job.name}")
                 
                 if current_job:
                     # Add detect tool to current job
                     current_job.add_tool(detect_tool)
-                    print(f"DEBUG: Added DetectTool to job: {current_job.name}, tool count: {len(current_job.tools)}")
+                    print(f"✓ Added DetectTool to job. Tools count: {len(current_job.tools)}")
                     logging.info(f"Added DetectTool to job: {current_job.name}")
                     
                     # Create and add ResultTool after DetectTool
@@ -118,19 +121,25 @@ class DetectToolManager:
                         result_tool = ResultTool("Result Tool", tool_id=len(current_job.tools))
                         result_tool.setup_config()
                         current_job.add_tool(result_tool)
-                        print(f"DEBUG: Added ResultTool to job: {current_job.name}, tool count: {len(current_job.tools)}")
+                        print(f"✓ Added ResultTool to job. Final tools count: {len(current_job.tools)}")
+                        print("=" * 80)
+                        print("JOB PIPELINE SETUP:")
+                        for i, tool in enumerate(current_job.tools):
+                            print(f"  [{i}] {tool.name} (ID: {getattr(tool, 'tool_id', 'N/A')})")
+                        print("=" * 80)
                         logging.info(f"Added ResultTool to job: {current_job.name}")
                     except Exception as e:
-                        print(f"DEBUG: Failed to add ResultTool: {e}")
+                        print(f"ERROR: Failed to add ResultTool: {e}")
                         logging.error(f"Failed to add ResultTool: {e}")
                     
                     return True
                 else:
-                    print("DEBUG: No current job available")
+                    print("ERROR: No current job available")
                     logging.error("No current job available")
                     return False
             else:
                 logging.error("Job manager not available")
+                print("ERROR: Job manager not available")
                 return False
                 
         except Exception as e:

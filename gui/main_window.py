@@ -3,7 +3,8 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QGraphicsView, QWidget, QStackedWidget, QComboBox, QPushButton, 
                             QSlider, QLineEdit, QProgressBar, QLCDNumber, QTabWidget, QListView, 
                             QTreeView, QMainWindow, QSpinBox, QDoubleSpinBox, QTableView, QVBoxLayout,
-                            QLabel, QListWidget)
+                            QLabel, QListWidget, QShortcut)
+from PyQt5.QtGui import QKeySequence
 from PyQt5 import uic
 import os
 import logging
@@ -14,6 +15,7 @@ from gui.settings_manager import SettingsManager
 from gui.camera_manager import CameraManager
 from gui.detect_tool_manager import DetectToolManager
 from gui.classification_tool_manager import ClassificationToolManager
+from gui.result_manager import ResultManager
 from gui.workflow_view import WorkflowWidget
 
 # Configure logging
@@ -65,6 +67,7 @@ class MainWindow(QMainWindow):
         self.job_manager = JobManager()
         self.detect_tool_manager = DetectToolManager(self)
         self.classification_tool_manager = ClassificationToolManager(self)
+        self.result_manager = ResultManager(self)  # NEW: Independent result manager
         
         # Khởi tạo TCP controller manager
         from gui.tcp_controller_manager import TCPControllerManager
@@ -663,7 +666,7 @@ class MainWindow(QMainWindow):
             logging.error("DetectToolManager not initialized!")
     
     def _setup_review_views(self):
-        """Setup review views for frame history display"""
+        """Setup review views and labels for frame history display with NG/OK status"""
         try:
             # Collect all review views
             review_views = []
@@ -677,10 +680,23 @@ class MainWindow(QMainWindow):
                     logging.warning(f"Review view {view_name} not found")
                     review_views.append(None)
             
-            # Pass review views to camera view if available
+            # Collect all review labels for NG/OK status display
+            review_labels = []
+            for i in range(1, 6):  # reviewLabel_1 to reviewLabel_5
+                label_name = f"reviewLabel_{i}"
+                if hasattr(self, label_name):
+                    review_label = getattr(self, label_name)
+                    review_labels.append(review_label)
+                    logging.info(f"Found {label_name}: {review_label is not None}")
+                else:
+                    logging.warning(f"Review label {label_name} not found")
+                    review_labels.append(None)
+            
+            # Pass review views and labels to camera view if available
             if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                 self.camera_manager.camera_view.set_review_views(review_views)
-                logging.info("Review views connected to camera view for frame history")
+                self.camera_manager.camera_view.set_review_labels(review_labels)
+                logging.info("Review views and labels connected to camera view for frame history display")
             else:
                 logging.warning("Camera view not available for review views setup")
                 
@@ -1363,6 +1379,48 @@ class MainWindow(QMainWindow):
         
         # Delay Trigger checkbox and spinbox connection
         self._setup_delay_trigger_controls()
+        
+        # Setup keyboard shortcuts for NG/OK operations
+        self._setup_ng_ok_shortcuts()
+    
+    def _setup_ng_ok_shortcuts(self):
+        """
+        Setup keyboard shortcuts for NG/OK reference operations
+        - Ctrl+R: Set current frame as NG/OK reference
+        """
+        try:
+            # Shortcut for setting reference: Ctrl+R
+            set_reference_shortcut = QShortcut(QKeySequence("Ctrl+R"), self)
+            set_reference_shortcut.activated.connect(self._on_set_reference_shortcut)
+            logging.info("✓ Keyboard shortcut Ctrl+R registered for setting NG/OK reference")
+            
+            print("DEBUG: [MainWindow] NG/OK shortcuts setup successfully - Use Ctrl+R to set reference")
+            
+        except Exception as e:
+            logging.error(f"✗ Error setting up NG/OK shortcuts: {e}", exc_info=True)
+    
+    def _on_set_reference_shortcut(self):
+        """
+        Handle Ctrl+R shortcut - Set current frame as NG/OK reference
+        """
+        try:
+            if not hasattr(self, 'camera_manager') or not self.camera_manager:
+                print("DEBUG: [MainWindow] Camera manager not available for set reference")
+                return
+            
+            print("DEBUG: [MainWindow] Ctrl+R pressed - Setting NG/OK reference from current detections")
+            success = self.camera_manager.set_ng_ok_reference_from_current_detections()
+            
+            if success:
+                print("✓ Reference set successfully via Ctrl+R shortcut")
+            else:
+                print("✗ Failed to set reference - ensure DetectTool is applied and has detections")
+                if hasattr(self, 'statusbar'):
+                    self.statusbar().showMessage("Failed to set reference - no detections available", 3000)
+                    
+        except Exception as e:
+            logging.error(f"✗ Error in set reference shortcut handler: {e}", exc_info=True)
+            print(f"DEBUG: [MainWindow] Error: {e}")
     
     def _setup_delay_trigger_controls(self):
         """

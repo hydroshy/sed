@@ -326,7 +326,12 @@ class CameraManager(QObject):
             if not job_manager or not current_job or not current_job.tools:
                 if self.camera_view:
                     self.camera_view.display_frame(frame)
+                print(f"WARNING: No job available. job_manager={job_manager}, current_job={current_job}, tools={len(current_job.tools) if current_job else 0}")
                 return
+
+            # Debug: Show what tools are in the job
+            tools_list = ", ".join([f"{t.name}" for t in current_job.tools])
+            print(f"DEBUG: Job has {len(current_job.tools)} tools: [{tools_list}]")
 
             try:
                 # Build context for pipeline: include pixel_format for correct color handling
@@ -2694,14 +2699,23 @@ class CameraManager(QObject):
     
     def _update_execution_label(self, job_results):
         """
-        Update executionLabel with OK/NG status based on job results
+        Update executionLabel with OK/NG status from ResultManager
+        
+        ResultManager evaluates detections/classifications independently
+        from the job pipeline and provides OK/NG status.
         
         Args:
-            job_results: Dict returned from job.run()
+            job_results: Dict returned from job.run() (used to extract current detections)
         """
         try:
             # Get main window reference
             if not hasattr(self, 'main_window') or not self.main_window:
+                return
+            
+            # Get ResultManager
+            result_manager = getattr(self.main_window, 'result_manager', None)
+            if not result_manager:
+                print("DEBUG: [CameraManager] ResultManager not found in main_window")
                 return
             
             # Get executionLabel
@@ -2710,29 +2724,28 @@ class CameraManager(QObject):
                 print("DEBUG: [CameraManager] executionLabel not found")
                 return
             
-            # Default to NG if no result tool result
-            status = "NG"
-            status_color = "#f44336"  # Red for NG
-            
-            # Check if job_results contains result tool results
+            # Extract current detections from job_results if available
+            current_detections = []
             if isinstance(job_results, dict):
-                # Look for result tool result
-                result_tool_result = job_results.get('Result Tool', {})
-                
-                # Check for NG/OK status from result tool
-                if isinstance(result_tool_result, dict):
-                    ng_ok_result = result_tool_result.get('ng_ok_result', None)
-                    
-                    if ng_ok_result == 'OK':
-                        status = "OK"
-                        status_color = "#4caf50"  # Green for OK
-                    elif ng_ok_result == 'NG':
-                        status = "NG"
-                        status_color = "#f44336"  # Red for NG
-                    else:
-                        # No NG/OK result yet, default to NG
-                        status = "NG"
-                        status_color = "#f44336"
+                # Try to get from DetectTool result
+                detect_tool_result = job_results.get('Detect Tool', {})
+                if isinstance(detect_tool_result, dict):
+                    current_detections = detect_tool_result.get('detections', [])
+            
+            # Get NG/OK status from ResultManager
+            if current_detections:
+                # Evaluate current detections
+                result = result_manager.evaluate_detect_results(current_detections)
+            else:
+                # No detections - default to NG
+                result = {
+                    'status': 'NG',
+                    'similarity': 0.0,
+                    'reason': 'No detections'
+                }
+            
+            status = result.get('status', 'NG')
+            status_color = "#4caf50" if status == "OK" else "#f44336"  # Green for OK, Red for NG
             
             # Update label text and style
             execution_label.setText(status)
@@ -2746,23 +2759,32 @@ class CameraManager(QObject):
                 }}
             """)
             
-            print(f"DEBUG: [CameraManager] Execution status: {status}")
+            print(f"DEBUG: [CameraManager] Execution status: {status} (from ResultManager)")
             
         except Exception as e:
             logging.error(f"Error updating execution label: {e}")
             print(f"DEBUG: [CameraManager] Error updating execution label: {e}")
     
+    
     def set_ng_ok_reference_from_current_detections(self):
         """
-        Set NG/OK reference detections from current job execution
-        This is called when user clicks "Set Reference" button or trigger with OK frame
+        Set NG/OK reference from DetectTool detections using ResultManager
+        
+        This calls ResultManager.set_reference_from_detect_tool()
+        which is independent from the job pipeline.
         """
         try:
-            # Get current job
+            # Get main window and result manager
             if not hasattr(self, 'main_window') or not self.main_window:
                 print("DEBUG: [CameraManager] main_window not available")
                 return False
             
+            result_manager = getattr(self.main_window, 'result_manager', None)
+            if not result_manager:
+                print("DEBUG: [CameraManager] ResultManager not available")
+                return False
+            
+            # Get current job and detect tool
             job_manager = self.main_window.job_manager
             current_job = job_manager.get_current_job()
             
@@ -2770,22 +2792,15 @@ class CameraManager(QObject):
                 print("DEBUG: [CameraManager] No current job")
                 return False
             
-            # Find detect tool and result tool in job
+            # Find detect tool in job
             detect_tool = None
-            result_tool = None
             for tool in current_job.tools:
-                if hasattr(tool, 'name'):
-                    if 'detect' in tool.name.lower():
-                        detect_tool = tool
-                    elif 'result' in tool.name.lower():
-                        result_tool = tool
+                if hasattr(tool, 'name') and 'detect' in tool.name.lower():
+                    detect_tool = tool
+                    break
             
             if not detect_tool:
                 print("DEBUG: [CameraManager] No DetectTool found in job")
-                return False
-            
-            if not result_tool:
-                print("DEBUG: [CameraManager] No ResultTool found in job - need to add ResultTool to job pipeline")
                 return False
             
             # Get last detections from detect tool
@@ -2795,19 +2810,20 @@ class CameraManager(QObject):
                 print("DEBUG: [CameraManager] No detections to set as reference")
                 return False
             
-            # Set reference on ResultTool (not DetectTool)
-            result_tool.set_reference_detections(last_detections)
+            # Set reference in ResultManager (independent from job pipeline!)
+            success = result_manager.set_reference_from_detect_tool(last_detections)
             
-            print(f"DEBUG: [CameraManager] NG/OK Reference set on ResultTool with {len(last_detections)} objects")
-            # Show success message
-            if hasattr(self, 'main_window') and hasattr(self.main_window, 'statusbar'):
-                self.main_window.statusbar().showMessage(f"✓ Reference set: {len(last_detections)} objects", 3000)
+            if success:
+                print(f"✓ Reference set via ResultManager: {len(last_detections)} objects")
+                # Show success message
+                if hasattr(self.main_window, 'statusbar'):
+                    self.main_window.statusbar().showMessage(f"✓ Reference set: {len(last_detections)} objects", 3000)
             
-            return True
+            return success
             
         except Exception as e:
-            logging.error(f"Error setting NG/OK reference: {e}")
-            print(f"DEBUG: [CameraManager] Error setting NG/OK reference: {e}")
+            logging.error(f"Error setting reference: {e}")
+            print(f"DEBUG: [CameraManager] Error setting reference: {e}")
             return False
     
     

@@ -248,6 +248,7 @@ class CameraView(QObject):
         self.frame_history = []  # Store last 5 frames for review views
         self.max_history_frames = 5
         self.review_views = None  # Will be set by main window
+        self.review_labels = None  # Will be set by main window for NG/OK status display
         self._last_review_update = 0  # Timestamp of last review update
         self._review_update_interval = 0.3  # Update review views every 300ms max (increased for better performance)
         self.enable_frame_history = True  # Re-enabled with threading support
@@ -1494,6 +1495,23 @@ class CameraView(QObject):
                 
         logging.info(f"Frame history: Connected to {len(review_views)} review views (read-only mode)")
     
+    def set_review_labels(self, review_labels):
+        """Set reference to review labels for displaying NG/OK status
+        
+        Args:
+            review_labels: List of QLabel widgets [reviewLabel_1, reviewLabel_2, ..., reviewLabel_5]
+        """
+        self.review_labels = review_labels
+        
+        # Configure each review label for status display
+        for i, label in enumerate(review_labels):
+            if label:
+                label.setAlignment(Qt.AlignCenter)
+                label.setStyleSheet("font-weight: bold; font-size: 12px; color: white;")
+        
+        logging.info(f"Frame history: Connected to {len(review_labels)} review labels for NG/OK display")
+    
+    
     def update_frame_history(self, frame):
         """Add frame to history queue for background processing (thread-safe)"""
         try:
@@ -1705,10 +1723,17 @@ class CameraView(QObject):
             logging.error(f"Error in threaded review views update: {e}")
     
     def _update_review_views_with_frames(self, frame_history):
-        """Update review views with given frame history"""
+        """Update review views with given frame history and update labels with NG/OK status"""
         try:
             if not self.review_views or not frame_history:
                 return
+            
+            # Get frame status history from result manager (if available)
+            frame_status_history = []
+            if hasattr(self, 'main_window') and self.main_window:
+                result_manager = getattr(self.main_window, 'result_manager', None)
+                if result_manager:
+                    frame_status_history = result_manager.get_frame_status_history()
             
             # Update each review view with corresponding frame from history
             # reviewView_1 = most recent, reviewView_5 = oldest
@@ -1722,9 +1747,33 @@ class CameraView(QObject):
                 if frame_index >= 0 and frame_index < len(frame_history):
                     frame = frame_history[frame_index]
                     self._display_frame_in_review_view(review_view, frame, i + 1)
+                    
+                    # Update corresponding label with NG/OK status
+                    if self.review_labels and i < len(self.review_labels):
+                        label = self.review_labels[i]
+                        
+                        # Get status from frame status history (same index as frame)
+                        status = 'NG'  # Default to NG
+                        similarity = 0.0
+                        
+                        # Try to get corresponding status from history
+                        if frame_index < len(frame_status_history):
+                            status_data = frame_status_history[frame_index]
+                            status = status_data.get('status', 'NG')
+                            similarity = status_data.get('similarity', 0.0)
+                        
+                        # Update label with status and color
+                        self._update_review_label(label, status, similarity, i + 1)
                 else:
                     # Clear review view if no frame available
                     self._clear_review_view(review_view)
+                    
+                    # Clear corresponding label
+                    if self.review_labels and i < len(self.review_labels):
+                        label = self.review_labels[i]
+                        if label:
+                            label.setText("")
+                            label.setStyleSheet("background-color: #2b2b2b; color: white; border: 1px solid #555;")
                     
         except Exception as e:
             logging.error(f"Error updating review views with frames: {e}")
@@ -1805,3 +1854,36 @@ class CameraView(QObject):
                 review_view.scene().clear()
         except Exception as e:
             logging.error(f"Error clearing review view: {e}")
+    
+    def _update_review_label(self, label, status: str, similarity: float, label_number: int):
+        """
+        Update review label with NG/OK status and color
+        
+        Args:
+            label: QLabel widget to update
+            status: 'OK' or 'NG'
+            similarity: Similarity score (0.0 to 1.0)
+            label_number: Label number (1-5) for reference
+        """
+        try:
+            if not label:
+                return
+            
+            # Format text with status and similarity
+            if status == 'OK':
+                text = f"OK\n({similarity:.0%})"
+                bg_color = "#00AA00"  # Green
+                text_color = "white"
+            else:
+                text = f"NG\n({similarity:.0%})"
+                bg_color = "#AA0000"  # Red
+                text_color = "white"
+            
+            # Update label
+            label.setText(text)
+            label.setStyleSheet(f"background-color: {bg_color}; color: {text_color}; "
+                              f"border: 1px solid #555; font-weight: bold; font-size: 12px;")
+            
+        except Exception as e:
+            logging.error(f"Error updating review label {label_number}: {e}")
+
