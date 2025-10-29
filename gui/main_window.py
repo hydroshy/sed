@@ -1528,6 +1528,11 @@ class MainWindow(QMainWindow):
                 if self.settings_manager.switch_to_tool_setting_page("Detect Tool"):
                     self.refresh_detect_tool_manager()
                     print(f"DEBUG: Detect tool manager refreshed")
+            elif tool_name == "Result Tool":
+                print(f"DEBUG: Switching to Result Tool settings page")
+                if self.settings_manager.switch_to_tool_setting_page("Result Tool"):
+                    self._clear_tool_config_ui()
+                    print(f"DEBUG: Result Tool settings page displayed")
             else:
                 self.settings_manager.switch_to_tool_setting_page(tool_name)
                 self._clear_tool_config_ui()

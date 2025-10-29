@@ -433,8 +433,17 @@ class Job:
                     # Cập nhật context với kết quả từ source_tool
                     current_context.update(source_result)
                 
+                # 🔍 Log before calling process
+                debug_log(f"   🔍 Calling tool.process() - image shape: {current_image.shape}, context keys: {list(current_context.keys())}", logging.INFO)
+                
                 # Thực thi tool
-                result_image, result_data = tool.process(current_image, current_context)
+                try:
+                    result_image, result_data = tool.process(current_image, current_context)
+                    debug_log(f"   ✅ tool.process() completed - result keys: {list(result_data.keys())}", logging.INFO)
+                except Exception as e:
+                    debug_log(f"   ❌ tool.process() failed: {e}", logging.ERROR)
+                    raise
+                
                 tool_time = time.time() - tool_start
                 
                 # Lưu kết quả để sử dụng cho các tool tiếp theo

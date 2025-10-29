@@ -44,7 +44,8 @@ class SettingsManager(QObject):
             "OCR": "detect",
             "Camera Source": "camera",  # Add Camera Source tool mapping to camera settings page
             "Save Image": "save_image",  # Add Save Image tool mapping to saveImagePage
-            "Classification Tool": "classification"  # Add Classification Tool mapping
+            "Classification Tool": "classification",  # Add Classification Tool mapping
+            "Result Tool": "detect"  # Add Result Tool mapping (use detect page as fallback)
         }
         
     def setup(self, stacked_widget, camera_page, detect_page, apply_button, cancel_button, save_image_page=None):

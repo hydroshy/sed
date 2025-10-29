@@ -288,6 +288,27 @@ class ToolManager(QObject):
                 })
 
                 tool = ClassificationTool("Classification Tool", config=config)
+            elif self._pending_tool == "Result Tool":
+                # Handle Result Tool
+                from tools.result_tool import ResultTool
+                config = self._pending_tool_config if self._pending_tool_config is not None else {}
+                
+                print(f"DEBUG: Creating Result Tool with config: {config}")
+                logging.info(f"ToolManager: Creating Result Tool with config: {config}")
+                
+                # Create Result Tool
+                tool = ResultTool("Result Tool", config=config)
+                
+                # Ensure name attribute exists
+                if not hasattr(tool, 'name'):
+                    tool.name = "Result Tool"
+                    logging.warning("ToolManager: Added missing 'name' attribute to ResultTool")
+                if not hasattr(tool, 'display_name'):
+                    tool.display_name = "Result Tool"
+                    logging.warning("ToolManager: Added missing 'display_name' attribute to ResultTool")
+                
+                print(f"DEBUG: Created Result Tool: name={tool.name}, display_name={tool.display_name}")
+                logging.info(f"ToolManager: Created ResultTool instance. name={tool.name}, display_name={tool.display_name}")
             else:
                 from tools.base_tool import GenericTool
                 config = self._pending_tool_config if self._pending_tool_config is not None else {}
