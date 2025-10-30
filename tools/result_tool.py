@@ -196,6 +196,73 @@ class ResultTool(BaseTool):
         
         return result, similarity, full_reason
     
+    def evaluate_ng_ok_by_threshold(self, detections: List[Dict[str, Any]], class_thresholds: Dict[str, float], selected_classes: List[str]) -> Tuple[str, float, str]:
+        """
+        Evaluate NG/OK by comparing detection confidence with class-specific thresholds
+        
+        This is a simple confidence-based evaluation:
+        - If any detected class has confidence >= threshold → OK
+        - If no detected classes meet threshold → NG
+        - If no detections at all → NG
+        
+        Args:
+            detections: List of detections from detector
+            class_thresholds: Dict mapping class_name → confidence_threshold
+            selected_classes: List of selected class names to check
+            
+        Returns:
+            (result, similarity, reason) where:
+            - result: 'OK', 'NG', or None
+            - similarity: float 0-1 (confidence of best detection)
+            - reason: string explanation
+        """
+        if not detections:
+            return 'NG', 0.0, "No detections found"
+        
+        if not class_thresholds or not selected_classes:
+            return None, 0.0, "No thresholds or selected classes configured"
+        
+        logger.info(f"🔍 Evaluating {len(detections)} detections against thresholds: {class_thresholds}")
+        
+        # Find best matching detection
+        best_detection = None
+        best_confidence = 0.0
+        
+        for detection in detections:
+            class_name = detection['class_name']
+            confidence = detection['confidence']
+            
+            # Check if class is in selected classes
+            if class_name not in selected_classes:
+                logger.info(f"   ⏭️  {class_name} not in selected classes, skipping")
+                continue
+            
+            # Get threshold for this class
+            threshold = class_thresholds.get(class_name, 0.5)
+            
+            logger.info(f"   📊 {class_name}: confidence={confidence:.2f}, threshold={threshold:.2f}", )
+            
+            # Check if confidence meets threshold
+            if confidence >= threshold:
+                logger.info(f"      ✅ PASS: {confidence:.2f} >= {threshold:.2f}")
+                if confidence > best_confidence:
+                    best_detection = detection
+                    best_confidence = confidence
+            else:
+                logger.info(f"      ❌ FAIL: {confidence:.2f} < {threshold:.2f}")
+        
+        # Determine result
+        if best_detection:
+            result = 'OK'
+            reason = f"OK: {best_detection['class_name']} confidence {best_confidence:.2f} meets threshold"
+            logger.info(f"✅ RESULT: {result} - {reason}")
+        else:
+            result = 'NG'
+            reason = f"NG: No detected classes met confidence threshold"
+            logger.info(f"❌ RESULT: {result} - {reason}")
+        
+        return result, best_confidence, reason
+    
     def process(self, image: np.ndarray, context: Optional[Dict[str, Any]] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Process frame and evaluate NG/OK status based on detection results
@@ -203,12 +270,12 @@ class ResultTool(BaseTool):
         Args:
             image: Input image (not used, but required by BaseTool interface)
             context: Context dict containing detection results from previous tool
-                    Expected keys: 'detections', 'detection_tool_id'
+                    Expected keys: 'detections', 'class_thresholds', 'selected_classes'
                     
         Returns:
             (image, result_dict) where result_dict contains:
             - 'ng_ok_result': 'OK', 'NG', or None
-            - 'ng_ok_similarity': Similarity score 0-1
+            - 'ng_ok_similarity': Similarity/confidence score 0-1
             - 'ng_ok_reason': Explanation string
         """
         result = {
@@ -217,20 +284,34 @@ class ResultTool(BaseTool):
             'ng_ok_reason': "Result Tool not executed"
         }
         
-        # Check if NG/OK is enabled
-        if not self.ng_ok_enabled:
-            result['ng_ok_reason'] = "NG/OK evaluation disabled"
-            return image, result
-        
-        # Get detections from context (from previous detection tool)
+        # Get context data
         context = context or {}
         detections = context.get('detections', [])
+        class_thresholds = context.get('class_thresholds', {})
+        selected_classes = context.get('selected_classes', [])
         
-        if 'detection_tool_id' not in context:
-            logger.warning("ResultTool: No detection_tool_id in context")
+        logger.info(f"=" * 80)
+        logger.info(f"🔍 ResultTool.process() CALLED - Image shape: {image.shape if image is not None else 'None'}")
+        logger.info(f"   Detections: {len(detections)}")
+        logger.info(f"   Thresholds: {class_thresholds}")
+        logger.info(f"   Selected classes: {selected_classes}")
+        logger.info(f"=" * 80)
         
-        # Evaluate NG/OK
-        ng_ok_status, similarity, reason = self.evaluate_ng_ok(detections)
+        # Try threshold-based evaluation first (simpler, more direct)
+        if class_thresholds and selected_classes:
+            logger.info("📊 Using threshold-based evaluation")
+            ng_ok_status, similarity, reason = self.evaluate_ng_ok_by_threshold(
+                detections,
+                class_thresholds,
+                selected_classes
+            )
+        # Fall back to reference-based evaluation if threshold method not available
+        elif self.ng_ok_enabled and self.ng_ok_reference_detections:
+            logger.info("📊 Using reference-based evaluation (fallback)")
+            ng_ok_status, similarity, reason = self.evaluate_ng_ok(detections)
+        else:
+            logger.info("⏹️  NG/OK evaluation disabled - no thresholds or reference set")
+            ng_ok_status, similarity, reason = None, None, "NG/OK evaluation disabled"
         
         # Store results
         self.ng_ok_result = ng_ok_status
@@ -244,6 +325,13 @@ class ResultTool(BaseTool):
         # Debug output
         if self.config.get('enable_debug', False):
             logger.debug(f"ResultTool: {ng_ok_status} - {reason}")
+        
+        logger.info(f"=" * 80)
+        logger.info(f"✅ ResultTool.process() RETURNING:")
+        logger.info(f"   Result: {ng_ok_status}")
+        logger.info(f"   Similarity: {similarity}")
+        logger.info(f"   Reason: {reason}")
+        logger.info(f"=" * 80)
         
         return image, result
     

@@ -1840,6 +1840,10 @@ class MainWindow(QMainWindow):
                         new_config['detection_area'] = detection_area
                     self._editing_tool.config = new_config
                     print(f"DEBUG: Updated DetectTool config: {self._editing_tool.config}")
+                    # ✅ Mark config as changed so DetectTool will re-initialize on next process()
+                    if hasattr(self._editing_tool, 'mark_config_changed'):
+                        self._editing_tool.mark_config_changed()
+                        print(f"DEBUG: Marked DetectTool config as changed for re-initialization")
                 else:
                     # For other tools, update config with detection_area if present
                     if hasattr(self._editing_tool, 'config') and detection_area:

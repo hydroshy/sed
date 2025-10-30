@@ -47,6 +47,7 @@ class DetectTool(BaseTool):
         self.is_initialized = False
         self.last_detections = []
         self.execution_enabled = True
+        self._config_changed = False  # ✅ Track if config has changed
         
         # Performance optimization
         self._last_image_shape = None
@@ -240,6 +241,14 @@ class DetectTool(BaseTool):
         
         raise ValueError(f"Unknown output format with shape: {arr.shape}")
     
+    def mark_config_changed(self) -> None:
+        """
+        Mark that configuration has changed and needs re-initialization.
+        Call this method when the tool's config is updated externally.
+        """
+        logger.info(f"🔄 DetectTool {self.display_name}: Config marked as changed, will re-initialize on next process()")
+        self._config_changed = True
+    
     def initialize_detection(self) -> bool:
         """
         Initialize ONNX model and cache important parameters
@@ -277,6 +286,7 @@ class DetectTool(BaseTool):
             logger.info(f"DetectTool {self.display_name} initialized")
             logger.info(f"  Model: {Path(self.model_path).name}")
             logger.info(f"  Classes: {len(self.class_names)} total, {len(self.selected_classes)} selected")
+            logger.info(f"  Thresholds: {self.class_thresholds}")  # ✅ Log thresholds
             
             return True
             
@@ -304,9 +314,15 @@ class DetectTool(BaseTool):
                 logger.info("⏹️  DetectTool execution is DISABLED")
                 return image, {'detections': [], 'error': 'Execution disabled'}
             
-            # Initialize if needed
-            if not self.is_initialized:
-                logger.info("⚙️  DetectTool not initialized, initializing now...")
+            # Initialize if needed OR if config changed
+            if not self.is_initialized or self._config_changed:
+                if self._config_changed:
+                    logger.info("🔄 DetectTool config changed, re-initializing...")
+                    self.is_initialized = False  # Reset to force re-initialization
+                    self._config_changed = False
+                else:
+                    logger.info("⚙️  DetectTool not initialized, initializing now...")
+                
                 if not self.initialize_detection():
                     logger.error("❌ DetectTool initialization FAILED")
                     return image, {'detections': [], 'error': 'Initialization failed'}
@@ -394,7 +410,9 @@ class DetectTool(BaseTool):
                 'total_time': float(total_time),
                 'model': Path(self.model_path).name if self.model_path else 'None',
                 'classes_total': len(self.class_names),
-                'classes_selected': len(self.selected_classes)
+                'classes_selected': len(self.selected_classes),
+                'class_thresholds': self.class_thresholds,  # ✅ Add thresholds for ResultTool
+                'selected_classes': self.selected_classes    # ✅ Add selected classes for ResultTool
             }
             
             return output_image, result
@@ -526,6 +544,9 @@ def create_detect_tool_from_manager_config(manager_config: Dict[str, Any], tool_
     }
     
     tool = DetectTool("Detect Tool", tool_config, tool_id)
-    logger.info(f"Created DetectTool from manager config - Model: {tool_config.get('model_path', 'None')}")
+    logger.info(f"Created DetectTool from manager config")
+    logger.info(f"  Model: {tool_config.get('model_path', 'None')}")
+    logger.info(f"  Selected classes: {tool_config.get('selected_classes', [])}")
+    logger.info(f"  Class thresholds: {tool_config.get('class_thresholds', {})}")  # ✅ Log thresholds
     
     return tool

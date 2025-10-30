@@ -1752,13 +1752,18 @@ class CameraView(QObject):
                     if self.review_labels and i < len(self.review_labels):
                         label = self.review_labels[i]
                         
-                        # Get status from frame status history (same index as frame)
+                        # Get status from frame status history
+                        # Status history: newest is at END (last index)
+                        # So we need to map: i=0 (newest frame) → last status in history
                         status = 'NG'  # Default to NG
                         similarity = 0.0
                         
-                        # Try to get corresponding status from history
-                        if frame_index < len(frame_status_history):
-                            status_data = frame_status_history[frame_index]
+                        # Map frame index to status history index (reversed!)
+                        # Newest frame (i=0) should get newest status (last in list)
+                        status_history_index = len(frame_status_history) - 1 - i  # ✅ Reversed mapping
+                        
+                        if status_history_index >= 0 and status_history_index < len(frame_status_history):
+                            status_data = frame_status_history[status_history_index]
                             status = status_data.get('status', 'NG')
                             similarity = status_data.get('similarity', 0.0)
                         

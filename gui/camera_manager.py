@@ -2724,27 +2724,48 @@ class CameraManager(QObject):
                 print("DEBUG: [CameraManager] executionLabel not found")
                 return
             
-            # Extract current detections from job_results if available
-            current_detections = []
+            # First, try to get result from ResultTool in job pipeline (new way) ✅
+            status = 'NG'
+            reason = 'No result available'
+            
             if isinstance(job_results, dict):
-                # Try to get from DetectTool result
-                detect_tool_result = job_results.get('Detect Tool', {})
-                if isinstance(detect_tool_result, dict):
-                    current_detections = detect_tool_result.get('detections', [])
+                # Check for Result Tool output (new threshold-based evaluation)
+                # Results are nested under 'results' key in job_results
+                job_results_data = job_results.get('results', {})  # ✅ Look in nested results
+                result_tool_result = job_results_data.get('Result Tool', {})
+                
+                if isinstance(result_tool_result, dict):
+                    # Get the actual result data from the 'data' key
+                    result_data = result_tool_result.get('data', {})
+                    if 'ng_ok_result' in result_data:
+                        status = result_data.get('ng_ok_result', 'NG')
+                        reason = result_data.get('ng_ok_reason', 'Unknown')
+                        print(f"DEBUG: [CameraManager] Using ResultTool evaluation: {status} - {reason}")
+                    else:
+                        # Fallback to old ResultManager method
+                        print(f"DEBUG: [CameraManager] No ng_ok_result in ResultTool data, using legacy ResultManager")
+                else:
+                    # Fallback to old ResultManager method for backward compatibility
+                    print(f"DEBUG: [CameraManager] No ResultTool in job_results, using legacy ResultManager")
+                    
+                    # Extract current detections from job_results nested structure
+                    current_detections = []
+                    detect_tool_result = job_results_data.get('Detect Tool', {})  # ✅ Look in nested results
+                    if isinstance(detect_tool_result, dict):
+                        result_data = detect_tool_result.get('data', {})
+                        current_detections = result_data.get('detections', [])
+                    
+                    # Get NG/OK status from ResultManager
+                    if current_detections:
+                        # Evaluate current detections
+                        result = result_manager.evaluate_detect_results(current_detections)
+                        status = result.get('status', 'NG')
+                        reason = result.get('reason', 'Unknown')
+                    else:
+                        # No detections - default to NG
+                        status = 'NG'
+                        reason = 'No detections'
             
-            # Get NG/OK status from ResultManager
-            if current_detections:
-                # Evaluate current detections
-                result = result_manager.evaluate_detect_results(current_detections)
-            else:
-                # No detections - default to NG
-                result = {
-                    'status': 'NG',
-                    'similarity': 0.0,
-                    'reason': 'No detections'
-                }
-            
-            status = result.get('status', 'NG')
             status_color = "#4caf50" if status == "OK" else "#f44336"  # Green for OK, Red for NG
             
             # Update label text and style
@@ -2760,6 +2781,22 @@ class CameraManager(QObject):
             """)
             
             print(f"DEBUG: [CameraManager] Execution status: {status} (from ResultManager)")
+            print(f"DEBUG: [CameraManager] Reason: {reason}")
+            
+            # ✅ IMPORTANT: Record this result to ResultManager's frame history
+            # This is needed for review labels to show OK/NG status for each frame
+            try:
+                result_manager = getattr(self.main_window, 'result_manager', None)
+                if result_manager and hasattr(result_manager, '_add_frame_status_to_history'):
+                    import time
+                    result_manager._add_frame_status_to_history(
+                        timestamp=time.time(),
+                        status=status,
+                        similarity=0.0  # Use 0.0 as placeholder
+                    )
+                    print(f"DEBUG: [CameraManager] Recorded result to ResultManager history: {status}")
+            except Exception as e:
+                print(f"DEBUG: [CameraManager] Could not record result to ResultManager: {e}")
             
         except Exception as e:
             logging.error(f"Error updating execution label: {e}")
