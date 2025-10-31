@@ -2789,8 +2789,12 @@ class CameraManager(QObject):
                 result_manager = getattr(self.main_window, 'result_manager', None)
                 if result_manager and hasattr(result_manager, '_add_frame_status_to_history'):
                     import time
+                    import logging
+                    current_time = time.time()
+                    logging.info(f"[CameraManager] Recording result to history - status={status}, timestamp={current_time}")
+                    
                     result_manager._add_frame_status_to_history(
-                        timestamp=time.time(),
+                        timestamp=current_time,
                         status=status,
                         similarity=0.0  # Use 0.0 as placeholder
                     )

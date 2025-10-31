@@ -398,9 +398,14 @@ class ResultManager:
                 'similarity': similarity
             })
             
+            # ✅ DEBUG: Log status being added
+            import logging
+            logging.info(f"[ResultManager] Status recorded - status={status}, similarity={similarity:.2%}, history_count={len(self.frame_status_history)}")
+            
             # Keep only last N frames
             if len(self.frame_status_history) > self.max_frame_history:
-                self.frame_status_history.pop(0)
+                removed = self.frame_status_history.pop(0)
+                logging.info(f"[ResultManager] Removed oldest status - history_count={len(self.frame_status_history)}")
                 
         except Exception as e:
             logger.error(f"ResultManager: Error adding frame status to history: {e}")
