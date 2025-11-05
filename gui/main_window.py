@@ -1855,6 +1855,18 @@ class MainWindow(QMainWindow):
                 # Chuyển về trang palette sau khi áp dụng cài đặt
                 self.settings_manager.return_to_palette_page()
                 
+                # ✅ Reset ReviewView and ReviewLabels after tool edit
+                print("DEBUG: Resetting ReviewView and ReviewLabels after tool edit")
+                if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                    camera_view = self.camera_manager.camera_view
+                    # Clear frame and detection history
+                    camera_view.frame_history.clear()
+                    if hasattr(camera_view, 'detections_history'):
+                        camera_view.detections_history.clear()
+                    # Force refresh review views with empty content
+                    camera_view._update_review_views_with_frames([])
+                    print("DEBUG: ReviewView and ReviewLabels cleared after tool edit")
+                
                 # --- Always robustly disable edit mode for all overlays and current_overlay ---
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                     camera_view = self.camera_manager.camera_view
@@ -1885,6 +1897,17 @@ class MainWindow(QMainWindow):
                 added_tool = self.tool_manager.on_apply_setting()
                 if hasattr(self.tool_manager, '_update_job_view'):
                     self.tool_manager._update_job_view()
+                
+                # ✅ Reset ReviewView and ReviewLabels after Classification Tool applied
+                print("DEBUG: Resetting ReviewView and ReviewLabels after Classification Tool apply")
+                if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                    camera_view = self.camera_manager.camera_view
+                    camera_view.frame_history.clear()
+                    if hasattr(camera_view, 'detections_history'):
+                        camera_view.detections_history.clear()
+                    camera_view._update_review_views_with_frames([])
+                    print("DEBUG: ReviewView and ReviewLabels cleared after Classification Tool apply")
+                
                 self.settings_manager.return_to_palette_page()
                 # Disable overlays edit mode (consistency)
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
@@ -1918,6 +1941,19 @@ class MainWindow(QMainWindow):
                 success = self.detect_tool_manager.apply_detect_tool_to_job()
                 if hasattr(self.tool_manager, '_update_job_view'):
                     self.tool_manager._update_job_view()
+                
+                # ✅ Reset ReviewView and ReviewLabels after Detect Tool applied
+                print("DEBUG: Resetting ReviewView and ReviewLabels after Detect Tool apply")
+                if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                    camera_view = self.camera_manager.camera_view
+                    # Clear frame and detection history
+                    camera_view.frame_history.clear()
+                    if hasattr(camera_view, 'detections_history'):
+                        camera_view.detections_history.clear()
+                    # Force refresh review views with empty content
+                    camera_view._update_review_views_with_frames([])
+                    print("DEBUG: ReviewView and ReviewLabels cleared after Detect Tool apply")
+                
                 self.settings_manager.return_to_palette_page()  # Changed from return_to_camera_setting_page
                 # --- Tắt edit mode cho overlays như cancelSetting ---
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
@@ -1962,6 +1998,18 @@ class MainWindow(QMainWindow):
                     self.tool_manager._update_job_view()
                 else:
                     print("DEBUG: Generic path - Failed to add tool")
+                
+                # ✅ Reset ReviewView and ReviewLabels after tool applied
+                print("DEBUG: Resetting ReviewView and ReviewLabels after tool apply (generic path)")
+                if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
+                    camera_view = self.camera_manager.camera_view
+                    # Clear frame and detection history
+                    camera_view.frame_history.clear()
+                    if hasattr(camera_view, 'detections_history'):
+                        camera_view.detections_history.clear()
+                    # Force refresh review views with empty content
+                    camera_view._update_review_views_with_frames([])
+                    print("DEBUG: ReviewView and ReviewLabels cleared after tool apply (generic path)")
                 
                 # Return to palette page
                 self.settings_manager.return_to_palette_page()
