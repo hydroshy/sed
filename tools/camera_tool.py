@@ -82,7 +82,7 @@ class CameraTool(BaseTool):
         
         # Camera configuration (stored for reference)
         self.current_exposure = self.config.get("exposure", 10000)
-        self.current_format = self.config.get("format", "BGR888")
+        self.current_format = self.config.get("format", "RGB888")
         self.frame_size = self.config.get("frame_size", (1440, 1080))
         self.target_fps = self.config.get("target_fps", 10.0)
         
@@ -153,7 +153,7 @@ class CameraTool(BaseTool):
         """Thiết lập cấu hình mặc định cho Camera Tool"""
         # Camera settings
         self.config.set_default("frame_size", (1440, 1080))
-        self.config.set_default("format", "BGR888")
+        self.config.set_default("format", "RGB888")
         try:
             self.config.set_validator("format", lambda v: str(v) in CameraTool.SUPPORTED_FORMATS)
         except Exception:
@@ -719,9 +719,21 @@ class CameraTool(BaseTool):
                 except Exception as e:
                     logger.debug(f"CameraTool: Failed to get pixel format: {e}")
                 
-                # Don't convert format - preserve what camera provides
-                # Let downstream tools handle format conversion as needed
-                logger.debug(f"CameraTool: Preserving frame in {pixel_format} format")
+                # Convert 4-channel frames to 3-channel for downstream tools compatibility
+                # XRGB8888 (4-channel) -> RGB (3-channel)
+                # XBGR8888 (4-channel) -> BGR (3-channel)
+                if len(current_frame.shape) == 3 and current_frame.shape[2] == 4:
+                    logger.debug(f"CameraTool: Converting 4-channel {pixel_format} to 3-channel")
+                    if str(pixel_format) in ('RGB888', 'XRGB8888'):
+                        # XRGB format: OpenCV sees as BGRA, convert to RGB
+                        import cv2
+                        current_frame = cv2.cvtColor(current_frame, cv2.COLOR_BGRA2RGB)
+                        logger.debug(f"CameraTool: Converted XRGB8888 (BGRA) to RGB")
+                    elif str(pixel_format) in ('BGR888', 'XBGR8888'):
+                        # XBGR format: OpenCV sees as RGBA, convert to BGR
+                        import cv2
+                        current_frame = cv2.cvtColor(current_frame, cv2.COLOR_RGBA2BGR)
+                        logger.debug(f"CameraTool: Converted XBGR8888 (RGBA) to BGR")
                 
                 # Return frame with format information in context
                 return current_frame, {

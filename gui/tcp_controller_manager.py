@@ -289,9 +289,128 @@ class TCPControllerManager:
         else:
             logging.error("✗ message_list is None!")
         
+        # NEW: Check if message is sensor event from pico
+        # Expected format: "start_sensor,<sensor_id>" or "end_sensor,<sensor_id>"
+        self._process_sensor_event(message)
+        
         # Check if in trigger mode and trigger camera if needed
         self._check_and_trigger_camera_if_needed(message)
+    
+    def _process_sensor_event(self, message: str):
+        """
+        NEW: Xử lý sensor event từ TCP message
         
+        Expected formats:
+        - "start_sensor,<sensor_id>"  → Sensor IN (nhận từ pico)
+        - "end_sensor,<sensor_id>"    → Sensor OUT
+        
+        Args:
+            message: TCP message string
+        """
+        try:
+            # Parse message
+            if not message:
+                return
+            
+            # Check if it's a sensor event
+            if message.startswith("start_sensor"):
+                # Parse sensor ID
+                parts = message.split(",")
+                if len(parts) >= 2:
+                    try:
+                        sensor_id = int(parts[1].strip())
+                        self._handle_sensor_in_event(sensor_id)
+                    except ValueError:
+                        logging.warning(f"[TCPController] Invalid sensor ID in start_sensor: {parts[1]}")
+                        
+            elif message.startswith("end_sensor"):
+                # Parse sensor ID
+                parts = message.split(",")
+                if len(parts) >= 2:
+                    try:
+                        sensor_id = int(parts[1].strip())
+                        self._handle_sensor_out_event(sensor_id)
+                    except ValueError:
+                        logging.warning(f"[TCPController] Invalid sensor ID in end_sensor: {parts[1]}")
+                        
+        except Exception as e:
+            logging.error(f"[TCPController] Error processing sensor event: {e}", exc_info=True)
+    
+    def _handle_sensor_in_event(self, sensor_id: int):
+        """
+        NEW: Xử lý sensor IN event (start_sensor)
+        
+        Ghép pending job result với frame mới từ TCP sensor_id
+        
+        Args:
+            sensor_id: Sensor ID từ pico
+        """
+        try:
+            logging.info(f"[TCPController] 🚀 Sensor IN received: sensor_id={sensor_id}")
+            print(f"DEBUG: [TCPController] 🚀 Sensor IN received: {sensor_id}")
+            
+            # Get result tab manager
+            result_tab_manager = getattr(self.main_window, 'result_tab_manager', None)
+            if not result_tab_manager:
+                logging.warning("[TCPController] Result Tab Manager not found!")
+                print("DEBUG: [TCPController] Result Tab Manager not found!")
+                return
+            
+            # Gọi method tạo frame và ghép result
+            frame_id = result_tab_manager.on_sensor_in_received(sensor_id)
+            
+            if frame_id > 0:
+                logging.info(f"[TCPController] ✅ Frame created: frame_id={frame_id}, sensor_id={sensor_id}")
+                print(f"DEBUG: [TCPController] ✅ Frame created: {frame_id}")
+                
+                # Optional: hiển thị message trên UI
+                if self.message_list:
+                    self.message_list.addItem(f"[FRAME] Frame #{frame_id} created with sensor_id={sensor_id}")
+                    self.message_list.scrollToBottom()
+            else:
+                logging.error(f"[TCPController] Failed to create frame for sensor_id={sensor_id}")
+                print(f"DEBUG: [TCPController] Failed to create frame")
+                
+        except Exception as e:
+            logging.error(f"[TCPController] Error handling sensor IN: {e}", exc_info=True)
+            print(f"DEBUG: [TCPController] Error handling sensor IN: {e}")
+    
+    def _handle_sensor_out_event(self, sensor_id: int):
+        """
+        NEW: Xử lý sensor OUT event (end_sensor)
+        
+        Args:
+            sensor_id: Sensor ID từ pico
+        """
+        try:
+            logging.info(f"[TCPController] 🔚 Sensor OUT received: sensor_id={sensor_id}")
+            print(f"DEBUG: [TCPController] 🔚 Sensor OUT received: {sensor_id}")
+            
+            # Get result tab manager
+            result_tab_manager = getattr(self.main_window, 'result_tab_manager', None)
+            if not result_tab_manager:
+                logging.warning("[TCPController] Result Tab Manager not found!")
+                return
+            
+            # Thêm sensor OUT event
+            success = result_tab_manager.add_sensor_out_event(sensor_id)
+            
+            if success:
+                logging.info(f"[TCPController] ✅ Sensor OUT matched successfully")
+                print(f"DEBUG: [TCPController] ✅ Sensor OUT matched")
+                
+                # Optional: hiển thị message trên UI
+                if self.message_list:
+                    self.message_list.addItem(f"[SENSOR_OUT] Sensor OUT={sensor_id} matched")
+                    self.message_list.scrollToBottom()
+            else:
+                logging.warning(f"[TCPController] Sensor OUT not matched (no pending frame)")
+                print(f"DEBUG: [TCPController] Sensor OUT not matched")
+                
+        except Exception as e:
+            logging.error(f"[TCPController] Error handling sensor OUT: {e}", exc_info=True)
+            print(f"DEBUG: [TCPController] Error handling sensor OUT: {e}")
+    
     def _on_connect_click(self):
         """Handle connect/disconnect button clicks"""
         logging.info("=== Connect button clicked! ===")

@@ -87,9 +87,11 @@ class CameraDisplayWorker(QObject):
             # Keep only latest frame to avoid memory buildup
             self.frame_queue.clear()
             self.frame_queue.append(frame.copy())
+            print(f"DEBUG: [CameraDisplayWorker.add_frame] Frame added to queue, size={len(self.frame_queue)}")
     
     def process_frames(self):
         """Process frames in background thread"""
+        print(f"DEBUG: [CameraDisplayWorker.process_frames] Worker thread started, running={self.running}")
         while self.running:
             try:
                 frame = None
@@ -99,11 +101,15 @@ class CameraDisplayWorker(QObject):
                 
                 if frame is not None:
                     # Process frame in background thread
+                    print(f"DEBUG: [CameraDisplayWorker.process_frames] Processing frame, shape={frame.shape}")
                     processed_qimage, frame_for_history = self._process_frame_to_qimage(frame)
                     
                     if processed_qimage is not None:
+                        print(f"DEBUG: [CameraDisplayWorker.process_frames] Emitting frameProcessed signal")
                         # Emit signal to update UI on main thread
                         self.frameProcessed.emit(processed_qimage, frame_for_history)
+                    else:
+                        print(f"DEBUG: [CameraDisplayWorker.process_frames] processed_qimage is None!")
                 
                 # Sleep briefly to avoid busy waiting
                 time.sleep(0.016)  # ~60 FPS max processing rate
@@ -116,49 +122,63 @@ class CameraDisplayWorker(QObject):
         """Process frame to QImage in background thread"""
         try:
             if frame is None or frame.size == 0:
+                print(f"DEBUG: [_process_frame_to_qimage] Invalid frame")
                 return None, None
             
             # Choose frame to display based on current display mode
             display_frame = self.camera_view._get_display_frame_from_raw(frame)
             frame_to_process = display_frame if display_frame is not None else frame
             
-            # Get pixel format from camera stream
-            pixel_format = 'BGR888'  # Default fallback
+            # Get pixel format from camera stream (use actual format, not requested)
+            pixel_format = 'XBGR8888'  # Default - assume BGR by default
             try:
                 mw = getattr(self.camera_view, 'main_window', None)
                 cm = getattr(mw, 'camera_manager', None) if mw else None
                 cs = getattr(cm, 'camera_stream', None) if cm else None
-                if cs is not None and hasattr(cs, 'get_pixel_format'):
-                    pixel_format = cs.get_pixel_format()
+                if cs is not None:
+                    # Try to get actual camera format first (what it's REALLY using)
+                    if hasattr(cs, 'get_actual_camera_format'):
+                        pixel_format = cs.get_actual_camera_format()
+                    elif hasattr(cs, 'get_pixel_format'):
+                        # Fallback to requested format if actual not available
+                        pixel_format = cs.get_pixel_format()
             except Exception:
                 pass
             
-            debug_print(f"Processing frame with format: {pixel_format}", "[CameraDisplayWorker]")
+            print(f"DEBUG: [_process_frame_to_qimage] Processing with format: {pixel_format}, shape={frame_to_process.shape}")
             
             # Handle different frame formats safely with proper color conversion
             if len(frame_to_process.shape) == 3 and frame_to_process.shape[2] >= 3:  # Color image with channels
-                if frame_to_process.shape[2] == 4:  # 4-channel format
-                    if str(pixel_format) == 'XRGB8888':
-                        # PiCamera2 XRGB8888 actually returns BGRX data, need to convert BGRA->RGB
+                if frame_to_process.shape[2] == 4:  # 4-channel format (XRGB or XBGR)
+                    actual_format_str = str(pixel_format)
+                    
+                    # NOTE: For 4-channel formats from picamera2, use OpenCV's color conversion
+                    # This is more reliable than manual channel reordering
+                    # Picamera2 returns BGRA byte order regardless of format name
+                    
+                    if actual_format_str in ('XBGR8888', 'XRGB8888', 'BGR888', 'RGB888'):
+                        # All 4-channel picamera2 formats have BGRA byte order
+                        # Use OpenCV to convert BGRA to RGB
                         frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_BGRA2RGB)
-                        debug_print("PiCamera2 XRGB8888 config: Converting BGRA->RGB", "[CameraDisplayWorker]")
+                        debug_print(f"{actual_format_str} (4-ch): Converting BGRA->RGB with cvtColor", "[CameraDisplayWorker]")
                     else:
+                        # Unknown format - try BGRA conversion as fallback
                         frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_BGRA2RGB)
-                        debug_print("Converted BGRA->RGB", "[CameraDisplayWorker]")
+                        debug_print(f"Unknown 4-channel format {actual_format_str}: Converting BGRA->RGB", "[CameraDisplayWorker]")
+                        
                 elif frame_to_process.shape[2] == 3:  # 3-channel format
-                    if str(pixel_format) == 'RGB888':
-                        # PiCamera2 configured as RGB888 but actually returns BGR data
-                        # This is PiCamera2's internal behavior - always convert BGR->RGB
+                    # NOTE: Picamera2 always returns data in BGR order for 3-channel
+                    # regardless of whether we request RGB888 or BGR888
+                    # So for 3-channel data, we always need to convert BGR->RGB
+                    actual_format_str = str(pixel_format)
+                    if actual_format_str in ('RGB888', 'XRGB8888', 'BGR888', 'XBGR8888'):
+                        # Picamera2 returns BGR byte order for all formats
                         frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_BGR2RGB)
-                        debug_print("PiCamera2 RGB888 config: Converting BGR->RGB", "[CameraDisplayWorker]")
-                    elif str(pixel_format) == 'BGR888':
-                        # Frame is BGR, convert to RGB
-                        frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_BGR2RGB)
-                        debug_print("Converted BGR888->RGB", "[CameraDisplayWorker]")
+                        debug_print(f"{actual_format_str}: Converting BGR->RGB (3-channel)", "[CameraDisplayWorker]")
                     else:
                         # Unknown format, assume BGR and convert
                         frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_BGR2RGB)
-                        debug_print(f"Unknown format {pixel_format}, assuming BGR and converting", "[CameraDisplayWorker]")
+                        debug_print(f"Unknown 3-channel format {actual_format_str}, assuming BGR", "[CameraDisplayWorker]")
             elif len(frame_to_process.shape) == 2:  # 2D frame
                 frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_GRAY2RGB)
             else:
@@ -167,6 +187,7 @@ class CameraDisplayWorker(QObject):
                     frame_to_process = frame_to_process.squeeze()
                     frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_GRAY2RGB)
                 else:
+                    print(f"DEBUG: [_process_frame_to_qimage] Unsupported format: {frame_to_process.shape}")
                     logging.warning("Unsupported frame format with shape: %s", frame_to_process.shape)
                     return None, None
             
@@ -174,13 +195,20 @@ class CameraDisplayWorker(QObject):
             h, w, ch = frame_to_process.shape
             bytes_per_line = ch * w
             
+            # Ensure the frame is a contiguous C-order array (required for QImage)
+            # This is especially important after channel reordering with advanced indexing
+            frame_to_process = np.ascontiguousarray(frame_to_process)
+            
             # Create QImage from processed frame
+            print(f"DEBUG: [_process_frame_to_qimage] Creating QImage: {w}x{h}, channels={ch}")
             qimage = QImage(frame_to_process.data, w, h, bytes_per_line, QImage.Format_RGB888)
             
             # Return QImage and frame for history (make copies to be thread-safe)
+            print(f"DEBUG: [_process_frame_to_qimage] QImage created successfully, isNull={qimage.isNull()}")
             return qimage.copy(), frame_to_process.copy()
             
         except Exception as e:
+            print(f"DEBUG: [_process_frame_to_qimage] ERROR: {e}")
             logging.error(f"Error processing frame to QImage: {e}")
             return None, None
     
@@ -421,15 +449,18 @@ class CameraView(QObject):
             return
 
         logging.debug("Frame received with shape: %s", frame.shape)
+        print(f"DEBUG: [display_frame] Frame received: shape={frame.shape}, worker={self.camera_display_worker is not None}")
         
         # Store raw frame for display mode switching
         self.current_raw_frame = frame.copy()
         
         # Send frame to worker thread for processing
         if self.camera_display_worker:
+            print(f"DEBUG: [display_frame] Adding frame to worker queue")
             self.camera_display_worker.add_frame(frame)
         else:
             # Fallback to synchronous processing if worker not available
+            print(f"DEBUG: [display_frame] Worker is None! Thread: {self.camera_display_thread}, Running: {self.camera_display_thread.isRunning() if self.camera_display_thread else 'None'}")
             logging.warning("Camera display worker not available, using synchronous processing")
             self._display_frame_sync(frame)
     
@@ -759,9 +790,9 @@ class CameraView(QObject):
                     debug_print(f"4-channel pixel_format: '{pixel_format}'", "[CameraView]")
                     
                     # Handle 4-channel formats
-                    if str(pixel_format) == 'XRGB8888':
-                        # PiCamera2 XRGB8888 returns BGRX data
-                        debug_print("PiCamera2 XRGB8888 config: Converting BGRA->RGB", "[CameraView]")
+                    if str(pixel_format) in ('XRGB8888', 'XBGR8888'):
+                        # PiCamera2 XBGR8888 returns BGRX data (or XBGR format)
+                        debug_print(f"PiCamera2 {pixel_format} config: Converting BGRA->RGB", "[CameraView]")
                         rgb_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGRA2RGB)
                     else:
                         # Unknown 4-channel format, assume BGRA
@@ -1594,25 +1625,33 @@ class CameraView(QObject):
     def _start_camera_display_worker(self):
         """Start the camera display worker thread"""
         try:
+            print(f"DEBUG: [_start_camera_display_worker] Starting worker, thread={self.camera_display_thread}")
             if self.camera_display_thread is not None:
+                print(f"DEBUG: [_start_camera_display_worker] Worker already started, returning")
                 return  # Already started
             
             # Create worker and thread
+            print(f"DEBUG: [_start_camera_display_worker] Creating CameraDisplayWorker")
             self.camera_display_worker = CameraDisplayWorker(self)
             self.camera_display_thread = QThread()
             
             # Move worker to thread
+            print(f"DEBUG: [_start_camera_display_worker] Moving worker to thread")
             self.camera_display_worker.moveToThread(self.camera_display_thread)
             
             # Connect signals
+            print(f"DEBUG: [_start_camera_display_worker] Connecting signals")
             self.camera_display_thread.started.connect(self.camera_display_worker.process_frames)
             self.camera_display_worker.frameProcessed.connect(self._handle_processed_frame)
             
             # Start thread
+            print(f"DEBUG: [_start_camera_display_worker] Starting thread")
             self.camera_display_thread.start()
             logging.info("Camera display worker thread started")
+            print(f"DEBUG: [_start_camera_display_worker] Worker started successfully")
             
         except Exception as e:
+            print(f"DEBUG: [_start_camera_display_worker] ERROR: {e}")
             logging.error(f"Error starting camera display worker: {e}")
     
     def _stop_camera_display_worker(self):
@@ -1635,6 +1674,7 @@ class CameraView(QObject):
     def _handle_processed_frame(self, qimage, frame_for_history):
         """Handle processed frame from worker thread (runs on main thread)"""
         try:
+            print(f"DEBUG: [_handle_processed_frame] Received processed frame, qimage is None: {qimage is None}")
             if qimage is None:
                 return
             
@@ -1661,6 +1701,7 @@ class CameraView(QObject):
             self.in_trigger_mode = in_trigger_mode
             
             # Display the processed QImage
+            print(f"DEBUG: [_handle_processed_frame] Calling _display_qimage")
             self._display_qimage(qimage)
             
             # Calculate FPS
@@ -1669,25 +1710,31 @@ class CameraView(QObject):
             # ✅ NOTE: Frame history is now updated in _display_qimage() only to avoid duplicates
             
         except Exception as e:
+            print(f"DEBUG: [_handle_processed_frame] ERROR: {e}")
             logging.error(f"Error handling processed frame: {e}")
     
     def _display_qimage(self, qimage):
         """Display QImage in graphics view (main thread only)"""
         try:
+            print(f"DEBUG: [_display_qimage] Displaying QImage")
             # Convert QImage to QPixmap
             pixmap = QPixmap.fromImage(qimage)
+            print(f"DEBUG: [_display_qimage] Pixmap created, isNull={pixmap.isNull()}, size={pixmap.size()}")
             if pixmap.isNull():
+                print(f"DEBUG: [_display_qimage] Pixmap is null, returning")
                 return
             
             # Get or create graphics scene
             scene = self.graphics_view.scene()
             if scene is None:
+                print(f"DEBUG: [_display_qimage] Creating new graphics scene")
                 scene = QGraphicsScene()
                 self.graphics_view.setScene(scene)
             else:
                 scene.clear()
             
             # Add pixmap to scene
+            print(f"DEBUG: [_display_qimage] Adding pixmap to scene")
             scene.addPixmap(pixmap)
             
             # Apply zoom and rotation if needed
@@ -1707,14 +1754,13 @@ class CameraView(QObject):
             # This will be handled in rotate_left and rotate_right methods directly
             
             # ✅ Update frame history with current frame (only here to avoid duplicates)
+            # Note: self.current_frame is already in RGB format from _process_frame_to_qimage
             if self.current_frame is not None and len(self.current_frame.shape) == 3:
-                import cv2
-                # Convert to RGB for history storage
                 if len(self.current_frame.shape) == 3 and self.current_frame.shape[2] == 3:
-                    # Check if it's BGR or already RGB
-                    rgb_frame = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
-                    logging.info(f"[CameraView] Adding frame to history in _display_qimage - shape={rgb_frame.shape}")
-                    self.update_frame_history(rgb_frame)
+                    # current_frame is already RGB (converted in CameraDisplayWorker._process_frame_to_qimage)
+                    # Use it directly without conversion
+                    logging.info(f"[CameraView] Adding frame to history in _display_qimage - shape={self.current_frame.shape}")
+                    self.update_frame_history(self.current_frame)
             
         except Exception as e:
             logging.error(f"Error displaying QImage: {e}")

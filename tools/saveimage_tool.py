@@ -237,27 +237,26 @@ class SaveImageTool(BaseTool):
                 input_format = None
 
             # Conversion rules:
-            # - OpenCV's imwrite expects BGR order for 3-channel images.
-            # - If input is RGB (e.g., 'RGB888'), convert RGB->BGR.
-            # - If input is BGR (e.g., 'BGR888'), keep as-is.
-            # - If unknown (no context), assume BGR to avoid double-swapping colors from OpenCV pipelines.
+            # - Frame from camera_manager is RGB (by default)
+            # - OpenCV's imwrite expects BGR order
+            # - We want to save frames in RGB format (so when read by other apps, colors are correct)
+            # - Solution: For RGB input, convert RGB->BGR for imwrite; for BGR input, keep as-is
             if len(save_image.shape) == 3 and save_image.shape[2] == 3:
                 if input_format and input_format.startswith('RGB'):
-                    logger.info("SaveImageTool: Input format RGB detected, converting RGB->BGR for saving")
+                    logger.info("SaveImageTool: Input format RGB detected, converting RGB->BGR for imwrite (will save as RGB)")
+                    # Convert RGB->BGR for imwrite (imwrite will save as BGR bytes, which are RGB values)
                     save_image = cv2.cvtColor(save_image, cv2.COLOR_RGB2BGR)
                 else:
-                    # Either explicitly BGR or unknown. Default to no conversion.
-                    if input_format:
-                        logger.info(f"SaveImageTool: Input format {input_format} treated as BGR/no-swap for saving")
-                    else:
-                        logger.info("SaveImageTool: No input format provided; assuming BGR (no color swap)")
+                    # BGR from camera - already in imwrite format, no conversion needed
+                    logger.info("SaveImageTool: Input format BGR, saving as-is (imwrite will save as BGR bytes)")
             elif len(save_image.shape) == 3 and save_image.shape[2] == 4:
-                # 4-channel images: try to respect context; otherwise assume BGRA
+                # 4-channel images: try to respect context; otherwise assume RGBA (from RGB pipeline)
                 if input_format and (input_format in ('RGBA', 'XRGB8888') or input_format.startswith('RGBA')):
-                    logger.info("SaveImageTool: Input format RGBA detected, converting RGBA->BGRA for saving")
-                    save_image = cv2.cvtColor(save_image, cv2.COLOR_RGBA2BGRA)
+                    logger.info("SaveImageTool: Input format RGBA detected, converting RGBA->BGR (dropping alpha)")
+                    save_image = cv2.cvtColor(save_image, cv2.COLOR_RGBA2BGR)
                 else:
-                    logger.info("SaveImageTool: Assuming BGRA or unknown 4-channel; no swap needed for saving")
+                    logger.info("SaveImageTool: Assuming BGRA (from BGR pipeline); no conversion needed")
+
             
             logger.info(f"SaveImageTool: Final image shape for saving: {save_image.shape}")
             logger.info(f"SaveImageTool: Final image dtype: {save_image.dtype}")

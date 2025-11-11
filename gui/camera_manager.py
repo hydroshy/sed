@@ -335,27 +335,20 @@ class CameraManager(QObject):
 
             try:
                 # Build context for pipeline: include pixel_format for correct color handling
-                pixel_format = 'BGR888'
-                try:
-                    cs = getattr(self, 'camera_stream', None)
-                    if cs is not None:
-                        # If using real camera (Picamera2 started), treat frames as BGR regardless of reported format
-                        is_real_camera = False
-                        try:
-                            is_real_camera = bool(getattr(cs, 'is_camera_available', False) and getattr(getattr(cs, 'picam2', None), 'started', False))
-                        except Exception:
-                            is_real_camera = False
-
-                        if is_real_camera:
-                            pixel_format = 'BGR888'
-                        else:
-                            # For test/stub frames, respect the configured pixel format when available
-                            if hasattr(cs, 'get_pixel_format'):
-                                pf = cs.get_pixel_format()
-                                if isinstance(pf, str) and pf:
-                                    pixel_format = pf
-                except Exception:
-                    pass
+                # Get current format from camera stream (default is RGB888)
+                import cv2
+                pixel_format = 'RGB888'  # Default - camera_stream outputs RGB888
+                if hasattr(self.camera_stream, 'get_pixel_format'):
+                    try:
+                        current_format = self.camera_stream.get_pixel_format()
+                        if current_format and current_format in ['BGR888', 'RGB888', 'XRGB8888', 'YUV420', 'NV12']:
+                            pixel_format = current_format
+                            print(f"DEBUG: [CameraManager] Using current camera format: {pixel_format}")
+                    except Exception as e:
+                        print(f"DEBUG: [CameraManager] Could not get camera format: {e}, using default RGB888")
+                
+                print(f"DEBUG: [CameraManager] Frame format: {pixel_format} for job processing")
+                
                 initial_context = {"force_save": True, "pixel_format": str(pixel_format)}
                 print(f"DEBUG: [CameraManager] RUNNING JOB PIPELINE (trigger_capturing={getattr(self, '_trigger_capturing', False)})")
                 processed_image, job_results = job_manager.run_current_job(frame, context=initial_context)
@@ -1082,8 +1075,8 @@ class CameraManager(QObject):
                 try:
                     # First try direct method access - this helps with finding the true error
                     try:
-                        print("DEBUG: [CameraManager] First attempt - direct start_live()")
-                        success = self.camera_stream.start_live()
+                        print("DEBUG: [CameraManager] First attempt - direct start_online_camera()")
+                        success = self.camera_stream.start_online_camera()
                     except AttributeError as e:
                         print(f"DEBUG: [CameraManager] AttributeError: {e}")
                         # Fall back to other method name
@@ -1601,14 +1594,9 @@ class CameraManager(QObject):
         # Start camera only if not running
         if self.camera_stream and not self.camera_stream.is_running():
             try:
-                # Kiểm tra xem có cần giữ nguyên chế độ trigger hay không
-                if not force_mode_change and hasattr(self.camera_stream, 'start_live'):
-                    print(f"DEBUG: [CameraManager] Starting camera with preserve_trigger_mode=True")
-                    # Truyền preserve_trigger_mode=True để giữ nguyên chế độ trigger khi đang edit
-                    success = self.camera_stream.start_live(preserve_trigger_mode=True)
-                else:
-                    # Chạy start_live thông thường (sẽ tắt trigger mode)
-                    success = self.camera_stream.start_live()
+                # start_online_camera() will preserve current trigger mode automatically
+                print(f"DEBUG: [CameraManager] Starting camera")
+                success = self.camera_stream.start_online_camera()
                 
                 if success:
                     # Only update mode if force_mode_change is True
@@ -1664,7 +1652,12 @@ class CameraManager(QObject):
             return False
     
     def on_live_camera_clicked(self):
-        """Handle click Live Camera button (onlineCamera) - Simple stream on/off without mode change"""
+        """Handle click Live Camera button (onlineCamera)
+        
+        Behavior depends on camera mode:
+        - Live Mode: Start continuous camera streaming
+        - Trigger Mode: Keep current mode (don't force continuous)
+        """
         try:
             if self.live_camera_btn and self.live_camera_btn.isChecked():
                 self._waiting_first_frame = True
@@ -1672,7 +1665,7 @@ class CameraManager(QObject):
             pass
         
         current_checked = self.live_camera_btn.isChecked() if self.live_camera_btn else True
-        print(f"DEBUG: [CameraManager] Online camera button clicked, checked: {current_checked}")
+        print(f"DEBUG: [CameraManager] Live Camera button clicked, checked: {current_checked}")
         
         # Kiểm tra xem có đang edit Camera Source không
         editing_camera_tool = self._is_editing_camera_tool()
@@ -1683,16 +1676,26 @@ class CameraManager(QObject):
             if self.live_camera_btn:
                 self.live_camera_btn.setChecked(False)
             return
+        
+        # Lấy chế độ camera hiện tại
+        current_mode = self.current_mode if self.current_mode else 'live'
+        print(f"DEBUG: [CameraManager] Current camera mode: {current_mode}")
             
         if current_checked:
-            # Start camera stream (like testjob.py - simple stream without mode change)
+            # START camera based on mode
             print("DEBUG: [CameraManager] Starting camera stream...")
             try:
-                # Use simple stream method that doesn't change trigger/live mode
-                success = self._start_camera_stream()
+                if current_mode == 'live':
+                    # LIVE MODE: Start continuous streaming
+                    print("DEBUG: [CameraManager] LIVE MODE: Starting continuous camera stream")
+                    success = self._start_camera_stream_continuous()
+                else:
+                    # TRIGGER MODE: Hoạt động chế độ hiện tại (giữ trigger mode, không ép continuous)
+                    print("DEBUG: [CameraManager] TRIGGER MODE: Keeping current trigger mode")
+                    success = self._start_camera_stream()
+                
                 if success:
                     print("DEBUG: [CameraManager] Camera stream started successfully")
-                    # Nếu đang trong chế độ edit Camera Source, hiển thị thông báo đặc biệt
                     if editing_camera_tool:
                         print("DEBUG: [CameraManager] Running in Camera Source edit mode - live preview")
                 else:
@@ -1704,7 +1707,7 @@ class CameraManager(QObject):
                 if self.live_camera_btn:
                     self.live_camera_btn.setChecked(False)
         else:
-            # Stop camera stream
+            # STOP camera stream
             print("DEBUG: [CameraManager] Stopping camera stream...")
             try:
                 success = self._stop_camera_stream()
@@ -1718,8 +1721,65 @@ class CameraManager(QObject):
         # Update UI to reflect current streaming state (not mode)
         self.update_camera_mode_ui()
     
+    def _start_camera_stream_continuous(self):
+        """Start continuous camera streaming in LIVE MODE
+        
+        This method ensures camera runs in continuous mode when "Live Camera" is clicked
+        in live mode. It mimics testjob.py's simple streaming behavior.
+        """
+        if not self.camera_stream:
+            return False
+            
+        try:
+            # Check if camera is already streaming
+            if hasattr(self.camera_stream, 'is_live') and self.camera_stream.is_live:
+                print("DEBUG: [CameraManager] Camera stream already running")
+                return True
+            
+            # Ensure we're NOT in trigger mode - explicitly use continuous/live mode
+            print("DEBUG: [CameraManager] Ensuring continuous live mode...")
+            
+            # Disable external trigger if it's enabled
+            if hasattr(self.camera_stream, 'external_trigger_enabled') and self.camera_stream.external_trigger_enabled:
+                print("DEBUG: [CameraManager] Disabling external trigger for continuous mode")
+                if hasattr(self.camera_stream, 'set_trigger_mode'):
+                    self.camera_stream.set_trigger_mode(False)
+            
+            # Start live preview stream (continuous)
+            print("DEBUG: [CameraManager] Starting continuous live stream...")
+            if hasattr(self.camera_stream, 'start_online_camera'):
+                success = self.camera_stream.start_online_camera()
+            elif hasattr(self.camera_stream, 'start_live'):
+                success = self.camera_stream.start_live()
+            elif hasattr(self.camera_stream, 'start_preview'):
+                success = self.camera_stream.start_preview()
+            else:
+                print("ERROR: No live streaming method available")
+                return False
+            
+            if success:
+                print("DEBUG: [CameraManager] Continuous camera stream started successfully")
+                
+                # Enable job execution for frame processing
+                self.job_enabled = True
+                if hasattr(self.camera_stream, 'set_job_enabled'):
+                    self.camera_stream.set_job_enabled(True)
+                
+                print("DEBUG: [CameraManager] Continuous camera stream started with job processing enabled")
+                return True
+            else:
+                print("DEBUG: [CameraManager] Failed to start continuous camera stream")
+                return False
+                
+        except Exception as e:
+            print(f"DEBUG: [CameraManager] Exception starting continuous camera stream: {e}")
+            return False
+    
     def _start_camera_stream(self):
-        """Start camera stream like testjob.py - simple streaming without mode change"""
+        """Start camera stream - keeps current mode (used in TRIGGER MODE)
+        
+        In trigger mode: Start camera but keep trigger configuration (don't force continuous)
+        """
         if not self.camera_stream:
             return False
             
@@ -1740,19 +1800,12 @@ class CameraManager(QObject):
             # Lưu và in ra thông tin về trạng thái camera mode và edit mode
             print(f"DEBUG: [CameraManager] Starting stream with current mode: {current_mode}, edit mode: {editing_camera_tool}")
             
-            # Nếu đang edit Camera Source, thì giữ nguyên chế độ trigger (nếu có)
-            preserve_trigger_mode = editing_camera_tool
-            
             # Start simple preview stream (like testjob.py)
             if hasattr(self.camera_stream, 'start_preview'):
                 success = self.camera_stream.start_preview()
             else:
-                # Fallback to start_live if start_preview not available
-                # Truyền preserve_trigger_mode để giữ nguyên chế độ trigger khi đang edit
-                if hasattr(self.camera_stream, 'start_live') and 'preserve_trigger_mode' in inspect.signature(self.camera_stream.start_live).parameters:
-                    success = self.camera_stream.start_live(preserve_trigger_mode=preserve_trigger_mode)
-                else:
-                    success = self.camera_stream.start_live()
+                # Fallback to start_online_camera if start_preview not available
+                success = self.camera_stream.start_online_camera()
             
             if success:
                 print(f"DEBUG: [CameraManager] Camera stream started successfully, edit mode: {editing_camera_tool}")
@@ -2801,6 +2854,47 @@ class CameraManager(QObject):
                     print(f"DEBUG: [CameraManager] Recorded result to ResultManager history: {status}")
             except Exception as e:
                 print(f"DEBUG: [CameraManager] Could not record result to ResultManager: {e}")
+            
+            # ✅ NEW: Save job result to pending, wait for TCP sensor IN signal
+            # Do NOT create frame yet - frame will be created when sensor IN signal arrives
+            try:
+                result_tab_manager = getattr(self.main_window, 'result_tab_manager', None)
+                if result_tab_manager:
+                    import logging
+                    
+                    # Prepare detection data if available
+                    detection_data = None
+                    if 'detections' in result_data:
+                        detection_data = {
+                            'detections': result_data.get('detections', []),
+                            'detection_count': result_data.get('detection_count', 0),
+                            'inference_time': result_data.get('inference_time', 0),
+                        }
+                    
+                    # Save pending result (lưu tạm chờ TCP sensor IN)
+                    success = result_tab_manager.save_pending_job_result(
+                        status=status,
+                        similarity=0.0,
+                        reason=reason,
+                        detection_data=detection_data,
+                        inference_time=result_data.get('inference_time', 0)
+                    )
+                    
+                    if success:
+                        logging.info(f"[CameraManager] ✅ Saved pending result: status={status}")
+                        print(f"DEBUG: [CameraManager] ✅ Saved pending result: status={status}")
+                        logging.info(f"[CameraManager] Waiting for TCP 'start_sensor' event...")
+                        print(f"DEBUG: [CameraManager] Waiting for TCP 'start_sensor' event...")
+                    else:
+                        logging.warning("[CameraManager] Failed to save pending result")
+                        print("DEBUG: [CameraManager] Failed to save pending result")
+                else:
+                    logging.warning("[CameraManager] Result Tab Manager not found in main_window")
+                    print("DEBUG: [CameraManager] Result Tab Manager not available")
+            except Exception as e:
+                logging.error(f"[CameraManager] Error saving pending result: {e}", exc_info=True)
+                print(f"DEBUG: [CameraManager] Error saving pending result: {e}")
+            
             
         except Exception as e:
             logging.error(f"Error updating execution label: {e}")

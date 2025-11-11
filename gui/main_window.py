@@ -16,6 +16,7 @@ from gui.camera_manager import CameraManager
 from gui.detect_tool_manager import DetectToolManager
 from gui.classification_tool_manager import ClassificationToolManager
 from gui.result_manager import ResultManager
+from gui.result_tab_manager import ResultTabManager
 from gui.workflow_view import WorkflowWidget
 
 # Configure logging
@@ -68,6 +69,7 @@ class MainWindow(QMainWindow):
         self.detect_tool_manager = DetectToolManager(self)
         self.classification_tool_manager = ClassificationToolManager(self)
         self.result_manager = ResultManager(self)  # NEW: Independent result manager
+        self.result_tab_manager = ResultTabManager(self)  # NEW: Result Tab FIFO queue manager
         
         # Khởi tạo TCP controller manager
         from gui.tcp_controller_manager import TCPControllerManager
@@ -464,6 +466,24 @@ class MainWindow(QMainWindow):
         self.classificationScrollArea = self.findChild(QWidget, 'classificationScrollArea')  # QScrollArea or QListWidget
         self.classificationTableView = self.findChild(QTableView, 'classificationTableView')
         
+        # Result Tab widgets - NEW: Find result table and buttons
+        self.resultTab = self.paletteTab.findChild(QWidget, 'resultTab') if self.paletteTab else None
+        if self.resultTab:
+            logging.info("Found resultTab")
+            self.resultTableView = self.resultTab.findChild(QTableView, 'resultTableView')
+            self.deleteObjectButton = self.resultTab.findChild(QPushButton, 'deleteObjectButton')
+            self.clearQueueButton = self.resultTab.findChild(QPushButton, 'clearQueueButton')
+            
+            logging.info(f"Result Tab widgets found: "
+                        f"resultTableView={self.resultTableView is not None}, "
+                        f"deleteObjectButton={self.deleteObjectButton is not None}, "
+                        f"clearQueueButton={self.clearQueueButton is not None}")
+        else:
+            logging.warning("resultTab not found in paletteTab!")
+            self.resultTableView = None
+            self.deleteObjectButton = None
+            self.clearQueueButton = None
+        
         # Debug logging for widget finding
         logging.info(f"detectSettingFrame found: {self.detectSettingFrame is not None}")
         logging.info(f"Found algorithmComboBox: {self.algorithmComboBox is not None}")
@@ -647,6 +667,9 @@ class MainWindow(QMainWindow):
         if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
             if hasattr(self.camera_manager.camera_view, 'area_changed'):
                 self.camera_manager.camera_view.area_changed.connect(self._on_area_changed)
+        
+        # Setup ResultTabManager for FIFO queue
+        self.result_tab_manager.setup_ui()
         
         # Setup DetectToolManager
         if hasattr(self, 'detect_tool_manager'):
@@ -950,13 +973,16 @@ class MainWindow(QMainWindow):
             traceback.print_exc()
         
     def _toggle_camera(self, checked):
-        """Đơn giản: bật/tắt camera stream để hiển thị frame lên cameraView
+        """Handle onlineCamera button: start/stop camera without mode change
+        
+        OnlineCamera button simply starts the camera in current mode.
+        Does NOT force a mode change (stays in LIVE or TRIGGER as currently set).
         
         Args:
-            checked: Boolean, True = bật camera, False = tắt camera
+            checked: Boolean, True = start camera, False = stop camera
         """
         try:
-            logging.info(f"Simple camera toggle: {checked}")
+            logging.info(f"OnlineCamera button toggled: {checked}")
             
             if not hasattr(self, 'camera_manager') or not self.camera_manager:
                 logging.error("Camera manager not available")
@@ -969,58 +995,63 @@ class MainWindow(QMainWindow):
                 return
                 
             if checked:
-                # Bật camera stream đơn giản
-                logging.info("Starting camera stream...")
+                # Start camera in current mode (no mode change)
+                logging.info("Starting camera stream (no mode change)")
+
                 success = False
+
+                # Get current mode and start camera
+                current_mode = getattr(self.camera_manager, 'current_mode', 'live')
+                logging.info(f"Starting camera in current mode: {current_mode}")
                 
-                if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
-                    try:
-                        # Use start_preview() for simple frame streaming like testjob.py (no job processing)
-                        if hasattr(self.camera_manager.camera_stream, 'start_preview'):
-                            success = self.camera_manager.camera_stream.start_preview()
-                        else:
-                            # Fallback to start_live() but disable job processing
-                            success = self.camera_manager.camera_stream.start_live()
-                            
+                try:
+                    # Start camera without forcing mode change
+                    if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
+                        # Start the camera stream directly without mode forcing
+                        # Use start_online_camera() which matches the onlineCamera button name
+                        success = self.camera_manager.camera_stream.start_online_camera()
                         if success:
-                            logging.info("Camera stream started successfully")
-                            # Enable job execution for classification while keeping simple streaming
+                            logging.info(f"Camera stream started successfully in {current_mode} mode")
+                            
+                            # Sync format comboBox to show actual camera format
+                            self._sync_format_combobox()
+                            
+                            # Enable job execution when appropriate
                             if hasattr(self.camera_manager.camera_stream, 'set_job_enabled'):
                                 self.camera_manager.camera_stream.set_job_enabled(True)
                                 logging.info("Job execution enabled on camera stream")
-                            # Also enable job execution in camera manager
                             if hasattr(self.camera_manager, 'job_enabled'):
                                 self.camera_manager.job_enabled = True
                                 logging.info("Job execution enabled in camera manager")
-                            
-                            # Set button style to green when active
-                            self.onlineCamera.setStyleSheet("""
-                                QPushButton {
-                                    background-color: #4CAF50;  /* Green */
-                                    color: white;
-                                    border: 2px solid #45a049;
-                                    border-radius: 4px;
-                                    font-weight: bold;
-                                }
-                                QPushButton:hover {
-                                    background-color: #45a049;
-                                }
-                            """)
                         else:
                             logging.error("Camera stream failed to start")
-                    except Exception as e:
-                        logging.error(f"Error starting camera stream: {e}")
-                        success = False
-                else:
-                    logging.error("Camera stream not initialized")
+                    else:
+                        logging.error("Camera stream not initialized")
+                except Exception as e:
+                    logging.error(f"Error starting camera stream: {e}")
+                    success = False
                 
                 if not success:
-                    # Nếu thất bại, bỏ check nút và set màu đỏ
+                    # If failed, uncheck button and set red style
                     self.onlineCamera.setChecked(False)
                     self._set_camera_button_off_style()
+                else:
+                    # Set button style to green when active
+                    self.onlineCamera.setStyleSheet("""
+                        QPushButton {
+                            background-color: #4CAF50;  /* Green */
+                            color: white;
+                            border: 2px solid #45a049;
+                            border-radius: 4px;
+                            font-weight: bold;
+                        }
+                        QPushButton:hover {
+                            background-color: #45a049;
+                        }
+                    """)
                     
             else:
-                # Tắt camera stream đơn giản
+                # Stop camera stream
                 logging.info("Stopping camera stream...")
                 
                 if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
@@ -1033,12 +1064,8 @@ class MainWindow(QMainWindow):
                             self.camera_manager.job_enabled = False
                             logging.info("Job execution disabled in camera manager")
                         
-                        # Use stop_preview() for simple streaming like testjob.py
-                        if hasattr(self.camera_manager.camera_stream, 'stop_preview'):
-                            self.camera_manager.camera_stream.stop_preview()
-                        else:
-                            # Fallback to stop_live()
-                            self.camera_manager.camera_stream.stop_live()
+                        # Use stop_live() to stop the camera
+                        self.camera_manager.camera_stream.stop_live()
                         logging.info("Camera stream stopped")
                     except Exception as e:
                         logging.error(f"Error stopping camera stream: {e}")
@@ -1049,7 +1076,7 @@ class MainWindow(QMainWindow):
                 self._set_camera_button_off_style()
                     
         except Exception as e:
-            logging.error(f"Error in simple camera toggle: {e}")
+            logging.error(f"Error in camera toggle: {e}")
             import traceback
             traceback.print_exc()
             # Reset button state and style on error
@@ -1075,6 +1102,47 @@ class MainWindow(QMainWindow):
                 border: 2px solid #999999;
             }
         """)
+
+    def _sync_format_combobox(self):
+        """Synchronize formatCameraComboBox with actual camera format
+        
+        This ensures the UI displays the correct color format that the camera
+        is actually using, not just what was last selected in settings.
+        """
+        try:
+            if not hasattr(self, 'formatCameraComboBox') or self.formatCameraComboBox is None:
+                logging.debug("formatCameraComboBox not available for sync")
+                return
+                
+            if not hasattr(self, 'camera_manager') or not self.camera_manager:
+                logging.debug("camera_manager not available for sync")
+                return
+                
+            if not hasattr(self.camera_manager, 'camera_stream') or not self.camera_manager.camera_stream:
+                logging.debug("camera_stream not available for sync")
+                return
+            
+            # Get current format from camera stream
+            camera_stream = self.camera_manager.camera_stream
+            if hasattr(camera_stream, 'get_pixel_format'):
+                current_format = camera_stream.get_pixel_format()
+                logging.info(f"Current camera format: {current_format}")
+                
+                # Update comboBox to show current format
+                index = self.formatCameraComboBox.findText(current_format)
+                if index >= 0:
+                    # Block signals to prevent triggering _on_format_changed
+                    self.formatCameraComboBox.blockSignals(True)
+                    self.formatCameraComboBox.setCurrentIndex(index)
+                    self.formatCameraComboBox.blockSignals(False)
+                    logging.info(f"formatCameraComboBox synced to: {current_format}")
+                else:
+                    logging.warning(f"Format {current_format} not found in comboBox, available formats: {[self.formatCameraComboBox.itemText(i) for i in range(self.formatCameraComboBox.count())]}")
+            else:
+                logging.debug("camera_stream doesn't have get_pixel_format method")
+                
+        except Exception as e:
+            logging.error(f"Error syncing format comboBox: {e}")
         
     def _update_camera_button_state(self):
         """Update camera button state based on whether Camera Source exists in job"""
@@ -2532,16 +2600,16 @@ class MainWindow(QMainWindow):
                     print(f"DEBUG: Error pre-stopping camera before format apply: {e}")
                 
                 # Xác thực định dạng trước khi áp dụng
-                safe_formats = ["RGB888", "BGR888", "XRGB8888"]
+                safe_formats = ["XRGB8888", "XBGR8888"]
                 if selected_format not in safe_formats:
                     from PyQt5.QtWidgets import QMessageBox
                     QMessageBox.warning(
                         self, 
                         "Định dạng không được hỗ trợ",
                         f"Định dạng {selected_format} có thể không được hỗ trợ trên thiết bị này.\n"
-                        f"S? d?ng RGB888."
+                        f"Sử dụng XBGR8888."
                     )
-                    selected_format = "RGB888"
+                    selected_format = "XBGR8888"
                     # Cập nhật lại combo box để hiển thị định dạng thực tế
                     index = self.formatCameraComboBox.findText(selected_format)
                     if index >= 0:
@@ -2551,6 +2619,8 @@ class MainWindow(QMainWindow):
                 try:
                     camera_stream.set_format(selected_format)
                     print(f"DEBUG: Successfully applied camera format: {selected_format}")
+                    # Sync comboBox to ensure it shows the actual applied format
+                    self._sync_format_combobox()
                 except Exception as e:
                     print(f"DEBUG: Failed to apply camera format {selected_format}: {e}")
                     from PyQt5.QtWidgets import QMessageBox
@@ -2610,29 +2680,38 @@ class MainWindow(QMainWindow):
         if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
             camera_stream = self.camera_manager.camera_stream
             print("DEBUG: Got camera stream instance")
-            # Always show supported formats in the combo box (BGR888 first as PyQt expects BGR data)
-            supported = ["BGR888", "RGB888", "XRGB8888"]
+            # Show only hardware formats supported by picamera2
+            supported = ["XRGB8888", "XBGR8888"]
             for fmt in supported:
                 combo_widget.addItem(fmt)
                 print(f"DEBUG: Added supported format: {fmt}")
                     
-            # Set default/current selection to BGR888 (PyQt Format_RGB888 expects BGR data)
-            preferred_format = 'BGR888'
-            idx = combo_widget.findText(preferred_format)
-            if idx >= 0:
-                combo_widget.setCurrentIndex(idx)
-                print(f"DEBUG: Set current format to: {preferred_format}")
-            else:
-                # Fallback to first available format if BGR888 not found
-                if combo_widget.count() > 0:
+            # Set to the ACTUAL format the camera is using (not just default)
+            try:
+                actual_format = camera_stream.get_actual_camera_format()
+                print(f"DEBUG: Actual camera format: {actual_format}")
+                idx = combo_widget.findText(actual_format)
+                if idx >= 0:
+                    combo_widget.setCurrentIndex(idx)
+                    print(f"DEBUG: Set comboBox to actual format: {actual_format}")
+                else:
+                    # Fallback if actual format not in list
                     combo_widget.setCurrentIndex(0)
-                    print(f"DEBUG: BGR888 not found, using first format: {combo_widget.itemText(0)}")
+                    print(f"DEBUG: Actual format {actual_format} not in list, using first: {combo_widget.itemText(0)}")
+            except Exception as e:
+                print(f"DEBUG: Error getting actual format: {e}, using default XBGR8888")
+                # Fallback to XBGR8888
+                idx = combo_widget.findText('XBGR8888')
+                if idx >= 0:
+                    combo_widget.setCurrentIndex(idx)
+                else:
+                    combo_widget.setCurrentIndex(0)
             
             print(f"DEBUG: ComboBox now has {combo_widget.count()} items")
         else:
             print("DEBUG: Camera stream not available, adding fallback formats")
-            # Add fallback formats when camera not available (BGR888 first as default)
-            safe_formats = ["BGR888", "RGB888", "XRGB8888"]
+            # Add fallback formats when camera not available (XBGR8888 first as default)
+            safe_formats = ["XBGR8888", "XRGB8888"]
             for fmt in safe_formats:
                 combo_widget.addItem(fmt)
                 print(f"DEBUG: Added fallback format: {fmt}")
@@ -2717,7 +2796,7 @@ class MainWindow(QMainWindow):
         """Apply camera pixel format immediately when user selects a new one."""
         try:
             # Only support RGB variants now (removed YUV420/NV12 as they cause issues)
-            supported = ["BGR888", "RGB888", "XRGB8888"]
+            supported = ["XRGB8888", "XBGR8888"]
             fmt = str(text)
             
             print(f"DEBUG: [MainWindow] Format changed to: {fmt}")
@@ -2763,6 +2842,8 @@ class MainWindow(QMainWindow):
             try:
                 ok = cs.set_format(fmt)
                 print(f"DEBUG: [MainWindow] set_format({fmt}) returned {ok}")
+                # Sync comboBox after successful format change
+                self._sync_format_combobox()
             except Exception as e:
                 print(f"DEBUG: [MainWindow] Error setting format: {e}")
                 return
