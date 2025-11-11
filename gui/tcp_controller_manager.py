@@ -560,75 +560,85 @@ class TCPControllerManager:
 
     def _check_and_trigger_camera_if_needed(self, message: str):
         """
-        Check if message is a sensor trigger command and trigger camera if in trigger mode
+        Handle start_rising and end_rising sensor signals and update result tab
         
-        Message format from sensor: "start_rising||1634723"
-        This method will:
-        1. Parse the message
-        2. Check if camera is in trigger mode
-        3. Apply delay if enabled
-        4. Trigger camera capture if needed
+        Message formats from sensor:
+        - "start_rising||<sensor_id>" → Create new frame entry (sensor IN)
+        - "end_rising||<sensor_id>"   → Match to pending frame (sensor OUT, FIFO)
+        
+        NOTE: Neither message triggers camera automatically. Camera trigger is user-controlled.
         """
         try:
-            # Parse message - expected format: "start_rising||<timestamp>"
-            if "start_rising" not in message.lower():
-                logging.debug(f"Message '{message}' is not a start_rising trigger, ignoring")
-                return
-            
-            logging.info(f"★ Detected trigger command: {message}")
-            
-            # Check if camera_manager exists
-            if not hasattr(self.main_window, 'camera_manager') or not self.main_window.camera_manager:
-                logging.warning("camera_manager not found, cannot trigger camera")
-                return
-            
-            camera_manager = self.main_window.camera_manager
-            
-            # Check if in trigger mode (camera_manager.current_mode == 'trigger')
-            if not hasattr(camera_manager, 'current_mode'):
-                logging.warning("camera_manager.current_mode not found")
-                return
-            
-            if camera_manager.current_mode != 'trigger':
-                logging.debug(f"Camera not in trigger mode (current mode: {camera_manager.current_mode}), skipping trigger")
-                return
-            
-            logging.info(f"★ Camera is in trigger mode, triggering capture for: {message}")
-            
-            # Get delay trigger settings
-            delay_enabled, delay_ms = self._get_delay_trigger_settings()
-            
-            # Apply delay if enabled
-            if delay_enabled:
-                self._apply_delay_trigger(delay_ms)
-            
-            # Trigger camera capture
-            logging.info(f"★ Calling camera_manager.activate_capture_request()")
-            try:
-                # Trigger capture
-                result = camera_manager.activate_capture_request()
-                if result:
-                    if delay_enabled:
-                        logging.info(f"Camera triggered successfully (after {delay_ms:.1f}ms delay) for message: {message}")
-                        self.message_list.addItem(f"[TRIGGER+{delay_ms:.1f}ms] Camera captured from: {message}")
-                        # Restore default cooldown after successful trigger
-                        self._restore_default_cooldown()
-                    else:
-                        logging.info(f"Camera triggered successfully for message: {message}")
-                        self.message_list.addItem(f"[TRIGGER] Camera captured from: {message}")
-                    self.message_list.scrollToBottom()
-                else:
-                    logging.warning(f"Failed to trigger camera for message: {message}")
-                    # Restore cooldown even on failure
-                    if delay_enabled:
-                        self._restore_default_cooldown()
-            except Exception as e:
-                logging.error(f"Error triggering camera: {e}", exc_info=True)
-                if delay_enabled:
-                    self._restore_default_cooldown()
+            # Check for start_rising signal
+            if "start_rising" in message.lower():
+                self._handle_start_rising(message)
+            # Check for end_rising signal
+            elif "end_rising" in message.lower():
+                self._handle_end_rising(message)
+            else:
+                logging.debug(f"Message '{message}' is not start_rising or end_rising, ignoring")
                 
         except Exception as e:
             logging.error(f"Error in _check_and_trigger_camera_if_needed: {e}", exc_info=True)
+    
+    def _handle_start_rising(self, message: str):
+        """
+        Handle start_rising signal - create new frame entry in result tab
+        
+        Message format: "start_rising||<sensor_id>"
+        """
+        try:
+            logging.info(f"★ Detected start_rising signal: {message}")
+            
+            # Extract sensor_id from message format: "start_rising||<sensor_id>"
+            try:
+                parts = message.split('||')
+                if len(parts) >= 2:
+                    sensor_id = int(parts[1].strip())
+                    logging.info(f"★ Extracted sensor_id: {sensor_id}")
+                else:
+                    logging.warning(f"Could not parse sensor_id from message: {message}")
+                    return
+            except (ValueError, IndexError) as e:
+                logging.warning(f"Error parsing sensor_id from message '{message}': {e}")
+                return
+            
+            # Call sensor IN handler to create frame and merge result
+            logging.info(f"★ Calling _handle_sensor_in_event with sensor_id={sensor_id}")
+            self._handle_sensor_in_event(sensor_id)
+                
+        except Exception as e:
+            logging.error(f"Error in _handle_start_rising: {e}", exc_info=True)
+    
+    def _handle_end_rising(self, message: str):
+        """
+        Handle end_rising signal - match to first PENDING frame in queue (FIFO)
+        
+        Message format: "end_rising||<sensor_id>"
+        When matched, frame's completion_status becomes DONE
+        """
+        try:
+            logging.info(f"★ Detected end_rising signal: {message}")
+            
+            # Extract sensor_id from message format: "end_rising||<sensor_id>"
+            try:
+                parts = message.split('||')
+                if len(parts) >= 2:
+                    sensor_id = int(parts[1].strip())
+                    logging.info(f"★ Extracted sensor_id for end_rising: {sensor_id}")
+                else:
+                    logging.warning(f"Could not parse sensor_id from message: {message}")
+                    return
+            except (ValueError, IndexError) as e:
+                logging.warning(f"Error parsing sensor_id from message '{message}': {e}")
+                return
+            
+            # Call sensor OUT handler to match to PENDING frame
+            logging.info(f"★ Calling _handle_sensor_out_event with sensor_id={sensor_id}")
+            self._handle_sensor_out_event(sensor_id)
+                
+        except Exception as e:
+            logging.error(f"Error in _handle_end_rising: {e}", exc_info=True)
     
     def _restore_default_cooldown(self):
         """

@@ -99,17 +99,14 @@ class OptimizedTCPTriggerHandler(QObject):
         """
         Process trigger message with minimal latency
         
-        Optimizations:
-        - Pre-compiled regex (< 0.1ms)
-        - Direct camera call
-        - Async thread for capture
-        - No job pipeline overhead
+        NOTE: start_rising message does NOT trigger camera capture.
+        Camera trigger is user-controlled only.
         
         Args:
             message: TCP message (e.g., "start_rising||1634723")
             
         Returns:
-            bool: True if trigger initiated successfully
+            bool: True if message was processed (no automatic trigger occurs)
         """
         operation_start = time.perf_counter()
         
@@ -122,20 +119,14 @@ class OptimizedTCPTriggerHandler(QObject):
             
             sensor_timestamp = int(match.group(1))
             
-            # Step 2: Check camera mode (< 0.1ms)
-            if self.camera_manager.current_mode != 'trigger':
-                logger.debug(
-                    f"Camera not in trigger mode (current: {self.camera_manager.current_mode})"
-                )
-                return False
+            # NOTE: No automatic camera trigger - just acknowledge message received
+            logger.debug(f"start_rising message received: {message}")
+            logger.debug(f"Sensor timestamp: {sensor_timestamp}")
             
-            # Step 3: Spawn async trigger thread (< 1ms)
-            self._trigger_async(message, sensor_timestamp)
-            
-            # Step 4: Record timing
+            # Step 2: Record timing
             total_time = (time.perf_counter() - operation_start) * 1000
             logger.info(
-                f"★ Trigger initiated: {message} "
+                f"★ start_rising acknowledged: {message} "
                 f"(message processing: {total_time:.2f}ms)"
             )
             

@@ -20,10 +20,11 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ResultQueueItem:
     """Represents one object in the result queue (one row in table)"""
-    frame_id: int              # Frame ID assigned when sensor IN triggered
-    sensor_id_in: Optional[int]  # Sensor IN ID
+    frame_id: int              # Frame ID assigned when frame created
+    sensor_id_in: Optional[int]  # Sensor IN ID (None for manual trigger)
     sensor_id_out: Optional[int] = None  # Sensor OUT ID (None until detected)
-    status: str = "PENDING"    # OK, NG, or PENDING
+    frame_status: str = "PENDING"  # Frame status: OK, NG (result of frame processing)
+    completion_status: str = "PENDING"  # Completion status: PENDING (waiting for sensor), DONE (has both sensor_in and sensor_out)
     timestamp_in: Optional[datetime] = None  # When sensor IN was detected
     timestamp_out: Optional[datetime] = None  # When sensor OUT was detected
     detection_data: Optional[Dict[str, Any]] = None  # Frame detection/classification data
@@ -32,9 +33,10 @@ class ResultQueueItem:
         """Convert to dictionary for table display"""
         return {
             'frame_id': self.frame_id,
-            'sensor_id_in': self.sensor_id_in,
+            'frame_status': self.frame_status,
+            'sensor_id_in': self.sensor_id_in if self.sensor_id_in is not None else '',
             'sensor_id_out': self.sensor_id_out if self.sensor_id_out is not None else '',
-            'status': self.status,
+            'completion_status': self.completion_status,
             'detection_data': self.detection_data
         }
 
@@ -103,10 +105,12 @@ class FIFOResultQueue:
     
     def add_sensor_out_event(self, sensor_id_out: int) -> bool:
         """
-        Handle sensor OUT event - match to oldest PENDING frame
+        Handle sensor OUT event - match to FIRST (oldest) PENDING frame
         
-        Matches to most recent frame that doesn't have sensor_out yet
-        (FIFO order - process oldest first)
+        FIFO (First In First Out): Match to the oldest frame (first one created)
+        that doesn't have sensor_out yet
+        
+        When sensor_out is added, automatically updates completion_status to DONE
         
         Args:
             sensor_id_out: Sensor ID from end_sensor (TCP from pico)
@@ -115,13 +119,16 @@ class FIFOResultQueue:
             bool: True if matched successfully
         """
         try:
-            # Find most recent frame without sensor_out
-            for item in reversed(self.queue):
+            # FIFO: Find FIRST (oldest) frame without sensor_out
+            # Don't use reversed() - we want the oldest frame, not the newest
+            for item in self.queue:
                 if item.sensor_id_out is None:
                     item.sensor_id_out = sensor_id_out
                     item.timestamp_out = datetime.now()
-                    logger.debug(f"FIFOResultQueue: Added sensor OUT - frame_id={item.frame_id}, sensor_id_out={sensor_id_out}")
-                    print(f"DEBUG: [FIFOResultQueue] Sensor OUT: frame_id={item.frame_id}, sensor_id_out={sensor_id_out}")
+                    # Mark as DONE now that we have both sensor_in and sensor_out
+                    item.completion_status = "DONE"
+                    logger.debug(f"FIFOResultQueue: Added sensor OUT - frame_id={item.frame_id}, sensor_id_out={sensor_id_out}, status=DONE")
+                    print(f"DEBUG: [FIFOResultQueue] Sensor OUT (FIFO): frame_id={item.frame_id}, sensor_id_out={sensor_id_out}, completion=DONE")
                     return True
             
             logger.warning(f"FIFOResultQueue: Sensor OUT received but no pending frame found - sensor_id_out={sensor_id_out}")
@@ -162,25 +169,30 @@ class FIFOResultQueue:
     
     def set_frame_status(self, frame_id: int, status: str) -> bool:
         """
-        Set OK/NG status for a frame
+        Set OK/NG status for a frame (frame_status field)
         
         Args:
             frame_id: Frame ID to set status for
-            status: Status value ('OK', 'NG', 'PENDING')
+            status: Status value ('OK', 'NG')
             
         Returns:
             bool: True if frame found and status set
         """
         try:
-            if status not in ['OK', 'NG', 'PENDING']:
-                logger.warning(f"FIFOResultQueue: Invalid status value - {status}")
+            if status not in ['OK', 'NG']:
+                logger.warning(f"FIFOResultQueue: Invalid frame status value - {status}")
                 return False
             
             for item in self.queue:
                 if item.frame_id == frame_id:
-                    item.status = status
-                    logger.debug(f"FIFOResultQueue: Set status for frame_id={frame_id} - {status}")
-                    print(f"DEBUG: [FIFOResultQueue] Status set: frame_id={frame_id}, status={status}")
+                    item.frame_status = status
+                    # Update completion_status: if has both sensor_in and sensor_out, mark as DONE
+                    if item.sensor_id_in is not None and item.sensor_id_out is not None:
+                        item.completion_status = "DONE"
+                    else:
+                        item.completion_status = "PENDING"
+                    logger.debug(f"FIFOResultQueue: Set frame_status for frame_id={frame_id} - {status}")
+                    print(f"DEBUG: [FIFOResultQueue] Frame status: frame_id={frame_id}, frame_status={status}, completion={item.completion_status}")
                     return True
             
             logger.warning(f"FIFOResultQueue: Frame not found - frame_id={frame_id}")

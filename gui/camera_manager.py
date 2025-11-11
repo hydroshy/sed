@@ -1908,30 +1908,27 @@ class CameraManager(QObject):
                     print(f"DEBUG: [CameraManager] Error starting camera for capture: {e}")
                     return False
             
-        # Use capture_request for frame capture
+        # Use trigger_capture for frame capture
         try:
             if not self.camera_stream:
                 print("DEBUG: [CameraManager] No camera stream available")
                 return False
             
-            # TIMING FIX: Send light trigger EXACTLY when capture_request is called
+            # TIMING FIX: Send light trigger EXACTLY when trigger_capture is called
             # This ensures light has maximum time to stabilize before frame is available
-            print("DEBUG: [CameraManager] Calling capture_single_frame_request()")
+            print("DEBUG: [CameraManager] Calling trigger_capture()")
             print(f"DEBUG: [CameraManager] Camera running: {camera_is_running}, Editing Camera Source: {editing_camera_tool}, Mode: {current_mode}")
             
             # TR1 already sent in on_trigger_camera_clicked() before delay trigger
             # No need to send again here - just capture the frame
-            frame = self.camera_stream.capture_single_frame_request()
+            self.camera_stream.trigger_capture()
             
-            if frame is not None:
-                print("DEBUG: [CameraManager] Frame captured successfully via capture_request")
-                return True
-            else:
-                print("DEBUG: [CameraManager] No frame captured via capture_request")
-                return False
+            # trigger_capture() emits frame_ready signal, so return success
+            print("DEBUG: [CameraManager] Frame capture triggered successfully")
+            return True
                 
         except Exception as e:
-            print(f"DEBUG: [CameraManager] Error in capture_single_frame_request: {e}")
+            print(f"DEBUG: [CameraManager] Error in trigger_capture: {e}")
             self._show_camera_error(f"Error capturing frame: {str(e)}")
             
         return False
@@ -2862,8 +2859,8 @@ class CameraManager(QObject):
             except Exception as e:
                 print(f"DEBUG: [CameraManager] Could not record result to ResultManager: {e}")
             
-            # NEW: Save job result to pending, wait for TCP sensor IN signal
-            # Do NOT create frame yet - frame will be created when sensor IN signal arrives
+            # NEW: Attach job result to waiting frame (frame created from TCP start_rising)
+            # If no frame waiting, result will be discarded
             try:
                 result_tab_manager = getattr(self.main_window, 'result_tab_manager', None)
                 if result_tab_manager:
@@ -2878,29 +2875,26 @@ class CameraManager(QObject):
                             'inference_time': result_data.get('inference_time', 0),
                         }
                     
-                    # Save pending result (lưu tạm chờ TCP sensor IN)
-                    success = result_tab_manager.save_pending_job_result(
+                    # Attach result to waiting frame
+                    success = result_tab_manager.attach_job_result_to_waiting_frame(
                         status=status,
-                        similarity=0.0,
-                        reason=reason,
                         detection_data=detection_data,
-                        inference_time=result_data.get('inference_time', 0)
+                        inference_time=result_data.get('inference_time', 0),
+                        reason=reason
                     )
                     
                     if success:
-                        logging.info(f"[CameraManager] Saved pending result: status={status}")
-                        print(f"DEBUG: [CameraManager] Saved pending result: status={status}")
-                        logging.info(f"[CameraManager] Waiting for TCP 'start_sensor' event...")
-                        print(f"DEBUG: [CameraManager] Waiting for TCP 'start_sensor' event...")
+                        logging.info(f"[CameraManager] Attached job result to waiting frame: status={status}")
+                        print(f"DEBUG: [CameraManager] Attached job result to frame: status={status}")
                     else:
-                        logging.warning("[CameraManager] Failed to save pending result")
-                        print("DEBUG: [CameraManager] Failed to save pending result")
+                        logging.warning("[CameraManager] No waiting frame found for job result")
+                        print("DEBUG: [CameraManager] No waiting frame (TCP signal not received yet?)")
                 else:
                     logging.warning("[CameraManager] Result Tab Manager not found in main_window")
                     print("DEBUG: [CameraManager] Result Tab Manager not available")
             except Exception as e:
-                logging.error(f"[CameraManager] Error saving pending result: {e}", exc_info=True)
-                print(f"DEBUG: [CameraManager] Error saving pending result: {e}")
+                logging.error(f"[CameraManager] Error attaching job result: {e}", exc_info=True)
+                print(f"DEBUG: [CameraManager] Error attaching job result: {e}")
             
             
         except Exception as e:
