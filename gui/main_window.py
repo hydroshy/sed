@@ -1050,6 +1050,11 @@ class MainWindow(QMainWindow):
                         }
                     """)
                     
+                    # Update camera UI to enable trigger button if in trigger mode with onlineCamera checked
+                    if hasattr(self.camera_manager, 'update_camera_mode_ui'):
+                        self.camera_manager.update_camera_mode_ui()
+                        logging.info("Updated camera mode UI after onlineCamera started")
+                    
             else:
                 # Stop camera stream
                 logging.info("Stopping camera stream...")
@@ -1074,6 +1079,11 @@ class MainWindow(QMainWindow):
                 
                 # Set button style to red when inactive
                 self._set_camera_button_off_style()
+                
+                # Update camera UI to disable trigger button when onlineCamera is unchecked
+                if hasattr(self.camera_manager, 'update_camera_mode_ui'):
+                    self.camera_manager.update_camera_mode_ui()
+                    logging.info("Updated camera mode UI after onlineCamera stopped")
                     
         except Exception as e:
             logging.error(f"Error in camera toggle: {e}")
