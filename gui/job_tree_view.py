@@ -685,8 +685,8 @@ class JobTreeView(QTreeView):
         model = QStandardItemModel()
         model.setHorizontalHeaderLabels(["Sequential Workflow"])
         
-        # Create job root item
-        job_item = QStandardItem(f"📋 {job.name}")
+        # Create job root item (without icon)
+        job_item = QStandardItem(f"{job.name}")
         job_item.setEditable(False)
         job_item.setSelectable(False)
         
@@ -722,19 +722,16 @@ class JobTreeView(QTreeView):
             else:
                 display_name = f"Tool {tool.tool_id}" if hasattr(tool, 'tool_id') else f"Tool {index}"
             
-            # Format with step number and appropriate icon
+            # Format with step number (NO icon)
             if 'camera' in display_name.lower() or 'source' in display_name.lower():
-                icon = "📹"
                 tool_type = "source"
             elif 'detect' in display_name.lower():
-                icon = "🔍"
                 tool_type = "detect"
             else:
-                icon = "⚙️"
                 tool_type = "other"
             
-            # Create item text with step number
-            item_text = f"{step_number}. {icon} {display_name}"
+            # Create item text with step number (without icon)
+            item_text = f"{step_number}. {display_name}"
             
             tool_item = QStandardItem(item_text)
             tool_item.setEditable(False)
@@ -746,7 +743,7 @@ class JobTreeView(QTreeView):
             
         except Exception as ex:
             logger.error(f"Error creating tool item: {ex}")
-            fallback_item = QStandardItem(f"{index + 1}. ❓ Unknown Tool")
+            fallback_item = QStandardItem(f"{index + 1}. Unknown Tool")
             fallback_item.setEditable(False)
             return fallback_item
         # Determine tool display info
@@ -757,14 +754,14 @@ class JobTreeView(QTreeView):
             if 'model_name' in tool:
                 # DetectTool
                 model_name = tool.get('model_name', 'Unknown')
-                display_text = f"🔍 Detect ({model_name}) #{tool_id}"
-                icon = "🔍"
+                display_text = f"Detect ({model_name}) #{tool_id}"
+                icon = "[Detect]"
             elif tool_name and str(tool_name).lower() == "camera source":
-                display_text = f"📷 Camera Source #{tool_id}"
-                icon = "📷"
+                display_text = f"Camera Source #{tool_id}"
+                icon = "[Camera]"
             else:
-                display_text = f"⚙️ {tool_name} #{tool_id}"
-                icon = "⚙️"
+                display_text = f"{tool_name} #{tool_id}"
+                icon = "[Tool]"
         else:
             # Object tool
             tool_name = getattr(tool, 'display_name', 
@@ -772,14 +769,14 @@ class JobTreeView(QTreeView):
             tool_id = getattr(tool, 'tool_id', index+1)
             
             if tool_name and str(tool_name).lower() == "camera source":
-                display_text = f"📷 Camera Source #{tool_id}"
-                icon = "📷"
+                display_text = f"Camera Source #{tool_id}"
+                icon = "[Camera]"
             elif hasattr(tool, 'display_name') and tool.display_name:
-                display_text = f"🔧 {tool.display_name} #{tool_id}"
-                icon = "🔧"
+                display_text = f"{tool.display_name} #{tool_id}"
+                icon = "[Tool]"
             else:
-                display_text = f"⚙️ Tool #{tool_id}"
-                icon = "⚙️"
+                display_text = f"Tool #{tool_id}"
+                icon = "[Tool]"
         
         tool_item = QStandardItem(display_text)
         tool_item.setEditable(False)
@@ -789,7 +786,7 @@ class JobTreeView(QTreeView):
         if isinstance(tool, dict) and 'model_name' in tool:
             # DetectTool - blue color
             tool_item.setForeground(QBrush(QColor(70, 130, 180)))
-        elif icon == "📷":
+        elif icon == "[Camera]":
             # Camera Source - green color
             tool_item.setForeground(QBrush(QColor(34, 139, 34)))
         

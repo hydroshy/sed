@@ -296,8 +296,8 @@ class ResultTabManager:
             logger.info(f"[ResultTabManager] Clearing pending result")
             self.pending_result = None
             
-            logger.info(f"[ResultTabManager] ✅ Frame {frame_id} completed with sensor_id_in={sensor_id_in}, status={status}")
-            print(f"DEBUG: [ResultTabManager] ✅ Frame {frame_id} ready: sensor_id_in={sensor_id_in}, status={status}")
+            logger.info(f"[ResultTabManager] Frame {frame_id} completed with sensor_id_in={sensor_id_in}, status={status}")
+            print(f"DEBUG: [ResultTabManager] Frame {frame_id} ready: sensor_id_in={sensor_id_in}, status={status}")
             
             return frame_id
             

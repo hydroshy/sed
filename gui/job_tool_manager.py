@@ -27,14 +27,14 @@ class JobToolManager:
                 'description': 'YOLO Object Detection',
                 'manager_attr': 'detect_tool_manager',
                 'apply_method': 'apply_detect_tool_to_job',
-                'icon': '🔍'
+                'icon': '[Detect]'
             },
             'ResultTool': {
                 'name': 'ResultTool',
                 'description': 'NG/OK Evaluation',
                 'manager_attr': 'result_tool_manager',
                 'apply_method': 'apply_result_tool_to_job',
-                'icon': '✓'
+                'icon': '[OK]'
             }
         }
         
@@ -80,7 +80,7 @@ class JobToolManager:
             result = apply_func()
             
             if result:
-                logger.info(f"✓ Successfully added {tool_info['name']}")
+                logger.info(f"Successfully added {tool_info['name']}")
                 self._show_success_message(tool_info['name'])
             else:
                 logger.error(f"Failed to add {tool_info['name']}")
@@ -114,7 +114,7 @@ class JobToolManager:
     def _show_success_message(self, tool_name: str):
         """Show success message to user"""
         workflow = self.get_current_workflow()
-        message = f"✓ Added {tool_name}\n\nCurrent workflow:\n"
+        message = f"Added {tool_name}\n\nCurrent workflow:\n"
         for i, tool in enumerate(workflow, 1):
             message += f"  [{i}] {tool}\n"
         
@@ -189,7 +189,7 @@ class WorkflowBuilder:
             logger.error("Failed to add ResultTool")
             return False
         
-        logger.info("✓ Detection workflow built successfully")
+        logger.info("Detection workflow built successfully")
         self.job_tool_manager.print_workflow()
         return True
     
@@ -201,7 +201,7 @@ class WorkflowBuilder:
             logger.error("Failed to add DetectTool")
             return False
         
-        logger.info("✓ Detection-only workflow built successfully")
+        logger.info("Detection-only workflow built successfully")
         self.job_tool_manager.print_workflow()
         return True
     
@@ -213,6 +213,6 @@ class WorkflowBuilder:
             logger.error("Failed to add ResultTool")
             return False
         
-        logger.info("✓ Evaluation-only workflow built successfully")
+        logger.info("Evaluation-only workflow built successfully")
         self.job_tool_manager.print_workflow()
         return True

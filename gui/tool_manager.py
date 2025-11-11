@@ -437,12 +437,31 @@ class ToolManager(QObject):
             self.job_manager.add_job(current_job)
             print(f"DEBUG: Created new job: {current_job.name}")
 
+        # CHECK: Prevent adding multiple Camera Source tools
+        is_camera_source = hasattr(tool, 'name') and "camera" in tool.name.lower()
+        if is_camera_source:
+            # Check if Camera Source already exists in current job
+            for existing_tool in current_job.tools:
+                if (hasattr(existing_tool, 'name') and 
+                    existing_tool.name.lower() == "camera source"):
+                    # Show warning dialog
+                    from PyQt5.QtWidgets import QMessageBox
+                    msg = QMessageBox()
+                    msg.setIcon(QMessageBox.Warning)
+                    msg.setWindowTitle("Camera Source Already Exists")
+                    msg.setText("Job already contains a Camera Source tool.\n\nOnly 1 camera can be connected at a time.")
+                    msg.setStandardButtons(QMessageBox.Ok)
+                    msg.exec_()
+                    print("DEBUG: User tried to add multiple Camera Source tools - blocked")
+                    logging.warning("ToolManager: Attempted to add multiple Camera Source tools - blocked")
+                    return False
+
         # Add the tool to the current job
         print(f"DEBUG: Adding tool to job. Current tools count: {len(current_job.tools)}")
         print(f"DEBUG: Adding tool: {getattr(tool, 'display_name', tool.name)}, type: {type(tool).__name__}")
         
         # Make sure the tool has the right name and display_name for Camera Source
-        if hasattr(tool, 'name') and "camera" in tool.name.lower():
+        if is_camera_source:
             tool.name = "Camera Source"
             tool.display_name = "Camera Source"
             print("DEBUG: Normalized Camera Source tool name")
@@ -593,31 +612,31 @@ class ToolManager(QObject):
                 # Hiển thị tên tool dựa vào loại tool
                 if isinstance(tool_name, str) and tool_name.lower() == "camera source":
                     # Special handling for Camera Source
-                    tool_id_str = f"📷 Camera Source #{tool_id}"
+                    tool_id_str = f"Camera Source #{tool_id}"
                     print(f"DEBUG: Creating Camera Source item: {tool_id_str}")
                 elif isinstance(tool, dict):
                     # Nếu là dictionary (thường là từ DetectTool)
                     if 'model_name' in tool:
                         # Đây là DetectTool
                         model_name = tool.get('model_name', 'Unknown')
-                        tool_id_str = f"🔍 Detect ({model_name}) #{tool_id}"
+                        tool_id_str = f"Detect ({model_name}) #{tool_id}"
                         print(f"DEBUG: Creating DetectTool item: {tool_id_str}")
                     else:
                         # Tool khác dưới dạng dictionary
-                        tool_id_str = f"⚙️ Tool #{tool_id}"
+                        tool_id_str = f"Tool #{tool_id}"
                         print(f"DEBUG: Creating generic dictionary tool item: {tool_id_str}")
                 elif hasattr(tool, 'display_name') and tool.display_name:
                     # Nếu là object BaseTool với display_name
-                    tool_id_str = f"🔧 {tool.display_name} #{tool_id}"
+                    tool_id_str = f"{tool.display_name} #{tool_id}"
                     print(f"DEBUG: Creating named tool item: {tool_id_str}")
                 else:
                     # Trường hợp khác
-                    tool_id_str = f"⚙️ Tool #{tool_id}"
+                    tool_id_str = f"Tool #{tool_id}"
                     print(f"DEBUG: Creating generic tool item: {tool_id_str}")
                 
-                # Add flow indicator for non-first tools
-                if i > 0:
-                    tool_id_str = f"↓ {tool_id_str}"
+                # Add flow indicator for non-first tools (removed emoji)
+                # if i > 0:
+                #     tool_id_str = f"↓ {tool_id_str}"
                 
                 tool_item = QStandardItem(tool_id_str)
                 tool_item.setEditable(False)

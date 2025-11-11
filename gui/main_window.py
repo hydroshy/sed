@@ -147,7 +147,7 @@ class MainWindow(QMainWindow):
                                 old_widget.setParent(None)
                                 old_widget.deleteLater()
                             
-                            logging.info("✅ JobView upgraded to JobTreeView with drag-drop support!")
+                            logging.info("JobView upgraded to JobTreeView with drag-drop support!")
                             print(f"DEBUG: JobView type after upgrade: {type(self.jobView)}")
                             print(f"DEBUG: JobView drag enabled: {self.jobView.dragEnabled()}")
                             print(f"DEBUG: JobView accepts drops: {self.jobView.acceptDrops()}")
@@ -181,7 +181,7 @@ class MainWindow(QMainWindow):
                         # Xóa widget cũ sau một chút
                         old_job_view.deleteLater()
                         
-                        logging.info("✅ JobView replaced directly with JobTreeView!")
+                        logging.info("JobView replaced directly with JobTreeView!")
                         return True
                 else:
                     logging.warning("JobView parent is not a QWidget")
@@ -343,7 +343,7 @@ class MainWindow(QMainWindow):
                               f"messageEdit={self.messageEdit is not None}, "
                               f"sendButton={self.sendButton is not None}")
                     
-                    # 💡 NEW: Find Light Controller widgets
+                    # NEW: Find Light Controller widgets
                     self.lightControllerTab = self.paletteTab.findChild(QWidget, 'lightControllerTab')
                     if self.lightControllerTab:
                         logging.info("Found lightControllerTab")
@@ -357,7 +357,7 @@ class MainWindow(QMainWindow):
                         self.sendButtonLightController = self.lightControllerTab.findChild(QPushButton, 'sendButtonLightController')
                         
                         # Log all light controller widgets found
-                        logging.info(f"💡 Light Controller widgets found: "
+                        logging.info(f"Light Controller widgets found: "
                                   f"ipEdit={self.ipLineEditLightController is not None}, "
                                   f"portEdit={self.portLineEditLightController is not None}, "
                                   f"connectButton={self.connectButtonLightController is not None}, "
@@ -366,7 +366,7 @@ class MainWindow(QMainWindow):
                                   f"messageEdit={self.msgLineEditLightController is not None}, "
                                   f"sendButton={self.sendButtonLightController is not None}")
                     else:
-                        logging.warning("💡 lightControllerTab not found in paletteTab!")
+                        logging.warning("lightControllerTab not found in paletteTab!")
                 else:
                     logging.error("controllerTab not found in paletteTab!")
             else:
@@ -515,7 +515,7 @@ class MainWindow(QMainWindow):
             # Log trạng thái của tất cả các widget
             for name, widget in required_widgets.items():
                 found = widget is not None
-                logging.info(f"TCP Widget '{name}': {'✓ Found' if found else '✗ Not Found'}")
+                logging.info(f"TCP Widget '{name}': {'Found' if found else 'Not Found'}")
                 if widget:
                     logging.info(f"  - Type: {type(widget).__name__}")
                     logging.info(f"  - ObjectName: {widget.objectName()}")
@@ -541,9 +541,9 @@ class MainWindow(QMainWindow):
                 self.messageEdit,
                 self.sendButton
             )
-            logging.info("✓ TCP Controller setup completed successfully")
+            logging.info("TCP Controller setup completed successfully")
             
-            # 💡 NEW: Setup Light Controller if widgets are found
+            # NEW: Setup Light Controller if widgets are found
             light_widgets = {
                 'ipLineEditLightController': self.ipLineEditLightController,
                 'portLineEditLightController': self.portLineEditLightController,
@@ -557,7 +557,7 @@ class MainWindow(QMainWindow):
             missing_light_widgets = [name for name, widget in light_widgets.items() if widget is None]
             
             if not missing_light_widgets:
-                logging.info("💡 Setting up Light Controller with all required widgets...")
+                logging.info("Setting up Light Controller with all required widgets...")
                 self.tcp_controller.setup_light_controller(
                     self.ipLineEditLightController,
                     self.portLineEditLightController,
@@ -567,10 +567,10 @@ class MainWindow(QMainWindow):
                     self.msgLineEditLightController,
                     self.sendButtonLightController
                 )
-                logging.info("✓ 💡 Light Controller setup completed successfully")
+                logging.info("Light Controller setup completed successfully")
             else:
-                logging.warning(f"💡 Missing light controller widgets: {', '.join(missing_light_widgets)}")
-                logging.warning("💡 Light controller setup will be skipped!")
+                logging.warning(f"Missing light controller widgets: {', '.join(missing_light_widgets)}")
+                logging.warning("Light controller setup will be skipped!")
             
             return True
             
@@ -881,11 +881,11 @@ class MainWindow(QMainWindow):
                         logging.info(f"Frame search -> model_combo: {model_combo is not None}, class_combo: {class_combo is not None}")
                         
                         if model_combo is not None and class_combo is not None:
-                            logging.info("✅ Found both combo boxes in frame - stopping search")
+                            logging.info("Found both combo boxes in frame - stopping search")
                         else:
-                            logging.warning("❌ Frame search incomplete - continuing...")
+                            logging.warning("Frame search incomplete - continuing...")
                     else:
-                        logging.warning("❌ Frame not found - continuing to page search...")
+                        logging.warning("Frame not found - continuing to page search...")
                 
                 # Step 2: Try page search (only if needed)
                 if (model_combo is None or class_combo is None) and classification_page:
@@ -898,7 +898,7 @@ class MainWindow(QMainWindow):
                         logging.info(f"Page search for classComboBox: {class_combo is not None}")
                     
                     if model_combo is not None and class_combo is not None:
-                        logging.info("✅ Found both combo boxes in page - stopping search")
+                        logging.info("Found both combo boxes in page - stopping search")
                 
                 # Step 3: Global search (only if still needed)
                 if model_combo is None or class_combo is None:
@@ -911,7 +911,7 @@ class MainWindow(QMainWindow):
                         logging.info(f"Global search for classComboBox: {class_combo is not None}")
                 
                 # Final status
-                logging.info(f"🔍 Search complete: model_combo={model_combo is not None}, class_combo={class_combo is not None}")
+                logging.info(f"Search complete: model_combo={model_combo is not None}, class_combo={class_combo is not None}")
                 
                 # Setup if found
                 logging.info(f"Final check before setup: model_combo={model_combo is not None}, class_combo={class_combo is not None}")
@@ -1470,12 +1470,12 @@ class MainWindow(QMainWindow):
             # Shortcut for setting reference: Ctrl+R
             set_reference_shortcut = QShortcut(QKeySequence("Ctrl+R"), self)
             set_reference_shortcut.activated.connect(self._on_set_reference_shortcut)
-            logging.info("✓ Keyboard shortcut Ctrl+R registered for setting NG/OK reference")
+            logging.info("Keyboard shortcut Ctrl+R registered for setting NG/OK reference")
             
             print("DEBUG: [MainWindow] NG/OK shortcuts setup successfully - Use Ctrl+R to set reference")
             
         except Exception as e:
-            logging.error(f"✗ Error setting up NG/OK shortcuts: {e}", exc_info=True)
+            logging.error(f"Error setting up NG/OK shortcuts: {e}", exc_info=True)
     
     def _on_set_reference_shortcut(self):
         """
@@ -1490,14 +1490,14 @@ class MainWindow(QMainWindow):
             success = self.camera_manager.set_ng_ok_reference_from_current_detections()
             
             if success:
-                print("✓ Reference set successfully via Ctrl+R shortcut")
+                print("Reference set successfully via Ctrl+R shortcut")
             else:
-                print("✗ Failed to set reference - ensure DetectTool is applied and has detections")
+                print("Failed to set reference - ensure DetectTool is applied and has detections")
                 if hasattr(self, 'statusbar'):
                     self.statusbar().showMessage("Failed to set reference - no detections available", 3000)
                     
         except Exception as e:
-            logging.error(f"✗ Error in set reference shortcut handler: {e}", exc_info=True)
+            logging.error(f"Error in set reference shortcut handler: {e}", exc_info=True)
             print(f"DEBUG: [MainWindow] Error: {e}")
     
     def _setup_delay_trigger_controls(self):
@@ -1511,7 +1511,7 @@ class MainWindow(QMainWindow):
             delay_spinbox = getattr(self, 'delayTriggerTime', None)
             
             if not delay_checkbox or not delay_spinbox:
-                logging.warning("⚠️ Delay trigger widgets not found in UI")
+                logging.warning("Delay trigger widgets not found in UI")
                 return
             
             # Set initial spinbox state (disabled by default)
@@ -1528,10 +1528,10 @@ class MainWindow(QMainWindow):
             # Connect checkbox to enable/disable spinbox
             delay_checkbox.stateChanged.connect(lambda state: self._on_delay_trigger_toggled(state, delay_spinbox))
             
-            logging.info("✓ Delay trigger controls setup successfully")
+            logging.info("Delay trigger controls setup successfully")
             
         except Exception as e:
-            logging.error(f"✗ Error setting up delay trigger controls: {e}", exc_info=True)
+            logging.error(f"Error setting up delay trigger controls: {e}", exc_info=True)
     
     def _on_delay_trigger_toggled(self, state, spinbox):
         """
@@ -1544,12 +1544,12 @@ class MainWindow(QMainWindow):
             spinbox.setEnabled(is_checked)
             
             if is_checked:
-                logging.info(f"✓ Delay trigger enabled - delay: {spinbox.value():.1f}ms")
+                logging.info(f"Delay trigger enabled - delay: {spinbox.value():.1f}ms")
             else:
-                logging.info("✓ Delay trigger disabled")
+                logging.info("Delay trigger disabled")
                 
         except Exception as e:
-            logging.error(f"✗ Error toggling delay trigger: {e}", exc_info=True)
+            logging.error(f"Error toggling delay trigger: {e}", exc_info=True)
     
     def _add_camera_source_to_combo_box(self):
         """Ensure common tools exist in the tool combo box"""
@@ -1873,6 +1873,29 @@ class MainWindow(QMainWindow):
             if hasattr(self.tool_manager, '_pending_tool') and self.tool_manager._pending_tool == "Camera Source":
                 print("DEBUG: Applying Camera Source tool settings")
                 
+                # CHECK: Verify only 1 Camera Source in current job BEFORE adding
+                has_camera_source = False
+                if hasattr(self.job_manager, 'get_current_job'):
+                    current_job = self.job_manager.get_current_job()
+                    if current_job:
+                        for tool in current_job.tools:
+                            if hasattr(tool, 'name') and tool.name.lower() == "camera source":
+                                has_camera_source = True
+                                break
+                
+                # If already has Camera Source, show warning and return
+                if has_camera_source:
+                    from PyQt5.QtWidgets import QMessageBox
+                    msg = QMessageBox()
+                    msg.setIcon(QMessageBox.Warning)
+                    msg.setWindowTitle("Camera Source Already Exists")
+                    msg.setText("Job already contains a Camera Source tool.\n\nOnly 1 camera can be connected at a time.")
+                    msg.setStandardButtons(QMessageBox.Ok)
+                    msg.exec_()
+                    print("DEBUG: User tried to add multiple Camera Source tools - blocked before apply")
+                    logging.warning("MainWindow: Attempted to add multiple Camera Source tools - blocked")
+                    return
+                
                 # Stop camera before applying to prevent conflicts
                 if hasattr(self.camera_manager, 'stop_camera_for_apply'):
                     self.camera_manager.stop_camera_for_apply()
@@ -1918,7 +1941,7 @@ class MainWindow(QMainWindow):
                         new_config['detection_area'] = detection_area
                     self._editing_tool.config = new_config
                     print(f"DEBUG: Updated DetectTool config: {self._editing_tool.config}")
-                    # ✅ Mark config as changed so DetectTool will re-initialize on next process()
+                    # Mark config as changed so DetectTool will re-initialize on next process()
                     if hasattr(self._editing_tool, 'mark_config_changed'):
                         self._editing_tool.mark_config_changed()
                         print(f"DEBUG: Marked DetectTool config as changed for re-initialization")
@@ -1933,7 +1956,7 @@ class MainWindow(QMainWindow):
                 # Chuyển về trang palette sau khi áp dụng cài đặt
                 self.settings_manager.return_to_palette_page()
                 
-                # ✅ Reset ReviewView and ReviewLabels after tool edit
+                # Reset ReviewView and ReviewLabels after tool edit
                 print("DEBUG: Resetting ReviewView and ReviewLabels after tool edit")
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                     camera_view = self.camera_manager.camera_view
@@ -1976,7 +1999,7 @@ class MainWindow(QMainWindow):
                 if hasattr(self.tool_manager, '_update_job_view'):
                     self.tool_manager._update_job_view()
                 
-                # ✅ Reset ReviewView and ReviewLabels after Classification Tool applied
+                # Reset ReviewView and ReviewLabels after Classification Tool applied
                 print("DEBUG: Resetting ReviewView and ReviewLabels after Classification Tool apply")
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                     camera_view = self.camera_manager.camera_view
@@ -2020,7 +2043,7 @@ class MainWindow(QMainWindow):
                 if hasattr(self.tool_manager, '_update_job_view'):
                     self.tool_manager._update_job_view()
                 
-                # ✅ Reset ReviewView and ReviewLabels after Detect Tool applied
+                # Reset ReviewView and ReviewLabels after Detect Tool applied
                 print("DEBUG: Resetting ReviewView and ReviewLabels after Detect Tool apply")
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                     camera_view = self.camera_manager.camera_view
@@ -2077,7 +2100,7 @@ class MainWindow(QMainWindow):
                 else:
                     print("DEBUG: Generic path - Failed to add tool")
                 
-                # ✅ Reset ReviewView and ReviewLabels after tool applied
+                # Reset ReviewView and ReviewLabels after tool applied
                 print("DEBUG: Resetting ReviewView and ReviewLabels after tool apply (generic path)")
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                     camera_view = self.camera_manager.camera_view

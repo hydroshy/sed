@@ -1914,12 +1914,12 @@ class CameraManager(QObject):
                 print("DEBUG: [CameraManager] No camera stream available")
                 return False
             
-            # 💡 TIMING FIX: Send light trigger EXACTLY when capture_request is called
+            # TIMING FIX: Send light trigger EXACTLY when capture_request is called
             # This ensures light has maximum time to stabilize before frame is available
             print("DEBUG: [CameraManager] Calling capture_single_frame_request()")
             print(f"DEBUG: [CameraManager] Camera running: {camera_is_running}, Editing Camera Source: {editing_camera_tool}, Mode: {current_mode}")
             
-            # 💡 TR1 already sent in on_trigger_camera_clicked() before delay trigger
+            # TR1 already sent in on_trigger_camera_clicked() before delay trigger
             # No need to send again here - just capture the frame
             frame = self.camera_stream.capture_single_frame_request()
             
@@ -2685,7 +2685,7 @@ class CameraManager(QObject):
         return None
     
     def _send_trigger_to_light_controller(self):
-        """💡 Send TR1 command to light controller when trigger button is clicked"""
+        """Send TR1 command to light controller when trigger button is clicked"""
         try:
             # Get tcp_controller from main_window
             if not hasattr(self.main_window, 'tcp_controller'):
@@ -2701,17 +2701,17 @@ class CameraManager(QObject):
             
             light_controller = tcp_manager.light_controller
             
-            # 💡 TIMING: Send TR1 command if connected
+            # TIMING: Send TR1 command if connected
             # Note: tcp_light_controller.send_message() automatically adds \n
             if light_controller.is_connected:
                 # Send just "TR1" - the send_message() will add newline automatically
                 success = light_controller.send_message("TR1\r")
                 if success:
                     logging.info(" Sent TR1 trigger command to light controller")
-                    print("DEBUG: [CameraManager] ✓ TR1 trigger sent to light controller")
+                    print("DEBUG: [CameraManager] TR1 trigger sent to light controller")
                 else:
                     logging.warning(" Failed to send TR1 trigger command to light controller")
-                    print("DEBUG: [CameraManager] ✗ Failed to send TR1 trigger to light controller")
+                    print("DEBUG: [CameraManager] Failed to send TR1 trigger to light controller")
             else:
                 logging.debug(" Light controller not connected, skipping TR1 trigger command")
                 print("DEBUG: [CameraManager] Light controller not connected - skipping TR1")
@@ -2721,7 +2721,7 @@ class CameraManager(QObject):
             print(f"DEBUG: [CameraManager] Error sending TR1 trigger: {e}")
     
     def _get_delay_trigger_value(self):
-        """⏱️ Lấy giá trị delay trigger từ controllerTab UI
+        """Lấy giá trị delay trigger từ controllerTab UI
         
         Returns:
             float: Delay time in milliseconds (0 if disabled or not found)
@@ -2734,26 +2734,26 @@ class CameraManager(QObject):
             # Lấy delay trigger checkbox
             delay_checkbox = getattr(self.main_window, 'delayTriggerCheckBox', None)
             if not delay_checkbox:
-                print("DEBUG: [CameraManager] ⏱️ delayTriggerCheckBox not found")
+                print("DEBUG: [CameraManager] delayTriggerCheckBox not found")
                 return 0.0
             
             # Kiểm tra xem delay trigger có được enable không
             if not delay_checkbox.isChecked():
-                print("DEBUG: [CameraManager] ⏱️ Delay trigger disabled")
+                print("DEBUG: [CameraManager] Delay trigger disabled")
                 return 0.0
             
             # Lấy delay time spinbox
             delay_spinbox = getattr(self.main_window, 'delayTriggerTime', None)
             if not delay_spinbox:
-                print("DEBUG: [CameraManager] ⏱️ delayTriggerTime spinbox not found")
+                print("DEBUG: [CameraManager] delayTriggerTime spinbox not found")
                 return 0.0
             
             delay_ms = float(delay_spinbox.value())
-            print(f"DEBUG: [CameraManager] ⏱️ Delay trigger enabled with {delay_ms:.1f}ms delay")
+            print(f"DEBUG: [CameraManager] Delay trigger enabled with {delay_ms:.1f}ms delay")
             return delay_ms
             
         except Exception as e:
-            logging.error(f"⏱️ Error getting delay trigger value: {e}")
+            logging.error(f"Error getting delay trigger value: {e}")
             print(f"DEBUG: [CameraManager] Error getting delay trigger: {e}")
             return 0.0
     
@@ -2784,14 +2784,14 @@ class CameraManager(QObject):
                 print("DEBUG: [CameraManager] executionLabel not found")
                 return
             
-            # First, try to get result from ResultTool in job pipeline (new way) ✅
+            # First, try to get result from ResultTool in job pipeline (new way)
             status = 'NG'
             reason = 'No result available'
             
             if isinstance(job_results, dict):
                 # Check for Result Tool output (new threshold-based evaluation)
                 # Results are nested under 'results' key in job_results
-                job_results_data = job_results.get('results', {})  # ✅ Look in nested results
+                job_results_data = job_results.get('results', {})  # Look in nested results
                 result_tool_result = job_results_data.get('Result Tool', {})
                 
                 if isinstance(result_tool_result, dict):
@@ -2810,7 +2810,7 @@ class CameraManager(QObject):
                     
                     # Extract current detections from job_results nested structure
                     current_detections = []
-                    detect_tool_result = job_results_data.get('Detect Tool', {})  # ✅ Look in nested results
+                    detect_tool_result = job_results_data.get('Detect Tool', {})  # Look in nested results
                     if isinstance(detect_tool_result, dict):
                         result_data = detect_tool_result.get('data', {})
                         current_detections = result_data.get('detections', [])
@@ -2843,7 +2843,7 @@ class CameraManager(QObject):
             print(f"DEBUG: [CameraManager] Execution status: {status} (from ResultManager)")
             print(f"DEBUG: [CameraManager] Reason: {reason}")
             
-            # ✅ IMPORTANT: Record this result to ResultManager's frame history
+            # IMPORTANT: Record this result to ResultManager's frame history
             # This is needed for review labels to show OK/NG status for each frame
             try:
                 result_manager = getattr(self.main_window, 'result_manager', None)
@@ -2862,7 +2862,7 @@ class CameraManager(QObject):
             except Exception as e:
                 print(f"DEBUG: [CameraManager] Could not record result to ResultManager: {e}")
             
-            # ✅ NEW: Save job result to pending, wait for TCP sensor IN signal
+            # NEW: Save job result to pending, wait for TCP sensor IN signal
             # Do NOT create frame yet - frame will be created when sensor IN signal arrives
             try:
                 result_tab_manager = getattr(self.main_window, 'result_tab_manager', None)
@@ -2888,8 +2888,8 @@ class CameraManager(QObject):
                     )
                     
                     if success:
-                        logging.info(f"[CameraManager] ✅ Saved pending result: status={status}")
-                        print(f"DEBUG: [CameraManager] ✅ Saved pending result: status={status}")
+                        logging.info(f"[CameraManager] Saved pending result: status={status}")
+                        print(f"DEBUG: [CameraManager] Saved pending result: status={status}")
                         logging.info(f"[CameraManager] Waiting for TCP 'start_sensor' event...")
                         print(f"DEBUG: [CameraManager] Waiting for TCP 'start_sensor' event...")
                     else:
@@ -2956,10 +2956,10 @@ class CameraManager(QObject):
             success = result_manager.set_reference_from_detect_tool(last_detections)
             
             if success:
-                print(f"✓ Reference set via ResultManager: {len(last_detections)} objects")
+                print(f"Reference set via ResultManager: {len(last_detections)} objects")
                 # Show success message
                 if hasattr(self.main_window, 'statusbar'):
-                    self.main_window.statusbar().showMessage(f"✓ Reference set: {len(last_detections)} objects", 3000)
+                    self.main_window.statusbar().showMessage(f"Reference set: {len(last_detections)} objects", 3000)
             
             return success
             

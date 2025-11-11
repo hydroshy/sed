@@ -804,7 +804,7 @@ class CameraStream(QObject):
                             self.preview_config["main"]["format"] = actual_format
                         self._pixel_format = str(actual_format)
                         
-                        logger.info(f"✓ Synced actual camera format: {actual_format}")
+                        logger.info(f"Synced actual camera format: {actual_format}")
                         return
             except Exception as e:
                 logger.debug(f"Could not get format from camera_config: {e}")

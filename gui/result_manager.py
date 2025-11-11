@@ -398,7 +398,7 @@ class ResultManager:
                 'similarity': similarity
             })
             
-            # ✅ DEBUG: Log status being added
+            # DEBUG: Log status being added
             import logging
             logging.info(f"[ResultManager] Status recorded - status={status}, similarity={similarity:.2%}, history_count={len(self.frame_status_history)}")
             

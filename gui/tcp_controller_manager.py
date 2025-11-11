@@ -12,7 +12,7 @@ class TCPControllerManager:
         self.tcp_controller = TCPController()
         self.light_controller = TCPLightController()  # ✨ NEW: Light controller
         
-        # ✅ OPTIMIZATION: Initialize optimized trigger handler
+        # OPTIMIZATION: Initialize optimized trigger handler
         self.optimized_manager = None
         
         # UI components - Camera Controller
@@ -61,13 +61,13 @@ class TCPControllerManager:
             
             # Connect signals with debug
             try:
-                # ✅ OPTIMIZATION: Initialize optimized trigger handler
+                # OPTIMIZATION: Initialize optimized trigger handler
                 if hasattr(self.main_window, 'camera_manager'):
                     self.optimized_manager = OptimizedTCPControllerManager(
                         self.tcp_controller,
                         self.main_window.camera_manager
                     )
-                    logging.info("✓ Optimized TCP trigger handler initialized")
+                    logging.info("Optimized TCP trigger handler initialized")
                 else:
                     logging.warning("Camera manager not found, optimized handler disabled")
                 
@@ -151,10 +151,10 @@ class TCPControllerManager:
                 self._on_light_send_click
             )
             
-            logging.info("💡 Light controller UI setup completed successfully")
+            logging.info("Light controller UI setup completed successfully")
             
         except Exception as e:
-            logging.error(f"💡 Error during light controller setup: {str(e)}")
+            logging.error(f"Error during light controller setup: {str(e)}")
             
     def _update_light_button_states(self, connected: bool):
         """Update light controller UI states based on connection status"""
@@ -181,11 +181,11 @@ class TCPControllerManager:
         self.light_message_list.addItem(f"Status: {message}")
         self.light_message_list.scrollToBottom()
         
-        logging.info(f"💡 Light controller connection status: {message}")
+        logging.info(f"Light controller connection status: {message}")
     
     def _on_light_message_received(self, message: str):
         """Handle messages received from light controller"""
-        logging.info(f"💡 Message from light controller: {message!r}")
+        logging.info(f"Message from light controller: {message!r}")
         
         # Add message to UI
         if self.light_message_list:
@@ -194,46 +194,46 @@ class TCPControllerManager:
     
     def _on_light_status_changed(self, status: str):
         """Handle light status changes"""
-        logging.info(f"💡 Light status changed: {status}")
+        logging.info(f"Light status changed: {status}")
     
     def _on_light_connect_click(self):
         """Handle light controller connect/disconnect button clicks"""
-        logging.info("💡 Light controller connect button clicked")
+        logging.info("Light controller connect button clicked")
         
         if not self.light_controller.is_connected:
             # Get IP and port
             ip = self.light_ip_edit.text().strip()
             port = self.light_port_edit.text().strip()
             
-            logging.info(f"💡 Attempting to connect to light controller at {ip}:{port}")
+            logging.info(f"Attempting to connect to light controller at {ip}:{port}")
             
             if not ip or not port:
                 error_msg = "Error: IP and port required"
-                logging.error(f"💡 {error_msg}")
+                logging.error(f"{error_msg}")
                 self.light_status_label.setText(error_msg)
                 self.light_status_label.setStyleSheet("color: red")
                 return
             
             try:
                 result = self.light_controller.connect(ip, port)
-                logging.info(f"💡 Connection attempt result: {result}")
+                logging.info(f"Connection attempt result: {result}")
             except Exception as e:
-                logging.error(f"💡 Error during connection: {str(e)}")
+                logging.error(f"Error during connection: {str(e)}")
                 self.light_status_label.setText(f"Error: {str(e)}")
                 self.light_status_label.setStyleSheet("color: red")
         else:
             # Disconnect
-            logging.info("💡 Disconnecting light controller")
+            logging.info("Disconnecting light controller")
             try:
                 self.light_controller._disconnect()
-                logging.info("💡 Disconnected successfully")
+                logging.info("Disconnected successfully")
             except Exception as e:
-                logging.error(f"💡 Error during disconnect: {str(e)}")
+                logging.error(f"Error during disconnect: {str(e)}")
     
     def _on_light_send_click(self):
         """Handle light controller send button clicks"""
         if not self.light_controller.is_connected:
-            logging.warning("💡 Not connected to light controller")
+            logging.warning("Not connected to light controller")
             return
         
         message = self.light_message_edit.text().strip()
@@ -244,11 +244,11 @@ class TCPControllerManager:
                 self.light_message_list.scrollToBottom()
                 # Clear input field
                 self.light_message_edit.clear()
-                logging.info(f"💡 Message sent: {message}")
+                logging.info(f"Message sent: {message}")
             else:
                 self.light_message_list.addItem("Error: Failed to send message")
                 self.light_message_list.scrollToBottom()
-                logging.error("💡 Failed to send message")
+                logging.error("Failed to send message")
                 
             
     def _update_button_states(self, connected: bool):
@@ -285,9 +285,9 @@ class TCPControllerManager:
             logging.info(f"Adding message to list: RX: {message}")
             self.message_list.addItem(f"RX: {message}")
             self.message_list.scrollToBottom()
-            logging.info(f"✓ Message added to list")
+            logging.info(f"Message added to list")
         else:
-            logging.error("✗ message_list is None!")
+            logging.error("message_list is None!")
         
         # NEW: Check if message is sensor event from pico
         # Expected format: "start_sensor,<sensor_id>" or "end_sensor,<sensor_id>"
@@ -346,8 +346,8 @@ class TCPControllerManager:
             sensor_id: Sensor ID từ pico
         """
         try:
-            logging.info(f"[TCPController] 🚀 Sensor IN received: sensor_id={sensor_id}")
-            print(f"DEBUG: [TCPController] 🚀 Sensor IN received: {sensor_id}")
+            logging.info(f"[TCPController] Sensor IN received: sensor_id={sensor_id}")
+            print(f"DEBUG: [TCPController] Sensor IN received: {sensor_id}")
             
             # Get result tab manager
             result_tab_manager = getattr(self.main_window, 'result_tab_manager', None)
@@ -360,8 +360,8 @@ class TCPControllerManager:
             frame_id = result_tab_manager.on_sensor_in_received(sensor_id)
             
             if frame_id > 0:
-                logging.info(f"[TCPController] ✅ Frame created: frame_id={frame_id}, sensor_id={sensor_id}")
-                print(f"DEBUG: [TCPController] ✅ Frame created: {frame_id}")
+                logging.info(f"[TCPController] Frame created: frame_id={frame_id}, sensor_id={sensor_id}")
+                print(f"DEBUG: [TCPController] Frame created: {frame_id}")
                 
                 # Optional: hiển thị message trên UI
                 if self.message_list:
@@ -396,8 +396,8 @@ class TCPControllerManager:
             success = result_tab_manager.add_sensor_out_event(sensor_id)
             
             if success:
-                logging.info(f"[TCPController] ✅ Sensor OUT matched successfully")
-                print(f"DEBUG: [TCPController] ✅ Sensor OUT matched")
+                logging.info(f"[TCPController] Sensor OUT matched successfully")
+                print(f"DEBUG: [TCPController] Sensor OUT matched")
                 
                 # Optional: hiển thị message trên UI
                 if self.message_list:
@@ -507,7 +507,7 @@ class TCPControllerManager:
             return is_enabled, delay_ms
             
         except Exception as e:
-            logging.error(f"✗ Error getting delay trigger settings: {e}")
+            logging.error(f"Error getting delay trigger settings: {e}")
             return False, 0.0
     
     def _apply_delay_trigger(self, delay_ms: float):
@@ -524,7 +524,7 @@ class TCPControllerManager:
         if delay_ms > 0:
             # Convert milliseconds to seconds
             delay_sec = delay_ms / 1000.0
-            logging.info(f"⏱️  Applying delay: {delay_ms:.1f}ms ({delay_sec:.4f}s)")
+            logging.info(f"Applying delay: {delay_ms:.1f}ms ({delay_sec:.4f}s)")
             
             # IMPORTANT: Reset the last_trigger_time so the delay duration
             # acts as the effective cooldown period instead of blocking trigger
@@ -556,7 +556,7 @@ class TCPControllerManager:
                 logging.debug(f"Note: Could not manage cooldown: {e}")
             
             time.sleep(delay_sec)
-            logging.info(f"✓ Delay completed, triggering camera now...")
+            logging.info(f"Delay completed, triggering camera now...")
 
     def _check_and_trigger_camera_if_needed(self, message: str):
         """
@@ -609,21 +609,21 @@ class TCPControllerManager:
                 result = camera_manager.activate_capture_request()
                 if result:
                     if delay_enabled:
-                        logging.info(f"✓ Camera triggered successfully (after {delay_ms:.1f}ms delay) for message: {message}")
+                        logging.info(f"Camera triggered successfully (after {delay_ms:.1f}ms delay) for message: {message}")
                         self.message_list.addItem(f"[TRIGGER+{delay_ms:.1f}ms] Camera captured from: {message}")
                         # Restore default cooldown after successful trigger
                         self._restore_default_cooldown()
                     else:
-                        logging.info(f"✓ Camera triggered successfully for message: {message}")
+                        logging.info(f"Camera triggered successfully for message: {message}")
                         self.message_list.addItem(f"[TRIGGER] Camera captured from: {message}")
                     self.message_list.scrollToBottom()
                 else:
-                    logging.warning(f"✗ Failed to trigger camera for message: {message}")
+                    logging.warning(f"Failed to trigger camera for message: {message}")
                     # Restore cooldown even on failure
                     if delay_enabled:
                         self._restore_default_cooldown()
             except Exception as e:
-                logging.error(f"✗ Error triggering camera: {e}", exc_info=True)
+                logging.error(f"Error triggering camera: {e}", exc_info=True)
                 if delay_enabled:
                     self._restore_default_cooldown()
                 
@@ -642,7 +642,7 @@ class TCPControllerManager:
                     camera_stream = camera_manager.camera_stream
                     # Restore to default 250ms (0.25s)
                     camera_stream.set_trigger_cooldown(0.25)
-                    logging.debug(f"✓ Cooldown restored to default: 250ms")
+                    logging.debug(f"Cooldown restored to default: 250ms")
         except Exception as e:
             logging.debug(f"Note: Could not restore cooldown: {e}")
     
@@ -673,9 +673,9 @@ class TCPControllerManager:
                     if hasattr(self.light_controller, '_disconnect'):
                         self.light_controller._disconnect()
                 except Exception as e:
-                    logging.debug(f"💡 Error disconnecting light controller: {e}")
+                    logging.debug(f"Error disconnecting light controller: {e}")
             
-            logging.info("✓ TCPControllerManager cleanup completed")
+            logging.info("TCPControllerManager cleanup completed")
         
         except Exception as e:
             logging.error(f"Error during TCPControllerManager cleanup: {e}")

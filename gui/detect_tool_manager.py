@@ -319,7 +319,7 @@ class DetectToolManager:
                 logger.warning("Classification model not available")
                 return thresholds
             
-            logger.info(f"Reading thresholds from table - Rows: {self.classification_model.rowCount()}")  # ✅ Debug
+            logger.info(f"Reading thresholds from table - Rows: {self.classification_model.rowCount()}")  # Debug
             
             for row in range(self.classification_model.rowCount()):
                 class_item = self.classification_model.item(row, 0)
@@ -334,12 +334,12 @@ class DetectToolManager:
                         threshold = 0.5  # Default threshold
                     
                     thresholds[class_name] = threshold
-                    logger.info(f"  Row {row}: {class_name} = {threshold}")  # ✅ Debug
+                    logger.info(f"  Row {row}: {class_name} = {threshold}")  # Debug
         
         except Exception as e:
             logger.error(f"Error getting class thresholds: {e}")
         
-        logger.info(f"Final thresholds dict: {thresholds}")  # ✅ Debug
+        logger.info(f"Final thresholds dict: {thresholds}")  # Debug
         return thresholds
     
     def set_selected_classes(self, classes: List[str]):
@@ -461,7 +461,7 @@ class DetectToolManager:
         }
         
         logger.debug(f"Generated config - Model: {config['model_name']}, Selected classes: {config['selected_classes']}, Thresholds: {config['class_thresholds']}")
-        logger.info(f"get_tool_config() - Thresholds from table: {thresholds}")  # ✅ Debug
+        logger.info(f"get_tool_config() - Thresholds from table: {thresholds}")  # Debug
         
         return config
     
@@ -522,28 +522,28 @@ class DetectToolManager:
         """Create DetectTool job from current configuration"""
         try:
             logger.info("=" * 80)
-            logger.info("🔧 create_detect_tool_job() START")
+            logger.info("create_detect_tool_job() START")
             logger.info("=" * 80)
             
             from tools.detection.detect_tool import create_detect_tool_from_manager_config
             
             # Get current tool configuration
             config = self.get_tool_config()
-            logger.info(f"✓ Got config: model={config['model_name']}, classes={len(config['selected_classes'])}")
+            logger.info(f"Got config: model={config['model_name']}, classes={len(config['selected_classes'])}")
             
             # Validate configuration
             if (not config['model_name'] or not config['model_path'] or
                 config['model_name'] in ["Select Model...", "No models found", "Error loading models"]):
-                logger.error("❌ Cannot create DetectTool: No model selected")
+                logger.error("Cannot create DetectTool: No model selected")
                 return None
             
             if not config['selected_classes']:
-                logger.warning("⚠️  No classes selected for detection")
+                logger.warning("No classes selected for detection")
             
             # Create detect tool
             logger.info(f"📦 Creating DetectTool with config...")
             detect_tool = create_detect_tool_from_manager_config(config)
-            logger.info(f"✅ Created DetectTool job - Model: {config['model_name']}, Classes: {len(config['selected_classes'])}")
+            logger.info(f"Created DetectTool job - Model: {config['model_name']}, Classes: {len(config['selected_classes'])}")
             logger.info(f"   Tool display_name: {detect_tool.display_name}")
             logger.info(f"   Tool is_initialized: {detect_tool.is_initialized}")
             logger.info("=" * 80)
@@ -551,12 +551,12 @@ class DetectToolManager:
             return detect_tool
             
         except ImportError as e:
-            logger.error(f"❌ Cannot create DetectTool: Import error - {e}")
+            logger.error(f"Cannot create DetectTool: Import error - {e}")
             import traceback
             traceback.print_exc()
             return None
         except Exception as e:
-            logger.error(f"❌ Error creating DetectTool job: {e}")
+            logger.error(f"Error creating DetectTool job: {e}")
             import traceback
             traceback.print_exc()
             return None
@@ -565,26 +565,26 @@ class DetectToolManager:
         """Apply current detect tool configuration to job manager (DetectTool + ResultTool)"""
         try:
             logger.info("=" * 80)
-            logger.info("🚀 apply_detect_tool_to_job() START")
+            logger.info("apply_detect_tool_to_job() START")
             logger.info("=" * 80)
             
             # Create detect tool
             logger.info("📦 Creating DetectTool...")
             detect_tool = self.create_detect_tool_job()
             if not detect_tool:
-                logger.error("❌ Failed to create DetectTool job")
+                logger.error("Failed to create DetectTool job")
                 return False
             
-            logger.info(f"✅ DetectTool created: {detect_tool.name} (ID: {detect_tool.tool_id})")
+            logger.info(f"DetectTool created: {detect_tool.name} (ID: {detect_tool.tool_id})")
             
             # Create result tool
             logger.info("📦 Creating ResultTool...")
             result_tool = self.create_result_tool()
             if not result_tool:
-                logger.warning("⚠️  Failed to create ResultTool, continuing without it")
+                logger.warning("Failed to create ResultTool, continuing without it")
                 result_tool = None
             else:
-                logger.info(f"✅ ResultTool created: {result_tool.name}")
+                logger.info(f"ResultTool created: {result_tool.name}")
             
             # Add to job manager via main window
             if hasattr(self.main_window, 'job_manager'):
@@ -597,33 +597,33 @@ class DetectToolManager:
                     from job.job_manager import Job
                     job_manager.add_job(Job("Detection Job"))
                     current_job = job_manager.get_current_job()
-                    logger.info(f"✅ Created new job: {current_job.name}")
+                    logger.info(f"Created new job: {current_job.name}")
                 
                 if current_job:
                     # Add detect tool to current job
                     logger.info(f"🔗 Adding DetectTool to job (current tools: {len(current_job.tools)})...")
                     current_job.add_tool(detect_tool)
-                    logger.info(f"✅ Added DetectTool to job. Current tools: {len(current_job.tools)}")
+                    logger.info(f"Added DetectTool to job. Current tools: {len(current_job.tools)}")
                     
                     # Add result tool if created successfully
                     if result_tool:
                         logger.info(f"🔗 Adding ResultTool to job...")
                         current_job.add_tool(result_tool)
-                        logger.info(f"✅ Added ResultTool to job. Current tools: {len(current_job.tools)}")
+                        logger.info(f"Added ResultTool to job. Current tools: {len(current_job.tools)}")
                     
                     logger.info(f"   Workflow: {[tool.name for tool in current_job.tools]}")
                     logger.info("=" * 80)
                     
                     return True
                 else:
-                    logger.error("❌ No current job available")
+                    logger.error("No current job available")
                     return False
             else:
-                logger.error("❌ Job manager not available")
+                logger.error("Job manager not available")
                 return False
                 
         except Exception as e:
-            logger.error(f"❌ Error applying DetectTool to job: {e}")
+            logger.error(f"Error applying DetectTool to job: {e}")
             import traceback
             traceback.print_exc()
             return False
@@ -668,7 +668,7 @@ class DetectToolManager:
                 if current_job:
                     # Add result tool to current job
                     current_job.add_tool(result_tool)
-                    logger.info(f"✓ Added ResultTool to job. Current tools: {len(current_job.tools)}")
+                    logger.info(f"Added ResultTool to job. Current tools: {len(current_job.tools)}")
                     logger.info(f"  Workflow: {[tool.name for tool in current_job.tools]}")
                     
                     return True

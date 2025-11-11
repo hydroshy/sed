@@ -47,13 +47,13 @@ class CameraTriggerWorker(QThread):
             
             latency_ms = (time.perf_counter() - self.start_time) * 1000
             logger.info(
-                f"✓ Async trigger completed: {self.message} "
+                f"Async trigger completed: {self.message} "
                 f"(latency: {latency_ms:.2f}ms)"
             )
             self.trigger_complete.emit(True, self.message)
             
         except Exception as e:
-            logger.error(f"✗ Async trigger error: {e}", exc_info=True)
+            logger.error(f"Async trigger error: {e}", exc_info=True)
             self.trigger_complete.emit(False, self.message)
 
 
@@ -93,7 +93,7 @@ class OptimizedTCPTriggerHandler(QObject):
         # Active trigger workers
         self.active_workers = []
         
-        logger.info("✓ OptimizedTCPTriggerHandler initialized")
+        logger.info("OptimizedTCPTriggerHandler initialized")
     
     def process_trigger_message_fast(self, message: str) -> bool:
         """
@@ -142,7 +142,7 @@ class OptimizedTCPTriggerHandler(QObject):
             return True
             
         except Exception as e:
-            logger.error(f"✗ Error processing trigger message: {e}", exc_info=True)
+            logger.error(f"Error processing trigger message: {e}", exc_info=True)
             self.stats['failed_triggers'] += 1
             return False
     
@@ -174,7 +174,7 @@ class OptimizedTCPTriggerHandler(QObject):
                 logger.debug(f"Async trigger thread spawned for: {message}")
         
         except Exception as e:
-            logger.error(f"✗ Error spawning async trigger: {e}", exc_info=True)
+            logger.error(f"Error spawning async trigger: {e}", exc_info=True)
     
     def _on_trigger_complete(self, success: bool, message: str, sensor_timestamp: int):
         """Handle trigger completion"""
@@ -182,11 +182,11 @@ class OptimizedTCPTriggerHandler(QObject):
         
         if success:
             self.stats['successful_triggers'] += 1
-            logger.info(f"✓ Trigger success: {message}")
+            logger.info(f"Trigger success: {message}")
             self.trigger_executed.emit(message, sensor_timestamp, 0)
         else:
             self.stats['failed_triggers'] += 1
-            logger.error(f"✗ Trigger failed: {message}")
+            logger.error(f"Trigger failed: {message}")
     
     def _cleanup_worker(self, worker):
         """Clean up completed worker thread"""
@@ -269,7 +269,7 @@ class OptimizedTCPControllerManager(QObject):
         # Direct callback for triggers (bypass signal chain)
         self.tcp_controller.on_trigger_callback = self._on_trigger_direct
         
-        logger.info("✓ OptimizedTCPControllerManager initialized")
+        logger.info("OptimizedTCPControllerManager initialized")
     
     def _on_message_received_optimized(self, message: str):
         """
@@ -336,7 +336,7 @@ class OptimizedTCPControllerManager(QObject):
                 except Exception as e:
                     logger.debug(f"Error during trigger handler cleanup: {e}")
             
-            logger.info("✓ OptimizedTCPControllerManager cleanup completed")
+            logger.info("OptimizedTCPControllerManager cleanup completed")
         
         except Exception as e:
             logger.error(f"Error during OptimizedTCPControllerManager cleanup: {e}")

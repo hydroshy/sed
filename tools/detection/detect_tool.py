@@ -321,7 +321,7 @@ class DetectTool(BaseTool):
                     self.is_initialized = False  # Reset to force re-initialization
                     self._config_changed = False
                 else:
-                    logger.info("⚙️  DetectTool not initialized, initializing now...")
+                    logger.info("DetectTool not initialized, initializing now...")
                 
                 if not self.initialize_detection():
                     logger.error("❌ DetectTool initialization FAILED")
@@ -401,7 +401,7 @@ class DetectTool(BaseTool):
             else:
                 logger.info(f"❌ DetectTool found NO detections")
             
-            logger.info(f"⏱️  DetectTool - {len(detections)} detections in {total_time:.3f}s (inference: {inference_time:.3f}s)")
+            logger.info(f"DetectTool - {len(detections)} detections in {total_time:.3f}s (inference: {inference_time:.3f}s)")
             
             result = {
                 'detections': detections,

@@ -33,7 +33,7 @@ class FrameHistoryWorker(QObject):
                         # Clear queue to only keep latest frame
                         self.camera_view.frame_history_queue.clear()
                         
-                        # ✅ DEBUG: Log frame being added to history
+                        # DEBUG: Log frame being added to history
                         logging.info(f"[FrameHistoryWorker] Adding frame to history - shape={frame.shape if frame is not None else 'None'}, history_count_before={len(self.camera_view.frame_history)}")
                         
                         # Add to history
@@ -43,13 +43,13 @@ class FrameHistoryWorker(QObject):
                         if len(self.camera_view.frame_history) > self.camera_view.max_history_frames:
                             self.camera_view.frame_history.pop(0)
                         
-                        # ✅ DEBUG: Log history state
+                        # DEBUG: Log history state
                         logging.info(f"[FrameHistoryWorker] Frame added - history_count={len(self.camera_view.frame_history)}, max={self.camera_view.max_history_frames}")
                         
                         # Check if it's time to update review views
                         current_time = time.time()
                         if (current_time - self.camera_view._last_review_update) >= self.camera_view._review_update_interval:
-                            # ✅ DEBUG: Log review update trigger
+                            # DEBUG: Log review update trigger
                             logging.info(f"[FrameHistoryWorker] Triggering review view update - history_count={len(self.camera_view.frame_history)}")
                             
                             # Schedule UI update on main thread
@@ -1551,7 +1551,7 @@ class CameraView(QObject):
             if not self.enable_frame_history or frame is None:
                 return
             
-            # ✅ DEBUG: Log frame arrival
+            # DEBUG: Log frame arrival
             logging.info(f"[FrameHistory] New frame received: shape={frame.shape if frame is not None else 'None'}, queue_size_before={len(self.frame_history_queue)}")
             
             # Resize frame for history to improve memory and performance
@@ -1576,7 +1576,7 @@ class CameraView(QObject):
                 if len(self.frame_history_queue) > 3:
                     self.frame_history_queue.pop(0)
             
-            # ✅ DEBUG: Log queue state after add
+            # DEBUG: Log queue state after add
             logging.debug(f"[FrameHistory] Queue updated: size={len(self.frame_history_queue)}")
             
         except Exception as e:
@@ -1707,7 +1707,7 @@ class CameraView(QObject):
             # Calculate FPS
             self._calculate_fps()
             
-            # ✅ NOTE: Frame history is now updated in _display_qimage() only to avoid duplicates
+            # NOTE: Frame history is now updated in _display_qimage() only to avoid duplicates
             
         except Exception as e:
             print(f"DEBUG: [_handle_processed_frame] ERROR: {e}")
@@ -1753,7 +1753,7 @@ class CameraView(QObject):
             # Don't apply rotation on every frame - only when rotation has changed
             # This will be handled in rotate_left and rotate_right methods directly
             
-            # ✅ Update frame history with current frame (only here to avoid duplicates)
+            # Update frame history with current frame (only here to avoid duplicates)
             # Note: self.current_frame is already in RGB format from _process_frame_to_qimage
             if self.current_frame is not None and len(self.current_frame.shape) == 3:
                 if len(self.current_frame.shape) == 3 and self.current_frame.shape[2] == 3:
@@ -1777,7 +1777,7 @@ class CameraView(QObject):
             with self.frame_history_lock:
                 frame_history_copy = self.frame_history.copy()
             
-            # ✅ DEBUG: Log review update being triggered
+            # DEBUG: Log review update being triggered
             logging.info(f"[ReviewViewUpdate] Main thread update triggered - frame_history_count={len(frame_history_copy)}")
             
             # Update review views with the copy
@@ -1792,7 +1792,7 @@ class CameraView(QObject):
         """Update review views with given frame history and update labels with NG/OK status"""
         try:
             if not self.review_views or not frame_history:
-                # ✅ DEBUG: Log early return
+                # DEBUG: Log early return
                 if not frame_history:
                     logging.debug(f"[ReviewViewUpdate] Early return - frame_history empty")
                 return
@@ -1804,7 +1804,7 @@ class CameraView(QObject):
                 if result_manager:
                     frame_status_history = result_manager.get_frame_status_history()
             
-            # ✅ DEBUG: Log initial state
+            # DEBUG: Log initial state
             logging.info(f"[ReviewLabel] UPDATE START - frame_history count: {len(frame_history)}, status_history count: {len(frame_status_history)}")
             
             # Update each review view with corresponding frame from history
@@ -1816,14 +1816,14 @@ class CameraView(QObject):
                 # Calculate frame index (newest to oldest)
                 frame_index = len(frame_history) - 1 - i
                 
-                # ✅ DEBUG: Log position mapping
+                # DEBUG: Log position mapping
                 logging.debug(f"[ReviewLabel] Position {i+1}: frame_index={frame_index}, review_view exists={review_view is not None}")
                 
                 if frame_index >= 0 and frame_index < len(frame_history):
                     frame = frame_history[frame_index]
                     self._display_frame_in_review_view(review_view, frame, i + 1)
                     
-                    # ✅ DEBUG: Log frame info
+                    # DEBUG: Log frame info
                     logging.info(f"[ReviewLabel] reviewLabel_{i+1} - Displaying frame #{frame_index}, shape={frame.shape if frame is not None else 'None'}")
                     
                     # Update corresponding label with NG/OK status
@@ -1838,7 +1838,7 @@ class CameraView(QObject):
                         
                         # Map frame index to status history index (reversed!)
                         # Newest frame (i=0) should get newest status (last in list)
-                        status_history_index = len(frame_status_history) - 1 - i  # ✅ Reversed mapping
+                        status_history_index = len(frame_status_history) - 1 - i  # Reversed mapping
                         
                         if status_history_index >= 0 and status_history_index < len(frame_status_history):
                             status_data = frame_status_history[status_history_index]
@@ -1847,15 +1847,15 @@ class CameraView(QObject):
                             # Update label with status and color
                             self._update_review_label(label, status, similarity, i + 1)
                             
-                            # ✅ DEBUG: Log status assignment
+                            # DEBUG: Log status assignment
                             logging.info(f"[ReviewLabel] reviewLabel_{i+1} - status_history_index={status_history_index}, status={status}, similarity={similarity:.2%}")
                         else:
-                            # ✅ No corresponding status data - clear label
+                            # No corresponding status data - clear label
                             if label:
                                 label.setText("")
                                 label.setStyleSheet("background-color: #2b2b2b; color: white; border: 1px solid #555;")
                             
-                            # ✅ DEBUG: Log clear action
+                            # DEBUG: Log clear action
                             logging.info(f"[ReviewLabel] reviewLabel_{i+1} - CLEARED (no status at index {status_history_index})")
                 else:
                     # Clear review view if no frame available
@@ -1868,7 +1868,7 @@ class CameraView(QObject):
                             label.setText("")
                             label.setStyleSheet("background-color: #2b2b2b; color: white; border: 1px solid #555;")
                     
-                    # ✅ DEBUG: Log clear for out-of-range
+                    # DEBUG: Log clear for out-of-range
                     logging.debug(f"[ReviewLabel] reviewLabel_{i+1} - CLEARED (frame_index {frame_index} out of range)")
                     
         except Exception as e:
@@ -1982,7 +1982,7 @@ class CameraView(QObject):
             label.setStyleSheet(f"background-color: {bg_color}; color: {text_color}; "
                               f"border: 1px solid #555; font-weight: bold; font-size: 12px;")
             
-            # ✅ DEBUG: Log label update
+            # DEBUG: Log label update
             logging.info(f"[ReviewLabel] reviewLabel_{label_number} - Updated: text='{text}', color={bg_color}, similarity={similarity:.2%}")
             
         except Exception as e:
