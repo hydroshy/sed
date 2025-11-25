@@ -75,6 +75,9 @@ class CameraManager(QObject):
         self.apply_settings_btn = None
         self.cancel_settings_btn = None
         
+        # Mode change flag: Skip redundant flush in helper methods when called from on_trigger_camera_mode_clicked
+        self._mode_changing = False  # Flag để kiểm soát flush trong helper methods
+        
         # UI state
         self.ui_enabled = False
         
@@ -635,15 +638,37 @@ class CameraManager(QObject):
         return None
         
     def _apply_setting_if_manual(self, setting_type, value):
-        """Helper method: Apply setting ngay l   p t   c n   u   ang     manual mode v   instant_apply enabled"""
+        """Helper method: Apply setting ngay l   p t   c n   u   ang     manual mode v   instant_apply enabled
+        
+        IMPORTANT: Nếu có frame đang xử lý, flush ngay để áp dụng settings mới
+        Điều này đảm bảo UI không bị đơ khi thay đổi tham số
+        
+        NHƯNG: Nếu đang trong on_trigger_camera_mode_clicked(), skip flush (đã flush ở đó rồi)
+        """
         if self._instant_apply and not self._is_auto_exposure and self.camera_stream:
             try:
+                # NẾU CÓ FRAME ĐANG PENDING VÀ KHÔNG PHẢI LÚC MODE CHANGING, FLUSH NGAY
+                # Không đợi frame hoàn thành, áp dụng settings mới ngay lập tức
+                if not self._mode_changing:  # Skip flush if mode is already changing (on_trigger_camera_mode_clicked)
+                    if hasattr(self.camera_stream, 'fifo_queue') and self.camera_stream.fifo_queue:
+                        queue_size = len(self.camera_stream.fifo_queue.queue) if hasattr(self.camera_stream.fifo_queue, 'queue') else 0
+                        if queue_size > 0:
+                            print(f"DEBUG: [CameraManager] Frame pending detected ({queue_size} frames), flushing to apply new {setting_type} setting")
+                            if hasattr(self.camera_stream, 'cancel_all_and_flush'):
+                                self.camera_stream.cancel_all_and_flush()
+                else:
+                    print(f"DEBUG: [CameraManager] Skipping flush during mode change (already flushed)")
+                
+                # APPLY NEW SETTING
                 if setting_type == 'exposure':
                     self.camera_stream.set_exposure(value)
+                    print(f"DEBUG: [CameraManager] Applied new exposure: {value}")
                 elif setting_type == 'gain':
                     self.camera_stream.set_gain(value)
+                    print(f"DEBUG: [CameraManager] Applied new gain: {value}")
                 elif setting_type == 'ev':
                     self.camera_stream.set_ev(value)
+                    print(f"DEBUG: [CameraManager] Applied new EV: {value}")
             except AttributeError:
                 # Camera stream kh  ng c   method n  y, skip
                 pass
@@ -1162,8 +1187,28 @@ class CameraManager(QObject):
             self.ev_edit.setEnabled(False)
             
     def set_manual_exposure_mode(self):
-        """     t ch          ph  i s  ng th    c  ng"""
+        """     t ch          ph  i s  ng th    c  ng
+        
+        IMPORTANT: Nếu có frame đang xử lý, flush ngay để chuyển sang manual mode
+        Không đợi frame hoàn thành, đảm bảo UI responsive
+        
+        NHƯNG: Nếu đang trong on_trigger_camera_mode_clicked(), skip flush (đã flush ở đó rồi)
+        """
         self._is_auto_exposure = False
+        
+        # FLUSH PENDING FRAME NẾU CÓ (và không phải lúc mode changing)
+        # Không đợi frame hiện tại hoàn thành, áp dụng auto exposure = False ngay
+        if not self._mode_changing:  # Skip flush if mode is already changing
+            if self.camera_stream:
+                if hasattr(self.camera_stream, 'fifo_queue') and self.camera_stream.fifo_queue:
+                    queue_size = len(self.camera_stream.fifo_queue.queue) if hasattr(self.camera_stream.fifo_queue, 'queue') else 0
+                    if queue_size > 0:
+                        print(f"DEBUG: [CameraManager] Frame pending detected ({queue_size} frames), flushing to switch to manual exposure mode")
+                        if hasattr(self.camera_stream, 'cancel_all_and_flush'):
+                            self.camera_stream.cancel_all_and_flush()
+        else:
+            print(f"DEBUG: [CameraManager] Skipping flush during mode change (already flushed)")
+        
         if hasattr(self.camera_stream, 'set_auto_exposure'):
             self.camera_stream.set_auto_exposure(False)
             print("DEBUG: Set camera auto exposure to False")
@@ -1339,6 +1384,9 @@ class CameraManager(QObject):
         """
         Set trigger mode in camera using async thread to prevent UI blocking
         
+        IMPORTANT: Nếu có frame đang xử lý, flush ngay để chuyển mode
+        Không đợi frame hoàn thành, đảm bảo UI responsive
+        
         Args:
             enabled: True to enable trigger mode, False to disable
         
@@ -1346,6 +1394,17 @@ class CameraManager(QObject):
             True if operation started successfully, False otherwise
         """
         try:
+            # FLUSH PENDING FRAME NẾU CÓ
+            # Khi chuyển mode, không đợi frame hiện tại hoàn thành
+            if self.camera_stream:
+                if hasattr(self.camera_stream, 'fifo_queue') and self.camera_stream.fifo_queue:
+                    queue_size = len(self.camera_stream.fifo_queue.queue) if hasattr(self.camera_stream.fifo_queue, 'queue') else 0
+                    if queue_size > 0:
+                        mode_name = "trigger" if enabled else "live"
+                        print(f"DEBUG: [CameraManager] Frame pending detected ({queue_size} frames), flushing to switch to {mode_name} mode")
+                        if hasattr(self.camera_stream, 'cancel_all_and_flush'):
+                            self.camera_stream.cancel_all_and_flush()
+            
             # Sync current exposure setting to camera before changing trigger mode
             if self.camera_stream and self.exposure_edit:
                 try:
@@ -1453,6 +1512,13 @@ class CameraManager(QObject):
         """Handle completion of format change operation"""
         if not success:
             logging.warning(f"Format operation failed: {message}")
+        
+        # IMPORTANT: Flush any pending frames with old format
+        # This ensures next frame will be with NEW format
+        if self.camera_stream and hasattr(self.camera_stream, 'cancel_all_and_flush'):
+            print("DEBUG: [CameraManager] Format change completed, flushing old frames to apply new format")
+            self.camera_stream.cancel_all_and_flush()
+        
         # Refresh display after format change
         if self.camera_view and hasattr(self.camera_view, 'refresh_display_with_new_format'):
             self.camera_view.refresh_display_with_new_format()
@@ -2000,8 +2066,8 @@ class CameraManager(QObject):
                 self.trigger_camera_btn.repaint()
                 print("DEBUG: [CameraManager] Trigger button DISABLED to prevent multiple clicks")
 
-            # 🔄 Send triggerCamera command via TCP instead of direct capture
-            print("DEBUG: [CameraManager] Sending 'triggerCamera' command via TCP...")
+            # 🔄 Send TRIGGER command via TCP to Pico
+            print("DEBUG: [CameraManager] Sending 'TRIGGER' command via TCP to Pico...")
             try:
                 # Get tcp_controller from main_window
                 if not hasattr(self.main_window, 'tcp_controller'):
@@ -2023,8 +2089,8 @@ class CameraManager(QObject):
                         self.trigger_camera_btn.repaint()
                     return
                 
-                # Send triggerCamera command via TCP
-                trigger_command = "triggerCamera"
+                # Send TRIGGER command via TCP to Pico
+                trigger_command = "TRIGGER"
                 success = tcp_controller.tcp_controller.send_message(trigger_command)
                 
                 if success:
@@ -2036,7 +2102,7 @@ class CameraManager(QObject):
                 time.sleep(0.2)  # 200ms to allow processing
                 
             except Exception as e:
-                print(f"DEBUG: [CameraManager] Error sending triggerCamera via TCP: {e}")
+                print(f"DEBUG: [CameraManager] Error sending TRIGGER command via TCP: {e}")
             finally:
                 # Re-enable trigger button after processing complete
                 if self.trigger_camera_btn:
@@ -2343,22 +2409,107 @@ class CameraManager(QObject):
         """X    l   khi click Trigger Camera Mode button - delegate to CameraTool"""
         print("DEBUG: [CameraManager] Trigger camera mode button clicked")
 
-        # Find the Camera Source tool and delegate mode change to it
-        camera_tool = self.find_camera_tool()
-        if camera_tool:
-            print("DEBUG: [CameraManager] Found Camera Source tool, delegating mode change")
-            success = camera_tool.set_camera_mode("trigger")
-            if success:
-                print("DEBUG: [CameraManager] Trigger mode set successfully via CameraTool")
-            else:
-                print("DEBUG: [CameraManager] Failed to set trigger mode via CameraTool")
-        else:
-            # Fallback: handle mode change directly if no Camera Source tool found
-            print("DEBUG: [CameraManager] No Camera Source tool found, handling mode change directly")
-            self._handle_trigger_mode_directly()
+        # FLUSH PENDING FRAME ONCE AT THE START
+        # Flush all pending frames so all subsequent settings apply immediately
+        # Nếu có frame đang pending → flush ngay một lần, không lặp lại
+        if self.camera_stream:
+            if hasattr(self.camera_stream, 'fifo_queue') and self.camera_stream.fifo_queue:
+                queue_size = len(self.camera_stream.fifo_queue.queue) if hasattr(self.camera_stream.fifo_queue, 'queue') else 0
+                if queue_size > 0:
+                    print(f"DEBUG: [CameraManager] Frame pending detected ({queue_size} frames), flushing ONCE for trigger mode change")
+                    if hasattr(self.camera_stream, 'cancel_all_and_flush'):
+                        self.camera_stream.cancel_all_and_flush()
 
-        # Persist preference
-        self.preferred_mode = 'trigger'
+        # Set flag: Tell helper methods NOT to flush again (we already flushed above)
+        self._mode_changing = True
+        
+        try:
+            # Find the Camera Source tool and delegate mode change to it
+            camera_tool = self.find_camera_tool()
+            if camera_tool:
+                print("DEBUG: [CameraManager] Found Camera Source tool, delegating mode change")
+                success = camera_tool.set_camera_mode("trigger")
+                if success:
+                    print("DEBUG: [CameraManager] Trigger mode set successfully via CameraTool")
+                else:
+                    print("DEBUG: [CameraManager] Failed to set trigger mode via CameraTool")
+            else:
+                # Fallback: handle mode change directly if no Camera Source tool found
+                print("DEBUG: [CameraManager] No Camera Source tool found, handling mode change directly")
+                self._handle_trigger_mode_directly()
+
+            # Persist preference
+            self.preferred_mode = 'trigger'
+
+            # Force update UI to ensure trigger button is enabled if conditions are met
+            self.update_camera_mode_ui()
+            
+            # Ensure mutual exclusivity like AE/Manual buttons
+            if self.trigger_camera_mode:
+                try:
+                    self.trigger_camera_mode.blockSignals(True)
+                    self.trigger_camera_mode.setChecked(True)
+                finally:
+                    self.trigger_camera_mode.blockSignals(False)
+            if self.live_camera_mode:
+                try:
+                    self.live_camera_mode.blockSignals(True)
+                    self.live_camera_mode.setChecked(False)
+                finally:
+                    self.live_camera_mode.blockSignals(False)
+
+            # When entering trigger mode, force 3A to manual (lock) and apply current params
+            # 1) Exposure/Gain -> Manual AE and push current values
+            try:
+                self._is_auto_exposure = False
+                self.set_manual_exposure_mode()  # also flips AeEnable=False on camera
+                self.update_exposure_mode_ui()
+                # Push current spinbox values immediately
+                if self.exposure_edit is not None:
+                    try:
+                        exp_val = self.exposure_edit.value() if hasattr(self.exposure_edit, 'value') else float(self.exposure_edit.text())
+                        self._apply_setting_if_manual('exposure', exp_val)
+                    except Exception:
+                        pass
+                if self.gain_edit is not None:
+                    try:
+                        gain_val = self.gain_edit.value() if hasattr(self.gain_edit, 'value') else float(self.gain_edit.text())
+                        self._apply_setting_if_manual('gain', gain_val)
+                    except Exception:
+                        pass
+            except Exception as e:
+                print(f"DEBUG: [CameraManager] Error forcing manual AE on trigger mode: {e}")
+
+            # 2) White Balance -> Manual AWB and push current R/B gains if available
+            try:
+                self._is_auto_awb = False
+                # Update AWB UI and enable manual fields
+                if hasattr(self, 'update_awb_mode_ui'):
+                    self.update_awb_mode_ui()
+                # Apply via CameraTool so it immediately configures CameraStream
+                ct = self.find_camera_tool()
+                if ct and hasattr(ct, 'set_auto_awb'):
+                    ct.set_auto_awb(False)
+                # Push current gains
+                r = None; b = None
+                if self.colour_gain_r_edit and hasattr(self.colour_gain_r_edit, 'value'):
+                    try:
+                        r = float(self.colour_gain_r_edit.value())
+                    except Exception:
+                        pass
+                if self.colour_gain_b_edit and hasattr(self.colour_gain_b_edit, 'value'):
+                    try:
+                        b = float(self.colour_gain_b_edit.value())
+                    except Exception:
+                        pass
+                if ct and hasattr(ct, 'set_colour_gains') and r is not None and b is not None:
+                    ct.set_colour_gains(r, b)
+            except Exception as e:
+                print(f"DEBUG: [CameraManager] Error forcing manual AWB on trigger mode: {e}")
+        finally:
+            # Reset flag when done
+            self._mode_changing = False
+            print("DEBUG: [CameraManager] Mode change complete, _mode_changing flag reset")
 
         # Force update UI to ensure trigger button is enabled if conditions are met
         self.update_camera_mode_ui()
@@ -2784,6 +2935,7 @@ class CameraManager(QObject):
             # First, try to get result from ResultTool in job pipeline (new way)
             status = 'NG'
             reason = 'No result available'
+            result_data = {}  # Initialize result_data for all paths
             
             if isinstance(job_results, dict):
                 # Check for Result Tool output (new threshold-based evaluation)
@@ -2801,9 +2953,11 @@ class CameraManager(QObject):
                     else:
                         # Fallback to old ResultManager method
                         print(f"DEBUG: [CameraManager] No ng_ok_result in ResultTool data, using legacy ResultManager")
+                        result_data = {}  # Reset for legacy path
                 else:
                     # Fallback to old ResultManager method for backward compatibility
                     print(f"DEBUG: [CameraManager] No ResultTool in job_results, using legacy ResultManager")
+                    result_data = {}  # Reset for legacy path
                     
                     # Extract current detections from job_results nested structure
                     current_detections = []
@@ -2860,7 +3014,7 @@ class CameraManager(QObject):
                 print(f"DEBUG: [CameraManager] Could not record result to ResultManager: {e}")
             
             # NEW: Attach job result to waiting frame (frame created from TCP start_rising)
-            # If no frame waiting, result will be discarded
+            # If no frame waiting, BUFFER the result to attach when frame arrives
             try:
                 result_tab_manager = getattr(self.main_window, 'result_tab_manager', None)
                 if result_tab_manager:
@@ -2875,7 +3029,7 @@ class CameraManager(QObject):
                             'inference_time': result_data.get('inference_time', 0),
                         }
                     
-                    # Attach result to waiting frame
+                    # Try to attach result to waiting frame
                     success = result_tab_manager.attach_job_result_to_waiting_frame(
                         status=status,
                         detection_data=detection_data,
@@ -2887,14 +3041,32 @@ class CameraManager(QObject):
                         logging.info(f"[CameraManager] Attached job result to waiting frame: status={status}")
                         print(f"DEBUG: [CameraManager] Attached job result to frame: status={status}")
                     else:
-                        logging.warning("[CameraManager] No waiting frame found for job result")
-                        print("DEBUG: [CameraManager] No waiting frame (TCP signal not received yet?)")
+                        # ✅ CRITICAL FIX: Buffer result if no waiting frame
+                        # When TCP start_rising arrives, it will attach immediately
+                        logging.info("[CameraManager] No waiting frame - buffering result for later")
+                        print("DEBUG: [CameraManager] Buffering result (TCP signal not received yet)")
+                        
+                        # Save result to pending buffer
+                        buffer_success = result_tab_manager.save_pending_job_result(
+                            status=status,
+                            similarity=0.0,
+                            reason=reason,
+                            detection_data=detection_data,
+                            inference_time=result_data.get('inference_time', 0)
+                        )
+                        
+                        if buffer_success:
+                            logging.info(f"[CameraManager] ✅ Result buffered successfully: {status}")
+                            print(f"DEBUG: [CameraManager] ✅ Result buffered: {status}")
+                        else:
+                            logging.error("[CameraManager] Failed to buffer result")
+                            print("DEBUG: [CameraManager] ❌ Failed to buffer result")
                 else:
                     logging.warning("[CameraManager] Result Tab Manager not found in main_window")
                     print("DEBUG: [CameraManager] Result Tab Manager not available")
             except Exception as e:
-                logging.error(f"[CameraManager] Error attaching job result: {e}", exc_info=True)
-                print(f"DEBUG: [CameraManager] Error attaching job result: {e}")
+                logging.error(f"[CameraManager] Error attaching/buffering job result: {e}", exc_info=True)
+                print(f"DEBUG: [CameraManager] Error attaching/buffering job result: {e}")
             
             
         except Exception as e:

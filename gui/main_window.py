@@ -2846,7 +2846,7 @@ class MainWindow(QMainWindow):
             print(f"DEBUG: [MainWindow] _on_format_changed error: {e}")
     
     def _process_format_change(self, fmt):
-        """Process format change in a non-blocking way"""
+        """Process format change in a non-blocking way (asynchronously)"""
         try:
             if not hasattr(self, 'camera_manager') or not self.camera_manager:
                 print(f"DEBUG: [MainWindow] No camera_manager available")
@@ -2871,15 +2871,34 @@ class MainWindow(QMainWindow):
                         cv.refresh_display_with_new_format()
                 return
             
-            # Update format (should be fast)
-            try:
-                ok = cs.set_format(fmt)
-                print(f"DEBUG: [MainWindow] set_format({fmt}) returned {ok}")
-                # Sync comboBox after successful format change
-                self._sync_format_combobox()
-            except Exception as e:
-                print(f"DEBUG: [MainWindow] Error setting format: {e}")
-                return
+            # IMPORTANT: Use async format change to avoid UI freeze
+            # Format change requires stopping/restarting camera, so must be async
+            print(f"DEBUG: [MainWindow] Requesting async format change to {fmt}")
+            if hasattr(self.camera_manager, 'set_format_async'):
+                # Use async method if available
+                success = self.camera_manager.set_format_async(fmt)
+                if success:
+                    print(f"DEBUG: [MainWindow] Format change async operation started")
+                else:
+                    print(f"DEBUG: [MainWindow] Failed to start async format change")
+            else:
+                # Fallback: use thread to avoid blocking UI
+                print(f"DEBUG: [MainWindow] No set_format_async available, using fallback thread")
+                from PyQt5.QtCore import QThread
+                
+                class FormatChangeThread(QThread):
+                    def run(self):
+                        try:
+                            cs.set_format(fmt)
+                            print(f"DEBUG: [MainWindow] Format changed to {fmt} in thread")
+                        except Exception as e:
+                            print(f"DEBUG: [MainWindow] Error in format change thread: {e}")
+                
+                thread = FormatChangeThread()
+                thread.start()
+            
+            # Sync comboBox after successful format change (will be updated asynchronously)
+            self._sync_format_combobox()
             
             # For stub backend, generate test frame
             if not getattr(cs, 'is_camera_available', False) and hasattr(cs, '_generate_test_frame'):

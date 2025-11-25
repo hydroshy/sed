@@ -49,10 +49,10 @@ class ResultTabManager:
         # NEW: Lưu tạm kết quả job chờ nhận sensor IN từ TCP
         self.pending_result: Optional[PendingJobResult] = None
         
-        # NEW: Track which frame is waiting for job result
-        # When TCP start_rising arrives → Create frame entry
-        # When job completes → Update that frame with result
-        self.frame_id_waiting_for_result: Optional[int] = None
+        # NEW: Track frames waiting for job result (FIFO queue)
+        # When TCP start_rising arrives → Add frame_id to queue
+        # When job completes → Pop oldest frame_id from queue and update it
+        self.waiting_frames_queue: List[int] = []  # FIFO queue of frame IDs waiting for results
         
         # Table column mapping
         self.COLUMNS = {
@@ -260,6 +260,9 @@ class ResultTabManager:
         Tạo frame mới với sensor_id từ TCP.
         Frame status sẽ được cập nhật khi job hoàn thành.
         
+        IMPORTANT: If pending result exists from job that finished earlier,
+        attach it IMMEDIATELY to avoid "PENDING" status display.
+        
         Args:
             sensor_id_in: Sensor ID từ TCP start_rising event
             
@@ -280,32 +283,51 @@ class ResultTabManager:
                 logger.error(f"[ResultTabManager] Failed to create frame for sensor_id_in={sensor_id_in}")
                 return -1
             
-            # Mark frame as waiting for result
-            self.frame_id_waiting_for_result = frame_id
-            logger.info(f"[ResultTabManager] Frame created and waiting for job result: frame_id={frame_id}, sensor_id_in={sensor_id_in}")
-            print(f"DEBUG: [ResultTabManager] Frame {frame_id} created, waiting for job result")
-            
-            # Refresh table to show new frame
-            self.refresh_table()
-            
-            logger.info(f"[ResultTabManager] Sensor IN added - frame_id={frame_id}, sensor_id_in={sensor_id_in}")
-            print(f"DEBUG: [ResultTabManager] Sensor IN processed successfully")
+            # CRITICAL FIX: Check if pending result from earlier job execution
+            # If job finished before TCP start_rising arrived, result is buffered
+            if self.pending_result:
+                logger.info(f"[ResultTabManager] ✅ Found pending result! Attaching to frame {frame_id} immediately")
+                print(f"DEBUG: [ResultTabManager] ✅ Pending result found - attaching to frame {frame_id} NOW")
+                
+                pending = self.pending_result
+                success = self.fifo_queue.set_frame_status(frame_id, pending.status)
+                
+                if success:
+                    logger.info(f"[ResultTabManager] ✅ Attached pending result to frame {frame_id}: status={pending.status}")
+                    print(f"DEBUG: [ResultTabManager] ✅ Result attached: frame {frame_id} = {pending.status}")
+                    
+                    # Store detection data if available
+                    if pending.detection_data:
+                        self.set_frame_detection_data(frame_id, pending.detection_data)
+                    
+                    # Clear pending result after using
+                    self.pending_result = None
+                    
+                    # Refresh immediately to show OK/NG instead of PENDING
+                    self.refresh_table()
+                    
+                    logger.info(f"[ResultTabManager] Frame {frame_id} updated with result from pending buffer")
+                    return frame_id
+                else:
+                    logger.error(f"[ResultTabManager] Failed to attach pending result to frame {frame_id}")
+                    print(f"DEBUG: [ResultTabManager] ❌ Failed to attach pending result")
+            else:
+                # No pending result - frame will wait for job to complete
+                self.waiting_frames_queue.append(frame_id)
+                logger.info(f"[ResultTabManager] Frame created and waiting for job result: frame_id={frame_id}, sensor_id_in={sensor_id_in}, queue_size={len(self.waiting_frames_queue)}")
+                print(f"DEBUG: [ResultTabManager] Frame {frame_id} created, waiting for job result (queue_size={len(self.waiting_frames_queue)})")
+                
+                # Refresh table to show new frame
+                self.refresh_table()
+                
+                logger.info(f"[ResultTabManager] Sensor IN added - frame_id={frame_id}, sensor_id_in={sensor_id_in}")
+                print(f"DEBUG: [ResultTabManager] Sensor IN processed successfully")
             
             return frame_id
             
         except Exception as e:
             logger.error(f"[ResultTabManager] Error in on_sensor_in_received: {e}", exc_info=True)
             print(f"DEBUG: [ResultTabManager] Error in on_sensor_in_received: {e}")
-            return -1
-            
-            logger.info(f"[ResultTabManager] Frame {frame_id} created: sensor_id_in={sensor_id_in}, frame_status={frame_status}, completion_status=PENDING")
-            print(f"DEBUG: [ResultTabManager] Frame {frame_id} ready: sensor_id_in={sensor_id_in}, frame_status={frame_status}")
-            
-            return frame_id
-            
-        except Exception as e:
-            logger.error(f"[ResultTabManager] Error processing sensor IN: {e}", exc_info=True)
-            print(f"DEBUG: [ResultTabManager] Error processing sensor IN: {e}")
             return -1
     
     def attach_job_result_to_waiting_frame(self, status: str, detection_data: Dict[str, Any] = None, 
@@ -315,6 +337,7 @@ class ResultTabManager:
         
         Gọi từ camera_manager khi job hoàn thành.
         Tìm frame được tạo từ TCP start_rising (waiting), cập nhật frame_status.
+        Uses FIFO queue to handle multiple concurrent frames correctly.
         
         Args:
             status: Job result status ('OK', 'NG')
@@ -327,12 +350,13 @@ class ResultTabManager:
         """
         try:
             # Nếu không có frame chờ result, không làm gì
-            if self.frame_id_waiting_for_result is None:
+            if not self.waiting_frames_queue:
                 logger.warning(f"[ResultTabManager] No frame waiting for result")
                 print(f"DEBUG: [ResultTabManager] No frame waiting for result")
                 return False
             
-            frame_id = self.frame_id_waiting_for_result
+            # FIFO: Pop oldest frame (first in queue)
+            frame_id = self.waiting_frames_queue.pop(0)
             
             # Cập nhật frame_status (OK/NG)
             success = self.fifo_queue.set_frame_status(frame_id, status)
@@ -351,9 +375,6 @@ class ResultTabManager:
             
             # Refresh table
             self.refresh_table()
-            
-            # Reset waiting frame
-            self.frame_id_waiting_for_result = None
             
             logger.info(f"[ResultTabManager] Frame {frame_id} updated with job result")
             print(f"DEBUG: [ResultTabManager] Frame {frame_id} complete")
