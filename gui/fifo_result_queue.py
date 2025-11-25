@@ -221,6 +221,30 @@ class FIFOResultQueue:
         """
         return [item.to_dict() for item in self.queue]
     
+    def get_last_done_frame(self) -> Optional[ResultQueueItem]:
+        """
+        Get the most recently DONE frame (for servo execution)
+        
+        When sensor OUT arrives, first frame becomes DONE.
+        This method returns that frame so servo command can be sent based on its status.
+        
+        Returns:
+            ResultQueueItem if found, None otherwise
+        """
+        try:
+            # Find most recent DONE frame (search from end backwards)
+            for item in reversed(self.queue):
+                if item.completion_status == "DONE":
+                    logger.debug(f"FIFOResultQueue: Found last DONE frame - frame_id={item.frame_id}, status={item.frame_status}")
+                    return item
+            
+            logger.debug("FIFOResultQueue: No DONE frames found")
+            return None
+            
+        except Exception as e:
+            logger.error(f"FIFOResultQueue: Error getting last DONE frame: {e}")
+            return None
+    
     def delete_item_by_frame_id(self, frame_id: int) -> bool:
         """
         Delete single item from queue by frame_id

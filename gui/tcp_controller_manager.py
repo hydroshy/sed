@@ -378,6 +378,10 @@ class TCPControllerManager:
     def _handle_sensor_out_event(self, sensor_id: int):
         """
         NEW: Xử lý sensor OUT event (end_sensor)
+        When sensor OUT arrives:
+        1. Frame marked as DONE
+        2. Get frame status (OK/NG)
+        3. Execute servo command: OK → GOTO 41, NG → HOME
         
         Args:
             sensor_id: Sensor ID từ pico
@@ -392,12 +396,15 @@ class TCPControllerManager:
                 logging.warning("[TCPController] Result Tab Manager not found!")
                 return
             
-            # Thêm sensor OUT event
+            # Thêm sensor OUT event (frame marked as DONE)
             success = result_tab_manager.add_sensor_out_event(sensor_id)
             
             if success:
                 logging.info(f"[TCPController] Sensor OUT matched successfully")
                 print(f"DEBUG: [TCPController] Sensor OUT matched")
+                
+                # ✅ NEW: Execute servo command based on frame status
+                self._execute_servo_command_for_done_frame()
                 
                 # Optional: hiển thị message trên UI
                 if self.message_list:
@@ -410,6 +417,73 @@ class TCPControllerManager:
         except Exception as e:
             logging.error(f"[TCPController] Error handling sensor OUT: {e}", exc_info=True)
             print(f"DEBUG: [TCPController] Error handling sensor OUT: {e}")
+    
+    def _execute_servo_command_for_done_frame(self):
+        """
+        ✅ NEW: Execute servo command based on the frame that just became DONE
+        
+        FIFO: Get most recently DONE frame
+        - If frame_status == "OK" → Send "GOTO 41" (move to position 41)
+        - If frame_status == "NG" → Send "HOME" (move to home position)
+        """
+        try:
+            # Get result tab manager to access queue
+            result_tab_manager = getattr(self.main_window, 'result_tab_manager', None)
+            if not result_tab_manager:
+                logging.warning("[TCPController] Cannot execute servo: Result Tab Manager not found")
+                return
+            
+            # Get FIFO queue
+            fifo_queue = getattr(result_tab_manager, 'fifo_queue', None)
+            if not fifo_queue:
+                logging.warning("[TCPController] Cannot execute servo: FIFO queue not found")
+                return
+            
+            # Get the most recently DONE frame
+            done_frame = fifo_queue.get_last_done_frame()
+            if not done_frame:
+                logging.warning("[TCPController] Cannot execute servo: No DONE frame found")
+                return
+            
+            # Determine servo command based on frame status
+            frame_status = done_frame.frame_status
+            servo_command = None
+            
+            if frame_status == "OK":
+                servo_command = "GOTO 41"
+                logging.info(f"[TCPController] ✅ Frame {done_frame.frame_id} is OK → Servo command: GOTO 41")
+                print(f"DEBUG: [TCPController] ✅ OK status → GOTO 41")
+            elif frame_status == "NG":
+                servo_command = "HOME"
+                logging.info(f"[TCPController] ❌ Frame {done_frame.frame_id} is NG → Servo command: HOME")
+                print(f"DEBUG: [TCPController] ❌ NG status → HOME")
+            else:
+                logging.warning(f"[TCPController] Frame status is '{frame_status}' (not OK/NG), skipping servo command")
+                print(f"DEBUG: [TCPController] Skipping: status={frame_status}")
+                return
+            
+            # Send servo command via TCP
+            if servo_command and self.tcp_controller and self.tcp_controller.is_connected:
+                success = self.tcp_controller.send_message(servo_command)
+                
+                if success:
+                    logging.info(f"[TCPController] ✅ Servo command sent: {servo_command}")
+                    print(f"DEBUG: [TCPController] ✅ TX: {servo_command}")
+                    
+                    # Add to message list for UI display
+                    if self.message_list:
+                        self.message_list.addItem(f"[SERVO] TX: {servo_command}")
+                        self.message_list.scrollToBottom()
+                else:
+                    logging.error(f"[TCPController] Failed to send servo command: {servo_command}")
+                    print(f"DEBUG: [TCPController] ❌ Failed to send: {servo_command}")
+            else:
+                logging.warning("[TCPController] Cannot send servo command: TCP not connected")
+                print(f"DEBUG: [TCPController] TCP not connected")
+            
+        except Exception as e:
+            logging.error(f"[TCPController] Error executing servo command: {e}", exc_info=True)
+            print(f"DEBUG: [TCPController] Error executing servo: {e}")
     
     def _on_connect_click(self):
         """Handle connect/disconnect button clicks"""
