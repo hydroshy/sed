@@ -218,6 +218,19 @@ class CameraTool(BaseTool):
         # Delegate to CameraManager for hardware control ONLY
         if hasattr(self, 'camera_manager') and self.camera_manager:
             
+            # ✅ CRITICAL: Stop camera BEFORE changing trigger mode
+            # This prevents "Trigger mode enabled" errors when camera is running
+            try:
+                if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
+                    if hasattr(self.camera_manager.camera_stream, 'is_running') and self.camera_manager.camera_stream.is_running():
+                        logger.info(f"CameraTool: Stopping camera before mode change ({old_mode} → {mode})")
+                        if hasattr(self.camera_manager.camera_stream, 'stop_live'):
+                            self.camera_manager.camera_stream.stop_live()
+                        elif hasattr(self.camera_manager.camera_stream, 'cancel_all_and_flush'):
+                            self.camera_manager.camera_stream.cancel_all_and_flush()
+            except Exception as e:
+                logger.warning(f"CameraTool: Error stopping camera before mode change: {e}")
+            
             # Update CameraManager's current_mode to stay in sync
             self.camera_manager.current_mode = mode
             
@@ -752,7 +765,7 @@ class CameraTool(BaseTool):
                 else:
                     # Create a placeholder image if no input
                     logger.warning("CameraTool: No camera frame and no input image - creating placeholder")
-                    placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
+                    placeholder = np.zeros((1080, 1440, 3), dtype=np.uint8)
                     placeholder[:] = (128, 128, 128)  # Gray placeholder
                     return placeholder, {"source": "Camera Source (placeholder)", "tool_id": self.tool_id}
                     
@@ -765,7 +778,7 @@ class CameraTool(BaseTool):
             if image is not None:
                 return image, {"error": str(e), "source": "Camera Source (error)", "tool_id": self.tool_id}
             else:
-                placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
+                placeholder = np.zeros((1080, 1440, 3), dtype=np.uint8)
                 placeholder[:] = (255, 0, 0)  # Red error placeholder
                 return placeholder, {"error": str(e), "source": "Camera Source (error)", "tool_id": self.tool_id}
 

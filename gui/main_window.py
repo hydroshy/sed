@@ -543,35 +543,6 @@ class MainWindow(QMainWindow):
             )
             logging.info("TCP Controller setup completed successfully")
             
-            # NEW: Setup Light Controller if widgets are found
-            light_widgets = {
-                'ipLineEditLightController': self.ipLineEditLightController,
-                'portLineEditLightController': self.portLineEditLightController,
-                'connectButtonLightController': self.connectButtonLightController,
-                'statusLabelLightController': self.statusLabelLightController,
-                'msgListWidgetLightController': self.msgListWidgetLightController,
-                'msgLineEditLightController': self.msgLineEditLightController,
-                'sendButtonLightController': self.sendButtonLightController
-            }
-            
-            missing_light_widgets = [name for name, widget in light_widgets.items() if widget is None]
-            
-            if not missing_light_widgets:
-                logging.info("Setting up Light Controller with all required widgets...")
-                self.tcp_controller.setup_light_controller(
-                    self.ipLineEditLightController,
-                    self.portLineEditLightController,
-                    self.connectButtonLightController,
-                    self.statusLabelLightController,
-                    self.msgListWidgetLightController,
-                    self.msgLineEditLightController,
-                    self.sendButtonLightController
-                )
-                logging.info("Light Controller setup completed successfully")
-            else:
-                logging.warning(f"Missing light controller widgets: {', '.join(missing_light_widgets)}")
-                logging.warning("Light controller setup will be skipped!")
-            
             return True
             
         except Exception as e:
@@ -1427,10 +1398,6 @@ class MainWindow(QMainWindow):
         if self.autoExposure:
             self.autoExposure.clicked.connect(self.camera_manager.set_auto_exposure_mode)
             
-        # runJob button is now handled by camera_manager as job_toggle_btn
-        # if self.runJob:
-        #     self.runJob.clicked.connect(self.run_current_job)
-            
         # Job save/load connections
         if self.saveJob:
             self.saveJob.clicked.connect(self.save_current_job)
@@ -1454,9 +1421,6 @@ class MainWindow(QMainWindow):
             
         # Add Camera Source to tool combo box if not already present
         self._add_camera_source_to_combo_box()
-        
-        # Delay Trigger checkbox and spinbox connection
-        self._setup_delay_trigger_controls()
         
         # Setup keyboard shortcuts for NG/OK operations
         self._setup_ng_ok_shortcuts()
@@ -1500,57 +1464,7 @@ class MainWindow(QMainWindow):
             logging.error(f"Error in set reference shortcut handler: {e}", exc_info=True)
             print(f"DEBUG: [MainWindow] Error: {e}")
     
-    def _setup_delay_trigger_controls(self):
-        """
-        Setup delay trigger checkbox and spinbox controls
-        - Checkbox: Enable/disable delay trigger feature
-        - Spinbox: Set delay time in milliseconds
-        """
-        try:
-            delay_checkbox = getattr(self, 'delayTriggerCheckBox', None)
-            delay_spinbox = getattr(self, 'delayTriggerTime', None)
-            
-            if not delay_checkbox or not delay_spinbox:
-                logging.warning("Delay trigger widgets not found in UI")
-                return
-            
-            # Set initial spinbox state (disabled by default)
-            delay_spinbox.setEnabled(False)
-            delay_spinbox.setDecimals(1)  # Allow 1 decimal place (0.1ms precision)
-            delay_spinbox.setMinimum(0.0)
-            delay_spinbox.setMaximum(1000.0)
-            delay_spinbox.setSingleStep(0.1)
-            delay_spinbox.setValue(0.0)
-            
-            # Set suffix to show unit (ms)
-            delay_spinbox.setSuffix(" ms")
-            
-            # Connect checkbox to enable/disable spinbox
-            delay_checkbox.stateChanged.connect(lambda state: self._on_delay_trigger_toggled(state, delay_spinbox))
-            
-            logging.info("Delay trigger controls setup successfully")
-            
-        except Exception as e:
-            logging.error(f"Error setting up delay trigger controls: {e}", exc_info=True)
-    
-    def _on_delay_trigger_toggled(self, state, spinbox):
-        """
-        Handle delay trigger checkbox toggle
-        - state: 2 (checked) or 0 (unchecked)
-        - spinbox: The delayTriggerTime widget
-        """
-        try:
-            is_checked = state == 2  # Qt.Checked = 2
-            spinbox.setEnabled(is_checked)
-            
-            if is_checked:
-                logging.info(f"Delay trigger enabled - delay: {spinbox.value():.1f}ms")
-            else:
-                logging.info("Delay trigger disabled")
-                
-        except Exception as e:
-            logging.error(f"Error toggling delay trigger: {e}", exc_info=True)
-    
+
     def _add_camera_source_to_combo_box(self):
         """Ensure common tools exist in the tool combo box"""
         if self.toolComboBox:
@@ -1783,6 +1697,8 @@ class MainWindow(QMainWindow):
         selected_tool = self.tool_manager.get_selected_tool()
         if selected_tool:
             self._editing_tool = selected_tool
+            # ✅ IMPORTANT: Clear _pending_tool when entering edit mode
+            # This ensures Apply button will update tool instead of adding a new one
             self.tool_manager._pending_tool = None
             
             # Auto-stop camera if editing Camera Source
@@ -1869,7 +1785,19 @@ class MainWindow(QMainWindow):
         if current_page == "camera":
             self._apply_camera_settings()
             
-            # Check if Camera Source tool is pending and add it
+            # Check if we're EDITING an existing Camera Source tool vs ADDING a new one
+            if self._editing_tool and (self._editing_tool.display_name == "Camera Source" or self._editing_tool.name == "Camera Source"):
+                # EDIT MODE: Update existing Camera Source tool configuration
+                print(f"DEBUG: Updating existing Camera Source tool configuration")
+                self._editing_tool = None
+                if hasattr(self.tool_manager, '_update_job_view'):
+                    self.tool_manager._update_job_view()
+                
+                # Chuyển về trang palette sau khi áp dụng cài đặt camera
+                self.settings_manager.return_to_palette_page()
+                return
+            
+            # Check if Camera Source tool is pending and add it (NEW TOOL mode)
             if hasattr(self.tool_manager, '_pending_tool') and self.tool_manager._pending_tool == "Camera Source":
                 print("DEBUG: Applying Camera Source tool settings")
                 
@@ -2578,7 +2506,7 @@ class MainWindow(QMainWindow):
                 if first_tool and first_tool.name == "Camera Source":
                     logging.info("Using Camera Source tool to get frame")
                     # We'll let the job processing handle the camera source tool
-                    frame = np.zeros((480, 640, 3), dtype=np.uint8)  # Placeholder - will be replaced by CameraTool
+                    frame = np.zeros((1080, 1440, 3), dtype=np.uint8)  # Placeholder - will be replaced by CameraTool
                 else:
                     # Get current frame from camera_view if no CameraTool is present
                     if hasattr(self.camera_manager.camera_view, 'get_current_frame'):
@@ -2587,22 +2515,42 @@ class MainWindow(QMainWindow):
                     # Fallback to test image if no frame is available
                     if frame is None:
                         logging.warning("No frame available, using test image")
-                        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                        frame = np.zeros((1080, 1440, 3), dtype=np.uint8)
                 
                 # Chạy job with force_save enabled
                 initial_context = {"force_save": True}
+                import time as time_module
+                start_time = time_module.time()
                 processed_image, results = current_job.run(frame, initial_context)
+                total_execution_time = time_module.time() - start_time
                 
                 # Hiển thị kết quả
                 if 'error' not in results:
                     logging.info(f"Job '{current_job.name}' completed successfully")
-                    logging.info(f"Execution time: {results.get('execution_time', 0):.2f}s")
                     
-                    # Cập nhật execution time display
+                    # Lấy inference_time từ detect tool (ưu tiên) hoặc dùng total_execution_time
+                    inference_time = results.get('inference_time', total_execution_time)
+                    
+                    # Nếu không có inference_time trực tiếp, tìm trong tool_results
+                    if inference_time == total_execution_time and 'tool_results' in results:
+                        for tool_name, tool_result in results['tool_results'].items():
+                            if 'inference_time' in tool_result:
+                                inference_time = tool_result['inference_time']
+                                logging.info(f"Found inference_time from {tool_name}: {inference_time:.3f}s")
+                                break
+                    
+                    logging.info(f"Execution time: {total_execution_time:.2f}s")
+                    logging.info(f"Inference time: {inference_time:.3f}s")
+                    
+                    # Cập nhật execution time display với inference time
                     if self.executionTime:
-                        self.executionTime.display(results.get('execution_time', 0))
+                        self.executionTime.display(round(inference_time, 3))
+                        logging.info(f"Updated executionTime label: {inference_time:.3f}s")
                 else:
                     logging.error(f"Job failed: {results['error']}")
+                    # Cập nhật label về 0 khi lỗi
+                    if self.executionTime:
+                        self.executionTime.display(0)
                     
         except Exception as e:
             logging.error(f"Error running job: {str(e)}")
@@ -2772,11 +2720,25 @@ class MainWindow(QMainWindow):
             max_cleanup_time = 2.0  # 2 second timeout for all cleanup
             
             def cleanup_with_timeout():
-                # Dọn dẹp TCP controller manager FIRST (before camera)
-                # This prevents threading hangs from TCP handler threads
-                if hasattr(self, 'tcp_controller_manager') and self.tcp_controller_manager:
+                # ✅ Disconnect TCP first (before camera)
+                # This allows TCP monitor thread to stop cleanly
+                if hasattr(self, 'tcp_controller') and self.tcp_controller:
                     try:
-                        self.tcp_controller_manager.cleanup()
+                        logger.info("Disconnecting TCP controller...")
+                        self.tcp_controller.tcp_controller.disconnect()
+                        logger.info("TCP controller disconnected")
+                    except Exception as tcp_err:
+                        logger.error(f"Error disconnecting TCP: {tcp_err}")
+                
+                # Check timeout
+                if time.time() - start_time > max_cleanup_time:
+                    logger.warning("Cleanup timeout - forcing exit")
+                    return
+                
+                # Dọn dẹp TCP controller manager
+                if hasattr(self, 'tcp_controller') and self.tcp_controller:
+                    try:
+                        self.tcp_controller.cleanup()
                     except Exception as tcp_err:
                         logger.error(f"Error cleaning up TCP controller manager: {tcp_err}")
                 

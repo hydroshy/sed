@@ -129,29 +129,38 @@ class SettingsManager(QObject):
             logging.error("SettingsManager: tool_name is empty")
             return False
         
-        # CHECK: If adding Camera Source, verify only 1 exists
+        # CHECK: If adding Camera Source (not editing), verify only 1 exists
         if tool_name == "Camera Source":
-            has_camera_source = False
-            if hasattr(self.main_window, 'job_manager') and self.main_window.job_manager:
-                current_job = self.main_window.job_manager.get_current_job()
-                if current_job:
-                    for tool in current_job.tools:
-                        if hasattr(tool, 'name') and tool.name.lower() == "camera source":
-                            has_camera_source = True
-                            break
+            # ✅ Check if we're in EDIT MODE (main_window._editing_tool is set)
+            is_editing = (hasattr(self.main_window, '_editing_tool') and 
+                         self.main_window._editing_tool is not None)
             
-            # If already has Camera Source, show warning and return
-            if has_camera_source:
-                from PyQt5.QtWidgets import QMessageBox
-                msg = QMessageBox()
-                msg.setIcon(QMessageBox.Warning)
-                msg.setWindowTitle("Camera Source Already Exists")
-                msg.setText("Job already contains a Camera Source tool.\n\nOnly 1 camera can be connected at a time.")
-                msg.setStandardButtons(QMessageBox.Ok)
-                msg.exec_()
-                print("DEBUG: User tried to add multiple Camera Source tools - blocked at switch_to_tool_setting_page")
-                logging.warning("SettingsManager: Attempted to add multiple Camera Source tools - blocked at switch_to_tool_setting_page")
-                return False
+            # Only check for duplicates if we're ADDING (not EDITING)
+            if not is_editing:
+                has_camera_source = False
+                if hasattr(self.main_window, 'job_manager') and self.main_window.job_manager:
+                    current_job = self.main_window.job_manager.get_current_job()
+                    if current_job:
+                        for tool in current_job.tools:
+                            if hasattr(tool, 'name') and tool.name.lower() == "camera source":
+                                has_camera_source = True
+                                break
+                
+                # If already has Camera Source and we're ADDING, show warning and return
+                if has_camera_source:
+                    from PyQt5.QtWidgets import QMessageBox
+                    msg = QMessageBox()
+                    msg.setIcon(QMessageBox.Warning)
+                    msg.setWindowTitle("Camera Source Already Exists")
+                    msg.setText("Job already contains a Camera Source tool.\n\nOnly 1 camera can be connected at a time.")
+                    msg.setStandardButtons(QMessageBox.Ok)
+                    msg.exec_()
+                    print("DEBUG: User tried to add multiple Camera Source tools - blocked at switch_to_tool_setting_page")
+                    logging.warning("SettingsManager: Attempted to add multiple Camera Source tools - blocked at switch_to_tool_setting_page")
+                    return False
+            else:
+                print("DEBUG: In EDIT MODE - allowing Camera Source edit despite existing instance")
+                logging.info("SettingsManager: In EDIT MODE - skipping duplicate check")
             
         if not self.setting_stacked_widget:
             logging.error("SettingsManager: settingStackedWidget not found")

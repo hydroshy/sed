@@ -354,8 +354,58 @@ class CameraManager(QObject):
                 
                 initial_context = {"force_save": True, "pixel_format": str(pixel_format)}
                 print(f"DEBUG: [CameraManager] RUNNING JOB PIPELINE (trigger_capturing={getattr(self, '_trigger_capturing', False)})")
+                
+                # Tính toán thời gian thực thi
+                import time as time_module
+                start_time = time_module.time()
                 processed_image, job_results = job_manager.run_current_job(frame, context=initial_context)
-                print(f"DEBUG: [CameraManager] JOB PIPELINE COMPLETED")
+                total_execution_time = time_module.time() - start_time
+                
+                print(f"DEBUG: [CameraManager] JOB PIPELINE COMPLETED in {total_execution_time:.3f}s")
+                
+                # Cập nhật executionTime label với inference time từ ONNX model
+                try:
+                    if job_results and isinstance(job_results, dict):
+                        inference_time = 0.0
+                        
+                        # Priority 1: Check nested results -> Detect Tool -> data -> inference_time
+                        results_data = job_results.get('results', {})
+                        if isinstance(results_data, dict):
+                            detect_tool = results_data.get('Detect Tool', {})
+                            if isinstance(detect_tool, dict):
+                                detect_data = detect_tool.get('data', {})
+                                if isinstance(detect_data, dict) and 'inference_time' in detect_data:
+                                    inference_time = detect_data['inference_time']
+                                    logging.info(f"Found inference_time from Detect Tool: {inference_time:.3f}s")
+                        
+                        # Priority 2: Check top-level inference_time
+                        if inference_time == 0.0:
+                            inference_time = job_results.get('inference_time', 0.0)
+                            if inference_time > 0.0:
+                                logging.info(f"Found inference_time from top-level: {inference_time:.3f}s")
+                        
+                        # Priority 3: Search tool_results
+                        if inference_time == 0.0 and 'tool_results' in job_results:
+                            tool_results = job_results['tool_results']
+                            if isinstance(tool_results, dict):
+                                for tool_name, tool_result in tool_results.items():
+                                    if isinstance(tool_result, dict) and 'inference_time' in tool_result:
+                                        inference_time = tool_result['inference_time']
+                                        logging.info(f"Found inference_time from {tool_name}: {inference_time:.3f}s")
+                                        break
+                        
+                        # Fallback: Use total execution time if no inference_time found
+                        if inference_time == 0.0:
+                            inference_time = total_execution_time
+                            logging.info(f"No inference_time found, using total_execution_time: {inference_time:.3f}s")
+                        
+                        # Cập nhật executionTime label nếu có
+                        if hasattr(self, 'main_window') and self.main_window:
+                            if hasattr(self.main_window, 'executionTime') and self.main_window.executionTime:
+                                self.main_window.executionTime.display(round(inference_time, 3))
+                                print(f"DEBUG: Updated executionTime label: {inference_time:.3f}s")
+                except Exception as update_err:
+                    logging.debug(f"Could not update executionTime label: {update_err}")
                 
                 # Update execution label with OK/NG status
                 self._update_execution_label(job_results)
@@ -2152,22 +2202,28 @@ class CameraManager(QObject):
         if hasattr(self.main_window, 'onlineCamera') and self.main_window.onlineCamera:
             online_camera_checked = self.main_window.onlineCamera.isChecked()
         
-        # Quy tắc đơn giản để xác định khi nào nút trigger được kích hoạt:
-        # 1. PHẢI đang ở chế độ 'trigger' (không phải 'live')
-        # 2. PHẢI có camera tool
-        # 3. PHẢI onlineCamera button được nhấn (checked = True)
+        # ✅ NEW: Quy tắc mới để xác định khi nào nút trigger được kích hoạt:
+        # TRIGGER MODE CONDITIONS (Any of these):
+        # 1. In EDIT mode + trigger mode + has camera tool (allow user to test trigger settings)
+        # 2. OR: Normal mode + trigger mode + camera is running + camera tool exists
         
         # Mặc định vô hiệu hóa nút trigger
         trigger_enabled = False
         
         # Chỉ kích hoạt nút trong những điều kiện cụ thể
-        if current_mode == 'trigger' and has_camera_tool and online_camera_checked:
-            trigger_enabled = True
+        if current_mode == 'trigger' and has_camera_tool:
+            # ✅ Allow trigger button in EDIT mode even if camera not running
+            if editing_camera_tool:
+                # In edit mode: enable trigger button to let user test settings
+                trigger_enabled = True
+            elif online_camera_checked:
+                # In normal mode: require camera to be running
+                trigger_enabled = True
         else:
             # Trong mọi trường hợp khác, vô hiệu hóa nút
             trigger_enabled = False
             
-        print(f"DEBUG: [CameraManager] Trigger enabled: {trigger_enabled}, mode: {current_mode}, online_camera_checked: {online_camera_checked}, has_camera_tool: {has_camera_tool}")
+        print(f"DEBUG: [CameraManager] Trigger enabled: {trigger_enabled}, mode: {current_mode}, editing: {editing_camera_tool}, online_checked: {online_camera_checked}, has_tool: {has_camera_tool}")
         
         is_camera_btn_checked = self.live_camera_btn and self.live_camera_btn.isChecked()
         print(f"DEBUG: [CameraManager] Camera is running: {camera_is_running}, editing Camera Source: {editing_camera_tool}, button checked: {is_camera_btn_checked}")
@@ -2221,9 +2277,12 @@ class CameraManager(QObject):
                         self.trigger_camera_btn.setToolTip("Camera not ready")
                     print("DEBUG: [CameraManager] Trigger mode - trigger button DISABLED")
                 else:
-                    # Kích hoạt và hiển thị màu cam khi ở chế độ trigger
+                    # ✅ Kích hoạt và hiển thị màu cam khi ở chế độ trigger (including edit mode)
                     self.trigger_camera_btn.setStyleSheet("background-color: #ffa62b")  # Orange
-                    self.trigger_camera_btn.setToolTip("Trigger camera to capture")
+                    if editing_camera_tool:
+                        self.trigger_camera_btn.setToolTip("Test trigger (Edit mode)")
+                    else:
+                        self.trigger_camera_btn.setToolTip("Trigger camera to capture")
                     print("DEBUG: [CameraManager] Trigger mode - trigger button ENABLED")
             else:
                 # Default - disable
@@ -2801,6 +2860,7 @@ class CameraManager(QObject):
         """Find the Camera Source tool.
 
         Prefer a cached reference during pending/edit; else search current job.
+        ✅ Also check _editing_tool for tools being edited
         """
         # Use cached reference if present (tool created/registered but not yet added to job)
         try:
@@ -2811,9 +2871,15 @@ class CameraManager(QObject):
         if not hasattr(self, 'main_window') or not self.main_window:
             return None
         
-        if not hasattr(self, 'main_window') or not self.main_window:
-            return None
-            
+        # ✅ NEW: Check if we're editing a Camera Source tool
+        # During edit, tool is in _editing_tool, not yet in job
+        if hasattr(self.main_window, '_editing_tool') and self.main_window._editing_tool:
+            editing_tool = self.main_window._editing_tool
+            if hasattr(editing_tool, 'name') and editing_tool.name == 'Camera Source':
+                return editing_tool
+            if hasattr(editing_tool, 'display_name') and editing_tool.display_name == 'Camera Source':
+                return editing_tool
+        
         if not hasattr(self.main_window, 'tool_manager') or not self.main_window.tool_manager:
             return None
             
@@ -2831,79 +2897,6 @@ class CameraManager(QObject):
                 return tool
                 
         return None
-    
-    def _send_trigger_to_light_controller(self):
-        """Send TR1 command to light controller when trigger button is clicked"""
-        try:
-            # Get tcp_controller from main_window
-            if not hasattr(self.main_window, 'tcp_controller'):
-                logging.debug(" tcp_controller not found in main_window")
-                return
-            
-            tcp_manager = self.main_window.tcp_controller
-            
-            # Check if light controller exists and is connected
-            if not hasattr(tcp_manager, 'light_controller'):
-                logging.debug(" light_controller not found in tcp_manager")
-                return
-            
-            light_controller = tcp_manager.light_controller
-            
-            # TIMING: Send TR1 command if connected
-            # Note: tcp_light_controller.send_message() automatically adds \n
-            if light_controller.is_connected:
-                # Send just "TR1" - the send_message() will add newline automatically
-                success = light_controller.send_message("TR1\r")
-                if success:
-                    logging.info(" Sent TR1 trigger command to light controller")
-                    print("DEBUG: [CameraManager] TR1 trigger sent to light controller")
-                else:
-                    logging.warning(" Failed to send TR1 trigger command to light controller")
-                    print("DEBUG: [CameraManager] Failed to send TR1 trigger to light controller")
-            else:
-                logging.debug(" Light controller not connected, skipping TR1 trigger command")
-                print("DEBUG: [CameraManager] Light controller not connected - skipping TR1")
-                
-        except Exception as e:
-            logging.error(f" Error sending TR1 trigger to light controller: {str(e)}")
-            print(f"DEBUG: [CameraManager] Error sending TR1 trigger: {e}")
-    
-    def _get_delay_trigger_value(self):
-        """Lấy giá trị delay trigger từ controllerTab UI
-        
-        Returns:
-            float: Delay time in milliseconds (0 if disabled or not found)
-        """
-        try:
-            # Tìm widgets trong main_window
-            if not hasattr(self, 'main_window') or not self.main_window:
-                return 0.0
-            
-            # Lấy delay trigger checkbox
-            delay_checkbox = getattr(self.main_window, 'delayTriggerCheckBox', None)
-            if not delay_checkbox:
-                print("DEBUG: [CameraManager] delayTriggerCheckBox not found")
-                return 0.0
-            
-            # Kiểm tra xem delay trigger có được enable không
-            if not delay_checkbox.isChecked():
-                print("DEBUG: [CameraManager] Delay trigger disabled")
-                return 0.0
-            
-            # Lấy delay time spinbox
-            delay_spinbox = getattr(self.main_window, 'delayTriggerTime', None)
-            if not delay_spinbox:
-                print("DEBUG: [CameraManager] delayTriggerTime spinbox not found")
-                return 0.0
-            
-            delay_ms = float(delay_spinbox.value())
-            print(f"DEBUG: [CameraManager] Delay trigger enabled with {delay_ms:.1f}ms delay")
-            return delay_ms
-            
-        except Exception as e:
-            logging.error(f"Error getting delay trigger value: {e}")
-            print(f"DEBUG: [CameraManager] Error getting delay trigger: {e}")
-            return 0.0
     
     def _update_execution_label(self, job_results):
         """
@@ -2936,8 +2929,46 @@ class CameraManager(QObject):
             status = 'NG'
             reason = 'No result available'
             result_data = {}  # Initialize result_data for all paths
+            inference_time = 0.0  # Initialize inference_time
             
             if isinstance(job_results, dict):
+                # Debug: log the structure of job_results
+                print(f"DEBUG: [CameraManager] job_results keys: {list(job_results.keys())}")
+                print(f"DEBUG: [CameraManager] job_results content: {job_results}")
+                
+                # Get inference_time from top-level job_results (added by job_manager)
+                inference_time = job_results.get('inference_time', 0.0)
+                print(f"DEBUG: [CameraManager] Top-level inference_time: {inference_time:.3f}s")
+                
+                if inference_time == 0.0:
+                    # Try getting from tool_results
+                    tool_results = job_results.get('tool_results', {})
+                    print(f"DEBUG: [CameraManager] tool_results keys: {list(tool_results.keys()) if tool_results else 'empty'}")
+                    if isinstance(tool_results, dict):
+                        for tool_name, tool_result in tool_results.items():
+                            print(f"DEBUG: [CameraManager] Checking tool {tool_name}: {type(tool_result)}")
+                            if isinstance(tool_result, dict) and 'inference_time' in tool_result:
+                                inference_time = tool_result['inference_time']
+                                print(f"DEBUG: [CameraManager] Got inference_time from {tool_name}: {inference_time:.3f}s")
+                                break
+                
+                # Try alternative path: results -> Detect Tool -> data
+                if inference_time == 0.0:
+                    results_data = job_results.get('results', {})
+                    print(f"DEBUG: [CameraManager] results keys: {list(results_data.keys()) if results_data else 'empty'}")
+                    if isinstance(results_data, dict):
+                        for tool_name in ['Detect Tool', 'detect_tool', 'DetectTool']:
+                            if tool_name in results_data:
+                                tool_data = results_data[tool_name]
+                                if isinstance(tool_data, dict):
+                                    data = tool_data.get('data', {})
+                                    if isinstance(data, dict) and 'inference_time' in data:
+                                        inference_time = data['inference_time']
+                                        print(f"DEBUG: [CameraManager] Got inference_time from results.{tool_name}.data: {inference_time:.3f}s")
+                                        break
+                
+                print(f"DEBUG: [CameraManager] Final inference_time: {inference_time:.3f}s")
+                
                 # Check for Result Tool output (new threshold-based evaluation)
                 # Results are nested under 'results' key in job_results
                 job_results_data = job_results.get('results', {})  # Look in nested results
@@ -3026,14 +3057,23 @@ class CameraManager(QObject):
                         detection_data = {
                             'detections': result_data.get('detections', []),
                             'detection_count': result_data.get('detection_count', 0),
-                            'inference_time': result_data.get('inference_time', 0),
+                            'inference_time': inference_time,  # Use the extracted inference_time
                         }
+                    else:
+                        # Create detection_data with inference_time even if no detections
+                        detection_data = {
+                            'detections': [],
+                            'detection_count': 0,
+                            'inference_time': inference_time,
+                        }
+                    
+                    print(f"DEBUG: [CameraManager] Detection data: inference_time={inference_time:.3f}s, detection_count={detection_data.get('detection_count', 0)}")
                     
                     # Try to attach result to waiting frame
                     success = result_tab_manager.attach_job_result_to_waiting_frame(
                         status=status,
                         detection_data=detection_data,
-                        inference_time=result_data.get('inference_time', 0),
+                        inference_time=inference_time,  # Use the extracted inference_time
                         reason=reason
                     )
                     
@@ -3052,12 +3092,12 @@ class CameraManager(QObject):
                             similarity=0.0,
                             reason=reason,
                             detection_data=detection_data,
-                            inference_time=result_data.get('inference_time', 0)
+                            inference_time=inference_time  # Use the extracted inference_time
                         )
                         
                         if buffer_success:
-                            logging.info(f"[CameraManager] ✅ Result buffered successfully: {status}")
-                            print(f"DEBUG: [CameraManager] ✅ Result buffered: {status}")
+                            logging.info(f"[CameraManager] ✅ Result buffered successfully: {status}, inference_time={inference_time:.3f}s")
+                            print(f"DEBUG: [CameraManager] ✅ Result buffered: {status} (inference_time={inference_time:.3f}s)")
                         else:
                             logging.error("[CameraManager] Failed to buffer result")
                             print("DEBUG: [CameraManager] ❌ Failed to buffer result")

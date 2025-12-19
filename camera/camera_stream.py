@@ -228,8 +228,16 @@ class CameraStream(QObject):
             return False
         
         try:
-            # Preferred frame size for both modes (may not be supported by all cameras)
-            preferred_size = (640, 480)
+            # Try to query supported sizes from camera hardware
+            supported_sizes = self.query_supported_sizes()
+            
+            # Determine preferred size: use largest supported, or fallback to 1440x1080
+            if supported_sizes and len(supported_sizes) > 0:
+                preferred_size = supported_sizes[0]  # Largest size (list is sorted descending)
+                logger.info(f"📷 Using max supported size: {preferred_size} from {supported_sizes}")
+            else:
+                preferred_size = (1440, 1080)
+                logger.warning(f"📷 Could not query supported sizes, using requested: {preferred_size}")
             
             # Initialize preview_config (LIVE mode)
             if not getattr(self, 'preview_config', None):
@@ -298,6 +306,9 @@ class CameraStream(QObject):
             preview_size = self.preview_config.get("main", {}).get("size")
             still_size = self.still_config.get("main", {}).get("size")
             logger.info(f"Frame sizes - LIVE: {preview_size}, TRIGGER: {still_size}")
+            
+            # Query and log what sizes camera hardware actually supports
+            supported_sizes = self.query_supported_sizes()
             
             # Warn if sizes don't match (original goal was to unify them)
             if preview_size and still_size and preview_size != still_size:
@@ -513,8 +524,8 @@ class CameraStream(QObject):
                 
                 # Set specific size for IMX cameras if needed
                 if "size" not in self.preview_config["main"]:
-                    self.preview_config["main"]["size"] = (1280, 720)
-                    logger.debug("Fixed preview size to 1280x720 for IMX camera")
+                    self.preview_config["main"]["size"] = (1440, 1080)
+                    logger.debug("Fixed preview size to 1440x1080 for IMX camera")
             
         except Exception as e:
             logger.warning(f"Warning in fix_preview_size: {e}")
@@ -569,7 +580,7 @@ class CameraStream(QObject):
         
     def _generate_test_frame(self):
         """Generate a test frame for testing without a real camera"""
-        h, w = 480, 640
+        h, w = 1080, 1440
         # Create base gradients for channels
         r = np.tile(np.linspace(0, 255, w, dtype=np.uint8), (h, 1))
         g = np.tile(np.linspace(0, 255, h, dtype=np.uint8).reshape(h, 1), (1, w))
@@ -690,14 +701,32 @@ class CameraStream(QObject):
             try:
                 if enabled:
                     logger.debug("Restarting camera in trigger mode")
-                    # Create still_config for trigger mode (uses same size as LIVE)
+                    # Use preview_config for trigger mode to get 1440x1080
+                    # (still_config may not support 1440x1080 on this camera hardware)
                     try:
-                        self.still_config = self.picam2.create_still_configuration(
-                            main={"size": (1280, 720), "format": "XBGR8888"}
-                        )
-                        logger.debug("Still config created for trigger mode (size 1280x720)")
-                        self.picam2.configure(self.still_config)
-                        logger.debug("Camera configured with trigger mode")
+                        if hasattr(self, 'preview_config') and self.preview_config:
+                            logger.debug("Using preview_config for trigger mode (should give 1440x1080)")
+                            self.picam2.configure(self.preview_config)
+                            logger.debug("Camera configured with trigger mode using preview_config")
+                            
+                            # Query actual size camera accepted
+                            actual_size = self.get_actual_frame_size()
+                            if actual_size:
+                                logger.warning(f"⚠️  Trigger mode: camera accepted size: {actual_size}")
+                        else:
+                            logger.warning("No preview_config available, trying still_config fallback")
+                            self.still_config = self.picam2.create_still_configuration(
+                                main={"size": (1440, 1080), "format": "XBGR8888"}
+                            )
+                            logger.debug("Still config created for trigger mode (size 1440x1080)")
+                            self.picam2.configure(self.still_config)
+                            logger.debug("Camera configured with trigger mode")
+                            
+                            # Query actual size camera accepted
+                            actual_size = self.get_actual_frame_size()
+                            if actual_size:
+                                logger.warning(f"⚠️  Requested 1440x1080 but camera accepted: {actual_size}")
+                        
                     except Exception as config_e:
                         logger.warning(f"Failed to set trigger config, using default: {config_e}")
                         # Fallback to default still_config if size setting fails
@@ -868,6 +897,11 @@ class CameraStream(QObject):
             # Configure for preview
             self.picam2.configure(self.preview_config)
             logger.debug("Camera configured for preview")
+            
+            # Query actual size camera accepted for preview
+            actual_size = self.get_actual_frame_size()
+            if actual_size:
+                logger.info(f"📷 Live mode - Requested 1440x1080, camera accepted: {actual_size}")
             
             # Sync the actual format that picamera2 applied (may differ from requested)
             self._sync_actual_format_after_config()
@@ -1302,6 +1336,43 @@ class CameraStream(QObject):
             logger.debug(f"Error getting actual camera format: {e}")
             return self.get_pixel_format()
 
+    def get_actual_frame_size(self):
+        """Query actual frame size from camera_config after configuration"""
+        try:
+            if hasattr(self.picam2, 'camera_config'):
+                camera_cfg = self.picam2.camera_config
+                if isinstance(camera_cfg, dict) and "main" in camera_cfg:
+                    actual_size = camera_cfg["main"].get("size", None)
+                    actual_format = camera_cfg["main"].get("format", "UNKNOWN")
+                    logger.info(f"📷 Actual camera config - size: {actual_size}, format: {actual_format}")
+                    return actual_size
+        except Exception as e:
+            logger.debug(f"Could not read actual frame size from camera_config: {e}")
+        return None
+
+    def query_supported_sizes(self):
+        """Query what frame sizes this camera hardware actually supports"""
+        try:
+            if not hasattr(self.picam2, 'sensor_modes'):
+                logger.warning("Camera doesn't have sensor_modes attribute")
+                return None
+            
+            sensor_modes = self.picam2.sensor_modes
+            logger.info(f"📷 Camera sensor modes: {sensor_modes}")
+            
+            if sensor_modes:
+                # Extract unique sizes from sensor modes
+                sizes = set()
+                for mode in sensor_modes:
+                    if hasattr(mode, 'size'):
+                        sizes.add(mode.size)
+                
+                logger.info(f"📷 Supported camera sizes: {sorted(sizes, reverse=True)}")
+                return sorted(sizes, reverse=True)  # Largest first
+        except Exception as e:
+            logger.debug(f"Could not query sensor modes: {e}")
+        return None
+
     def set_target_fps(self, fps):
         """Set target FPS for live streaming (threaded or timer)."""
         try:
@@ -1338,7 +1409,7 @@ class CameraStream(QObject):
                 logger.warning("Camera not available")
                 # Emit a test frame for testing without camera
                 import numpy as np
-                test_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                test_frame = np.zeros((1080, 1440, 3), dtype=np.uint8)
                 self.frame_ready.emit(test_frame)
                 return
                 
@@ -1502,7 +1573,7 @@ class CameraStream(QObject):
                 logger.warning("Camera not available for async capture")
                 # Emit a test frame
                 import numpy as np
-                test_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                test_frame = np.zeros((1080, 1440, 3), dtype=np.uint8)
                 self.frame_ready.emit(test_frame)
                 return False
                 

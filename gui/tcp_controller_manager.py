@@ -1,7 +1,6 @@
 from PyQt5.QtWidgets import QWidget, QPushButton, QLabel, QLineEdit, QListWidget, QMessageBox
 from PyQt5.QtCore import Qt, QTimer
 from controller.tcp_controller import TCPController
-from controller.tcp_light_controller import TCPLightController
 from gui.tcp_optimized_trigger import OptimizedTCPControllerManager
 import logging
 import time
@@ -10,7 +9,6 @@ class TCPControllerManager:
     def __init__(self, main_window):
         self.main_window = main_window
         self.tcp_controller = TCPController()
-        self.light_controller = TCPLightController()  # ✨ NEW: Light controller
         
         # OPTIMIZATION: Initialize optimized trigger handler
         self.optimized_manager = None
@@ -24,20 +22,11 @@ class TCPControllerManager:
         self.message_edit: QLineEdit = None
         self.send_button: QPushButton = None
         
-        # ✨ NEW: UI components - Light Controller
-        self.light_ip_edit: QLineEdit = None
-        self.light_port_edit: QLineEdit = None
-        self.light_connect_button: QPushButton = None
-        self.light_status_label: QLabel = None
-        self.light_message_list: QListWidget = None
-        self.light_message_edit: QLineEdit = None
-        self.light_send_button: QPushButton = None
-        
     def setup(self, ip_edit: QLineEdit, port_edit: QLineEdit,
              connect_button: QPushButton, status_label: QLabel,
              message_list: QListWidget, message_edit: QLineEdit,
              send_button: QPushButton):
-        """Setup UI components"""
+        """Setup UI components and initialize auto-connect"""
         try:
             # Store UI components
             self.ip_edit = ip_edit
@@ -47,6 +36,10 @@ class TCPControllerManager:
             self.message_list = message_list
             self.message_edit = message_edit
             self.send_button = send_button
+            
+            # Set default IP and port in UI
+            self.ip_edit.setText(self.tcp_controller.DEFAULT_IP)
+            self.port_edit.setText(str(self.tcp_controller.DEFAULT_PORT))
             
             # Set initial states
             self.status_label.setText("Disconnected")
@@ -100,6 +93,9 @@ class TCPControllerManager:
                 logging.info(f"port_edit: enabled={self.port_edit.isEnabled()}")
                 logging.info(f"connect_button: enabled={self.connect_button.isEnabled()}")
                 
+                # ✅ Schedule auto-connect after UI setup (500ms delay to ensure UI is ready)
+                QTimer.singleShot(500, self._auto_connect_to_default)
+                
             except Exception as e:
                 logging.error(f"Error during signal connection: {str(e)}")
                 raise  # Re-raise để main window có thể xử lý
@@ -107,150 +103,6 @@ class TCPControllerManager:
         except Exception as e:
             logging.error(f"Error during TCP controller setup: {str(e)}")
     
-    def setup_light_controller(self, ip_edit: QLineEdit, port_edit: QLineEdit,
-                              connect_button: QPushButton, status_label: QLabel,
-                              message_list: QListWidget, message_edit: QLineEdit,
-                              send_button: QPushButton):
-        """Setup light controller UI components"""
-        try:
-            # Store UI components
-            self.light_ip_edit = ip_edit
-            self.light_port_edit = port_edit
-            self.light_connect_button = connect_button
-            self.light_status_label = status_label
-            self.light_message_list = message_list
-            self.light_message_edit = message_edit
-            self.light_send_button = send_button
-            
-            # Set initial states
-            self.light_status_label.setText("Disconnected")
-            self.light_status_label.setStyleSheet("color: red")
-            self._update_light_button_states(False)
-            
-            # Connect light controller signals
-            self.light_controller.connection_status_changed.connect(
-                self._on_light_connection_status
-            )
-            self.light_controller.message_received.connect(
-                self._on_light_message_received
-            )
-            self.light_controller.light_status_changed.connect(
-                self._on_light_status_changed
-            )
-            
-            # Connect button signals
-            self.light_connect_button.clicked.connect(
-                self._on_light_connect_click
-            )
-            self.light_send_button.clicked.connect(
-                self._on_light_send_click
-            )
-            
-            # Allow pressing Enter in message edit to send
-            self.light_message_edit.returnPressed.connect(
-                self._on_light_send_click
-            )
-            
-            logging.info("Light controller UI setup completed successfully")
-            
-        except Exception as e:
-            logging.error(f"Error during light controller setup: {str(e)}")
-            
-    def _update_light_button_states(self, connected: bool):
-        """Update light controller UI states based on connection status"""
-        # Connection controls
-        self.light_ip_edit.setEnabled(not connected)
-        self.light_port_edit.setEnabled(not connected)
-        self.light_connect_button.setText("Disconnect" if connected else "Connect")
-        
-        # Message controls
-        self.light_message_edit.setEnabled(connected)
-        self.light_send_button.setEnabled(connected)
-    
-    def _on_light_connection_status(self, connected: bool, message: str):
-        """Handle light controller connection status changes"""
-        self._update_light_button_states(connected)
-        
-        # Update status label
-        self.light_status_label.setText(message)
-        self.light_status_label.setStyleSheet(
-            "color: green" if connected else "color: red"
-        )
-        
-        # Add status message to list
-        self.light_message_list.addItem(f"Status: {message}")
-        self.light_message_list.scrollToBottom()
-        
-        logging.info(f"Light controller connection status: {message}")
-    
-    def _on_light_message_received(self, message: str):
-        """Handle messages received from light controller"""
-        logging.info(f"Message from light controller: {message!r}")
-        
-        # Add message to UI
-        if self.light_message_list:
-            self.light_message_list.addItem(f"← {message}")
-            self.light_message_list.scrollToBottom()
-    
-    def _on_light_status_changed(self, status: str):
-        """Handle light status changes"""
-        logging.info(f"Light status changed: {status}")
-    
-    def _on_light_connect_click(self):
-        """Handle light controller connect/disconnect button clicks"""
-        logging.info("Light controller connect button clicked")
-        
-        if not self.light_controller.is_connected:
-            # Get IP and port
-            ip = self.light_ip_edit.text().strip()
-            port = self.light_port_edit.text().strip()
-            
-            logging.info(f"Attempting to connect to light controller at {ip}:{port}")
-            
-            if not ip or not port:
-                error_msg = "Error: IP and port required"
-                logging.error(f"{error_msg}")
-                self.light_status_label.setText(error_msg)
-                self.light_status_label.setStyleSheet("color: red")
-                return
-            
-            try:
-                result = self.light_controller.connect(ip, port)
-                logging.info(f"Connection attempt result: {result}")
-            except Exception as e:
-                logging.error(f"Error during connection: {str(e)}")
-                self.light_status_label.setText(f"Error: {str(e)}")
-                self.light_status_label.setStyleSheet("color: red")
-        else:
-            # Disconnect
-            logging.info("Disconnecting light controller")
-            try:
-                self.light_controller._disconnect()
-                logging.info("Disconnected successfully")
-            except Exception as e:
-                logging.error(f"Error during disconnect: {str(e)}")
-    
-    def _on_light_send_click(self):
-        """Handle light controller send button clicks"""
-        if not self.light_controller.is_connected:
-            logging.warning("Not connected to light controller")
-            return
-        
-        message = self.light_message_edit.text().strip()
-        if message:
-            if self.light_controller.send_message(message):
-                # Add sent message to list
-                self.light_message_list.addItem(f"→ {message}")
-                self.light_message_list.scrollToBottom()
-                # Clear input field
-                self.light_message_edit.clear()
-                logging.info(f"Message sent: {message}")
-            else:
-                self.light_message_list.addItem("Error: Failed to send message")
-                self.light_message_list.scrollToBottom()
-                logging.error("Failed to send message")
-                
-            
     def _update_button_states(self, connected: bool):
         """Update UI states based on connection status"""
         # Connection controls
@@ -261,6 +113,25 @@ class TCPControllerManager:
         # Message controls
         self.message_edit.setEnabled(connected)
         self.send_button.setEnabled(connected)
+    
+    def _auto_connect_to_default(self):
+        """
+        Auto-connect to default IP and port on application startup
+        """
+        try:
+            logging.info("Starting auto-connect to default server...")
+            success = self.tcp_controller.auto_connect()
+            
+            if success:
+                logging.info("Auto-connect successful!")
+                if self.ip_edit:
+                    self.ip_edit.setText(self.tcp_controller.DEFAULT_IP)
+                if self.port_edit:
+                    self.port_edit.setText(str(self.tcp_controller.DEFAULT_PORT))
+            else:
+                logging.warning("Auto-connect failed - will wait for manual connection")
+        except Exception as e:
+            logging.error(f"Error during auto-connect: {e}", exc_info=True)
         
     def _on_connection_status(self, connected: bool, message: str):
         """Handle connection status changes"""
@@ -450,13 +321,13 @@ class TCPControllerManager:
             servo_command = None
             
             if frame_status == "OK":
-                servo_command = "GOTO 41"
-                logging.info(f"[TCPController] ✅ Frame {done_frame.frame_id} is OK → Servo command: GOTO 41")
-                print(f"DEBUG: [TCPController] ✅ OK status → GOTO 41")
+                servo_command = "GOTO 5"
+                logging.info(f"[TCPController] ✅ Frame {done_frame.frame_id} is OK → Servo command: GOTO 5")
+                print(f"DEBUG: [TCPController] ✅ OK status → GOTO 5")
             elif frame_status == "NG":
-                servo_command = "HOME"
-                logging.info(f"[TCPController] ❌ Frame {done_frame.frame_id} is NG → Servo command: HOME")
-                print(f"DEBUG: [TCPController] ❌ NG status → HOME")
+                servo_command = "GOTO 45"
+                logging.info(f"[TCPController] ❌ Frame {done_frame.frame_id} is NG → Servo command: GOTO 45")
+                print(f"DEBUG: [TCPController] ❌ NG status → GOTO 45")
             else:
                 logging.warning(f"[TCPController] Frame status is '{frame_status}' (not OK/NG), skipping servo command")
                 print(f"DEBUG: [TCPController] Skipping: status={frame_status}")
@@ -535,7 +406,7 @@ class TCPControllerManager:
             # Disconnect
             logging.info("Disconnecting from current connection")
             try:
-                self.tcp_controller._disconnect()
+                self.tcp_controller.disconnect()  # Use public disconnect method
                 logging.info("Disconnected successfully")
             except Exception as e:
                 logging.error(f"Error during disconnect: {str(e)}")
@@ -750,14 +621,6 @@ class TCPControllerManager:
                         self.tcp_controller.disconnect()
                 except Exception as e:
                     logging.debug(f"Error disconnecting TCP controller: {e}")
-            
-            # ✨ Cleanup light controller
-            if self.light_controller:
-                try:
-                    if hasattr(self.light_controller, '_disconnect'):
-                        self.light_controller._disconnect()
-                except Exception as e:
-                    logging.debug(f"Error disconnecting light controller: {e}")
             
             logging.info("TCPControllerManager cleanup completed")
         

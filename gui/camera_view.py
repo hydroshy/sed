@@ -731,7 +731,7 @@ class CameraView(QObject):
                 # Last resort: create a blank pixmap
                 else:
                     print("DEBUG: [CameraView] Creating blank pixmap for trigger mode")
-                    pixmap = QPixmap(640, 480)
+                    pixmap = QPixmap(1440, 1080)
                     pixmap.fill(Qt.black)
                     
                     # Create or update pixmap item
@@ -834,7 +834,7 @@ class CameraView(QObject):
                         print("DEBUG: [CameraView] Using existing pixmap as fallback")
                     else:
                         # Create a minimal blank pixmap
-                        pixmap = QPixmap(640, 480)
+                        pixmap = QPixmap(1440, 1080)
                         pixmap.fill(Qt.black)
                         print("DEBUG: [CameraView] Created blank pixmap as fallback")
             else:
@@ -1559,13 +1559,13 @@ class CameraView(QObject):
             history_frame = frame
             h, w = frame.shape[:2]
             
-            # Resize frames larger than 640x480 for history storage
-            if h > 480 or w > 640:
+            # Resize frames larger than 1440x1080 for history storage
+            if h > 1080 or w > 1440:
                 aspect_ratio = w / h
                 if aspect_ratio > 1:  # Landscape
-                    new_w, new_h = 640, int(640 / aspect_ratio)
+                    new_w, new_h = 1440, int(1440 / aspect_ratio)
                 else:  # Portrait
-                    new_w, new_h = int(480 * aspect_ratio), 480
+                    new_w, new_h = int(1080 * aspect_ratio), 1080
                 history_frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
             
             # Add frame to queue for background processing
@@ -1883,7 +1883,7 @@ class CameraView(QObject):
                 return
             
             # Skip if frame is too large (performance optimization)
-            if frame.size > 640 * 480 * 3:  # Skip very large frames for review views
+            if frame.size > 1440 * 1080 * 3:  # Skip very large frames for review views
                 return
             
             # Configure review view for read-only display

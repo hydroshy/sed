@@ -20,6 +20,10 @@ class TCPController(QObject):
         self._stop_monitor = False
         self._monitor_thread = None
         
+        # ✅ Default connection parameters
+        self.DEFAULT_IP = "192.168.1.190"
+        self.DEFAULT_PORT = 4000
+        
         # ✅ OPTIMIZATION: Direct callback for triggers (bypass Qt signal overhead)
         # Set this to a callable to enable direct trigger path
         self.on_trigger_callback = None  # Optional callback for trigger messages
@@ -283,6 +287,23 @@ class TCPController(QObject):
             logging.error(f"Error during disconnect: {e}")
         finally:
             self.connection_status_changed.emit(False, "Disconnected")
+    
+    def auto_connect(self) -> bool:
+        """
+        Tự động kết nối với IP và port mặc định
+        
+        Returns:
+            bool: True nếu kết nối thành công, False nếu thất bại
+        """
+        logging.info(f"Attempting auto-connect to {self.DEFAULT_IP}:{self.DEFAULT_PORT}")
+        return self.connect(self.DEFAULT_IP, str(self.DEFAULT_PORT))
+    
+    def disconnect(self):
+        """
+        Public disconnect method - allows users to manually disconnect
+        """
+        logging.info("User requested disconnect")
+        self._disconnect()
             
     @property
     def is_connected(self) -> bool:

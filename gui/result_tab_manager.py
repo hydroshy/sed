@@ -60,7 +60,8 @@ class ResultTabManager:
             'frame_status': 1,      # OK/NG status of the frame
             'sensor_id_in': 2,
             'sensor_id_out': 3,
-            'completion_status': 4  # PENDING or DONE
+            'execution_time': 4,    # Inference time (s)
+            'completion_status': 5  # PENDING or DONE
         }
         
         # Update timer for periodic refresh
@@ -137,11 +138,11 @@ class ResultTabManager:
                 logger.warning("ResultTabManager: result_table_view is None")
                 return
             
-            # Set column count (5 columns now)
-            self.result_table_view.setColumnCount(5)
+            # Set column count (6 columns now)
+            self.result_table_view.setColumnCount(6)
             
             # Set headers
-            headers = ['Frame ID', 'Frame Status', 'Sensor IN', 'Sensor OUT', 'Status']
+            headers = ['Frame ID', 'Frame Status', 'Sensor IN', 'Sensor OUT', 'Execution Time', 'Status']
             self.result_table_view.setHorizontalHeaderLabels(headers)
             
             # Set column widths
@@ -149,7 +150,12 @@ class ResultTabManager:
             self.result_table_view.setColumnWidth(1, 100)  # Frame Status (OK/NG)
             self.result_table_view.setColumnWidth(2, 90)   # Sensor IN
             self.result_table_view.setColumnWidth(3, 100)  # Sensor OUT
-            self.result_table_view.setColumnWidth(4, 100)  # Status (PENDING/DONE)
+            self.result_table_view.setColumnWidth(4, 120)  # Execution Time
+            self.result_table_view.setColumnWidth(5, 100)  # Status (PENDING/DONE)
+            
+            # Make columns fixed (non-scrollable header)
+            self.result_table_view.horizontalHeader().setStretchLastSection(False)
+            self.result_table_view.horizontalHeader().setStyleSheet("QHeaderView::section { background-color: palette(button); }")
             
             # Allow row selection
             self.result_table_view.setSelectionBehavior(self.result_table_view.SelectRows)
@@ -227,6 +233,12 @@ class ResultTabManager:
         try:
             import time
             
+            # Thêm inference_time vào detection_data nếu chưa có
+            if detection_data is None:
+                detection_data = {}
+            
+            detection_data['inference_time'] = inference_time
+            
             pending = PendingJobResult(
                 status=status,
                 similarity=similarity,
@@ -244,6 +256,7 @@ class ResultTabManager:
             logger.info(f"[ResultTabManager] Waiting for TCP sensor IN signal...")
             logger.info(f"  - Status: {status}")
             logger.info(f"  - Similarity: {similarity:.2%}")
+            logger.info(f"  - Inference time: {inference_time:.3f}s")
             logger.info(f"  - Detection count: {detection_data.get('detection_count', 0) if detection_data else 0}")
             
             return True
@@ -535,6 +548,18 @@ class ResultTabManager:
                 sensor_out_item = QTableWidgetItem(sensor_out_text)
                 sensor_out_item.setFlags(sensor_out_item.flags() & ~Qt.ItemIsEditable)
                 self.result_table_view.setItem(row_idx, self.COLUMNS['sensor_id_out'], sensor_out_item)
+                
+                # Execution Time (inference_time từ detection_data)
+                execution_time_text = '-'
+                detection_data = item_dict.get('detection_data')
+                if isinstance(detection_data, dict) and 'inference_time' in detection_data:
+                    inference_time = detection_data['inference_time']
+                    execution_time_text = f"{inference_time:.3f}"
+                    print(f"DEBUG: ResultTabManager refresh_table - Row {row_idx}: execution_time={execution_time_text}")
+                
+                execution_time_item = QTableWidgetItem(execution_time_text)
+                execution_time_item.setFlags(execution_time_item.flags() & ~Qt.ItemIsEditable)
+                self.result_table_view.setItem(row_idx, self.COLUMNS['execution_time'], execution_time_item)
                 
                 # Completion Status (PENDING/DONE) with color coding
                 completion_status_text = item_dict.get('completion_status', 'PENDING')

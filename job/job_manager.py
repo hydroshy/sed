@@ -711,6 +711,17 @@ class JobManager:
             if has_detect_tool and result[0] is not None:
                 self.last_processed_frame = result[0]
             
+            # Đảm bảo result có inference_time từ detect tool
+            processed_image, results = result
+            if isinstance(results, dict):
+                # Nếu không có inference_time trực tiếp, tìm trong tool_results
+                if 'inference_time' not in results and 'tool_results' in results:
+                    for tool_name, tool_result in results['tool_results'].items():
+                        if isinstance(tool_result, dict) and 'inference_time' in tool_result:
+                            results['inference_time'] = tool_result['inference_time']
+                            logger.debug(f"Extracted inference_time from {tool_name}: {tool_result['inference_time']:.3f}s")
+                            break
+            
             return result
         return image, {"error": "Không có job hiện tại"}
         

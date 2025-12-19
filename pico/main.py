@@ -237,9 +237,17 @@ def _servo_update(now_ms):
                 servo_next_step = utime.ticks_add(now_ms, SERVO_STEP_MS)
 
     elif servo_state == "HOLDING":
-        # Chỉ chờ đợi, không tự động quay về
-        # Lệnh release sẽ từ TCP (HOME hay RELEASE)
-        pass
+        # Giữ vị trí hiện tại bằng cách refresh PWM
+        # để servo không mất lực khi có tác động bên ngoài
+        if utime.ticks_diff(now_ms, next_refresh_ms) >= 0:
+            servo_enable()
+            _set_servo_deg(servo_cur_deg)  # Maintain current position
+            refresh_state   = "ON"
+            refresh_until_ms= utime.ticks_add(now_ms, SERVO_REFRESH_PULSE_MS)
+        if refresh_state == "ON" and utime.ticks_diff(now_ms, refresh_until_ms) >= 0:
+            servo_disable()
+            refresh_state = "OFF"
+            next_refresh_ms = utime.ticks_add(now_ms, SERVO_REFRESH_MS)
 
     elif servo_state == "MOVE_HOME":
         if utime.ticks_diff(now_ms, servo_next_step) >= 0:
@@ -278,12 +286,11 @@ def _servo_update(now_ms):
             refresh_state = "OFF"
             next_refresh_ms = utime.ticks_add(now_ms, SERVO_REFRESH_MS)
 
-# ====== KHỞI ĐỘNG: ĐƯA VỀ HOME & GIỮ PWM BẬT (KHÔNG RELEASE) ======
+# ====== KHỞI ĐỘNG: ĐƯA VỀ HOME & RELEASE NẾU BẬT ======
 _set_servo_deg(HOME_DEG)
 utime.sleep_ms(300)
-# Giữ servo bật ở HOME thay vì release - để servo luôn sẵn sàng
-servo_enabled = True
-print("[SERVO] Initialized at HOME position, servo PWM enabled")
+if SERVO_RELEASE_AFTER_HOME:
+    servo_disable()
 
 # ====== START SENSOR IRQ + DEBOUNCE ======
 event_flag    = False
@@ -307,7 +314,7 @@ def on_edge_end(pin):
     end_event_flag = True
 
 # Chỉ lắng nghe cạnh lên (0->1), gửi event ngay, không tự kick servo
-end_sensor.irq(trigger=Pin.IRQ_RISING, handler=on_edge_end)
+end_sensor.irq(trigger=Pin.IRQ_FALLING, handler=on_edge_end)
 
 # ====== ONE-SOCKET CONTROL CLIENT ======
 class OneSocketClient:
