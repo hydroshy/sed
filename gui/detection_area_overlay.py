@@ -1,6 +1,7 @@
 from PyQt5.QtCore import Qt, QRectF, pyqtSignal, QObject
 from PyQt5.QtGui import QPen, QBrush, QColor, QPainter
 from PyQt5.QtWidgets import QGraphicsRectItem, QGraphicsItem, QGraphicsEllipseItem
+from utils.debug_utils import conditional_print
 
 
 class DetectionAreaOverlay(QGraphicsRectItem):
@@ -124,10 +125,10 @@ class DetectionAreaOverlay(QGraphicsRectItem):
                 self.setPen(pen)
                 self.setBrush(brush)
             except RuntimeError as e:
-                print(f"DEBUG: DetectionAreaOverlay already deleted: {e}")
+                conditional_print(f"DEBUG: DetectionAreaOverlay already deleted: {e}")
                 return  # Object đã bị delete, không thể thao tác
             
-        print(f"DEBUG: DetectionAreaOverlay edit mode: {enabled}")
+        conditional_print(f"DEBUG: DetectionAreaOverlay edit mode: {enabled}")
         
     def _create_handles(self):
         """Tạo các handle để resize"""
@@ -194,10 +195,10 @@ class DetectionAreaOverlay(QGraphicsRectItem):
         try:
             if self.camera_view and hasattr(self.camera_view, 'area_changed'):
                 coords = self.get_area_coords()
-                print(f"DEBUG: DetectionAreaOverlay notifying change: {coords}")
+                conditional_print(f"DEBUG: DetectionAreaOverlay notifying change: {coords}")
                 self.camera_view.area_changed.emit(*coords)
         except Exception as e:
-            print(f"DEBUG: Error in _notify_change: {e}")
+            conditional_print(f"DEBUG: Error in _notify_change: {e}")
             
     def get_area_coords(self):
         """Lấy tọa độ area (x1, y1, x2, y2)"""
@@ -220,7 +221,7 @@ class DetectionAreaOverlay(QGraphicsRectItem):
         rect = QRectF(x1, y1, x2-x1, y2-y1)
         self.setPos(0, 0)  # Reset position
         self.setRect(rect)
-        print(f"DEBUG: DetectionAreaOverlay updated to: ({x1}, {y1}) to ({x2}, {y2})")
+        conditional_print(f"DEBUG: DetectionAreaOverlay updated to: ({x1}, {y1}) to ({x2}, {y2})")
 
 
 class ResizeHandle(QGraphicsEllipseItem):

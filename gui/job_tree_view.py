@@ -3,6 +3,7 @@ Custom QTreeView for Job Manager with drag-drop support and arrow indicators
 Inspired by Cognex Vision Pro interface
 """
 import logging
+from utils.debug_utils import conditional_print
 import math
 from PyQt5.QtCore import Qt, pyqtSignal, QMimeData, QPoint
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QPainter, QPen, QBrush, QColor, QDrag
@@ -81,7 +82,7 @@ class JobTreeView(QTreeView):
         self.setDropIndicatorShown(True)
         self.setDragDropMode(QAbstractItemView.InternalMove)
         self.setDefaultDropAction(Qt.DropAction.MoveAction)
-        print(f"DEBUG: JobTreeView drag-drop setup complete:")
+        conditional_print(f"DEBUG: JobTreeView drag-drop setup complete:")
         print(f"  - Drag enabled: {self.dragEnabled()}")
         print(f"  - Accept drops: {self.acceptDrops()}")
         print(f"  - Drop indicator shown: {self.showDropIndicator()}")
@@ -168,7 +169,7 @@ class JobTreeView(QTreeView):
         
     def draw_control_area_connections(self, painter, tools, control_x_start, control_width):
         """Draw sequential workflow connections within the right control area"""
-        print(f"DEBUG: Drawing sequential workflow for {len(tools)} tools:")
+        conditional_print(f"DEBUG: Drawing sequential workflow for {len(tools)} tools:")
         print(f"  Control area: x={control_x_start}, width={control_width}")
         
         if len(tools) < 2:
@@ -330,7 +331,7 @@ class JobTreeView(QTreeView):
             
     def draw_cognex_style_connections(self, painter, model, tools):
         """Draw connections using Cognex Vision Pro logic - simplified for debugging"""
-        print(f"DEBUG: Drawing connections for {len(tools)} tools:")
+        conditional_print(f"DEBUG: Drawing connections for {len(tools)} tools:")
         for tool in tools:
             print(f"  - Tool {tool['index']}: {tool['name']} (type: {tool['type']})")
         
@@ -339,27 +340,27 @@ class JobTreeView(QTreeView):
         detect_tools = [t for t in tools if t['type'] == 'detect']
         other_tools = [t for t in tools if t['type'] == 'other']
         
-        print(f"DEBUG: Found {len(source_tools)} source tools, {len(detect_tools)} detect tools")
+        conditional_print(f"DEBUG: Found {len(source_tools)} source tools, {len(detect_tools)} detect tools")
         
         # Force curved arrows for testing - connect each source to all detect tools
         for source in source_tools:
             source_index = model.indexFromItem(source['item'])
             source_rect = self.visualRect(source_index)
             
-            print(f"DEBUG: Source tool '{source['name']}' at position {source_rect}")
+            conditional_print(f"DEBUG: Source tool '{source['name']}' at position {source_rect}")
             
             for detect in detect_tools:
                 detect_index = model.indexFromItem(detect['item'])
                 detect_rect = self.visualRect(detect_index)
                 
-                print(f"DEBUG: Drawing curved arrow from source to '{detect['name']}' at {detect_rect}")
+                conditional_print(f"DEBUG: Drawing curved arrow from source to '{detect['name']}' at {detect_rect}")
                 
                 # Always use curved arrows for source-to-detect connections
                 self.draw_curved_arrow_simple(painter, source_rect, detect_rect)
         
         # If no sources found, use sequential connections for debugging
         if not source_tools and len(tools) > 1:
-            print("DEBUG: No source tools found, using sequential connections")
+            conditional_print(f"DEBUG: No source tools found, using sequential connections")
             for i in range(len(tools) - 1):
                 current_index = model.indexFromItem(tools[i]['item'])
                 next_index = model.indexFromItem(tools[i + 1]['item'])
@@ -367,12 +368,12 @@ class JobTreeView(QTreeView):
                 current_rect = self.visualRect(current_index)
                 next_rect = self.visualRect(next_index)
                 
-                print(f"DEBUG: Sequential arrow from tool {i} to {i+1}")
+                conditional_print(f"DEBUG: Sequential arrow from tool {i} to {i+1}")
                 self.draw_arrow_between_tools(painter, current_rect, next_rect, f"seq_{i}")
                 
     def draw_curved_arrow_simple(self, painter, source_rect, target_rect):
         """Draw a simple curved arrow that's easy to see and debug - pointing left"""
-        print(f"DEBUG: draw_curved_arrow_simple called")
+        conditional_print(f"DEBUG: draw_curved_arrow_simple called")
         print(f"  Source rect: {source_rect}")
         print(f"  Target rect: {target_rect}")
         
@@ -443,10 +444,10 @@ class JobTreeView(QTreeView):
         return QPoint(int(x), int(y))
     def draw_arrow_between_tools(self, painter, source_rect, target_rect, connection_id):
         """Draw an arrow between two tool rectangles - simplified for testing"""
-        print(f"DEBUG: draw_arrow_between_tools called with connection_id: {connection_id}")
+        conditional_print(f"DEBUG: draw_arrow_between_tools called with connection_id: {connection_id}")
         
         # For now, always use curved arrows to test the functionality
-        print(f"DEBUG: Using curved arrow for connection {connection_id}")
+        conditional_print(f"DEBUG: Using curved arrow for connection {connection_id}")
         self.draw_curved_arrow_simple(painter, source_rect, target_rect)
         
     def draw_horizontal_arrowhead(self, painter, end_point):
@@ -478,12 +479,12 @@ class JobTreeView(QTreeView):
         painter.drawLine(end_point, bottom_point)
         painter.drawLine(top_point, bottom_point)  # Close the triangle
         
-        print(f"DEBUG: Leftward arrowhead drawn pointing INTO target at {end_point}")
+        conditional_print(f"DEBUG: Leftward arrowhead drawn pointing INTO target at {end_point}")
         
         painter.drawLine(end_point, top_point)
         painter.drawLine(end_point, bottom_point)
         
-        print(f"DEBUG: Drew arrowhead at {end_point}")
+        conditional_print(f"DEBUG: Drew arrowhead at {end_point}")
                 
     def draw_vertical_arrowhead(self, painter, end_point):
         """Draw downward pointing arrowhead with better visibility"""
@@ -508,19 +509,19 @@ class JobTreeView(QTreeView):
         
     def startDrag(self, supportedActions):
         """Override to customize drag behavior with custom MIME data"""
-        print("DEBUG: JobTreeView.startDrag called")
+        conditional_print(f"DEBUG: JobTreeView.startDrag called")
         indexes = self.selectedIndexes()
         if not indexes:
-            print("DEBUG: No indexes selected")
+            conditional_print(f"DEBUG: No indexes selected")
             return
             
         # Only allow dragging tool items, not job root
         index = indexes[0]
         if not index.parent().isValid():
-            print("DEBUG: Cannot drag root item")
+            conditional_print(f"DEBUG: Cannot drag root item")
             return  # Don't drag root item
             
-        print(f"DEBUG: Starting drag for index: row={index.row()}, parent valid={index.parent().isValid()}")
+        conditional_print(f"DEBUG: Starting drag for index: row={index.row()}, parent valid={index.parent().isValid()}")
         
         # Create custom MIME data with just the row number instead of full object
         drag = QDrag(self)
@@ -533,23 +534,23 @@ class JobTreeView(QTreeView):
         
         drag.setMimeData(mime_data)
         
-        print(f"DEBUG: Created custom MIME data for row {index.row()}")
+        conditional_print(f"DEBUG: Created custom MIME data for row {index.row()}")
         
         # Execute drag operation
         drop_action = drag.exec_(Qt.DropAction.MoveAction)
         
     def dragEnterEvent(self, e):
         """Handle drag enter event"""
-        print(f"DEBUG: JobTreeView.dragEnterEvent called")
+        conditional_print(f"DEBUG: JobTreeView.dragEnterEvent called")
         if e:
             print(f"  - Event source: {e.source()}")
             print(f"  - Event actions: {e.possibleActions()}")
             print(f"  - Event position: {e.pos()}")
             try:
                 e.acceptProposedAction()
-                print("DEBUG: Drag enter accepted")
+                conditional_print(f"DEBUG: Drag enter accepted")
             except Exception as ex:
-                print(f"DEBUG: Drag enter error: {ex}")
+                conditional_print(f"DEBUG: Drag enter error: {ex}")
                 e.ignore()
         
     def dragMoveEvent(self, event):
@@ -559,26 +560,26 @@ class JobTreeView(QTreeView):
             try:
                 event.acceptProposedAction()  
             except Exception as ex:
-                print(f"DEBUG: Drag move error: {ex}")
+                conditional_print(f"DEBUG: Drag move error: {ex}")
                 event.ignore()
             
     def dropEvent(self, e):
         """Handle drop event and emit signal for reordering"""
-        print(f"DEBUG: JobTreeView.dropEvent called")
+        conditional_print(f"DEBUG: JobTreeView.dropEvent called")
         print(f"  - Event source: {e.source()}")
         print(f"  - Event position: {e.pos()}")
         
         try:
             # Check if we have our custom MIME data
             if not e.mimeData().hasFormat("application/x-jobtool-row"):
-                print("DEBUG: No custom MIME data found")
+                conditional_print(f"DEBUG: No custom MIME data found")
                 e.ignore()
                 return
                 
             # Get drop position
             drop_index = self.indexAt(e.pos())
             if not drop_index.isValid():
-                print("DEBUG: Drop index invalid")
+                conditional_print(f"DEBUG: Drop index invalid")
                 e.ignore()
                 return
                 
@@ -586,9 +587,9 @@ class JobTreeView(QTreeView):
             try:
                 row_data = e.mimeData().data("application/x-jobtool-row").data().decode()
                 source_row = int(row_data)
-                print(f"DEBUG: Source row from MIME: {source_row}")
+                conditional_print(f"DEBUG: Source row from MIME: {source_row}")
             except (ValueError, AttributeError) as ex:
-                print(f"DEBUG: Failed to parse row data: {ex}")
+                conditional_print(f"DEBUG: Failed to parse row data: {ex}")
                 e.ignore()
                 return
                 
@@ -597,22 +598,22 @@ class JobTreeView(QTreeView):
             
             # Only allow reordering within the same job (tools)
             if not drop_index.parent().isValid():
-                print("DEBUG: Cannot drop on root item")
+                conditional_print(f"DEBUG: Cannot drop on root item")
                 e.ignore()
                 return
                 
-            print(f"DEBUG: Moving tool from row {source_row} to row {target_row}")
+            conditional_print(f"DEBUG: Moving tool from row {source_row} to row {target_row}")
             
             if source_row != target_row:
                 # Emit signal for tool reordering
                 self.tool_moved.emit(source_row, target_row)
                 e.acceptProposedAction()
-                print("DEBUG: Drop accepted and signal emitted")
+                conditional_print(f"DEBUG: Drop accepted and signal emitted")
             else:
-                print("DEBUG: Source and target are same")
+                conditional_print(f"DEBUG: Source and target are same")
                 e.ignore()
         except Exception as ex:
-            print(f"DEBUG: Drop event error: {ex}")
+            conditional_print(f"DEBUG: Drop event error: {ex}")
             e.ignore()
             
     def mousePressEvent(self, e):
@@ -629,7 +630,7 @@ class JobTreeView(QTreeView):
                     # Tool item clicked
                     tool_row = index.row()
                     self.tool_selected.emit(tool_row)
-                    print(f"DEBUG: Tool selected at row {tool_row}")
+                    conditional_print(f"DEBUG: Tool selected at row {tool_row}")
         except Exception as ex:
             logger.error(f"Mouse press error: {ex}")
     
@@ -660,9 +661,9 @@ class JobTreeView(QTreeView):
         current_job = job_manager.get_current_job()
         if current_job:
             self.update_job_view(current_job)
-            print(f"DEBUG: JobTreeView setup with job: {current_job.name}")
+            conditional_print(f"DEBUG: JobTreeView setup with job: {current_job.name}")
         else:
-            print("DEBUG: No current job available for setup")
+            conditional_print(f"DEBUG: No current job available for setup")
             
     def update_from_job_manager(self):
         """Update tree view from current job manager state"""
@@ -670,11 +671,11 @@ class JobTreeView(QTreeView):
             current_job = self.job_manager.get_current_job()
             if current_job:
                 self.update_job_view(current_job)
-                print(f"DEBUG: Updated JobTreeView from job manager: {len(current_job.tools)} tools")
+                conditional_print(f"DEBUG: Updated JobTreeView from job manager: {len(current_job.tools)} tools")
             else:
-                print("DEBUG: No current job to update from")
+                conditional_print(f"DEBUG: No current job to update from")
         else:
-            print("DEBUG: No job manager available for update")
+            conditional_print(f"DEBUG: No job manager available for update")
                 
     def update_job_view(self, job):
         """Update the tree view with job data and flow indicators"""
@@ -704,9 +705,9 @@ class JobTreeView(QTreeView):
             viewport = self.viewport()
             if viewport:
                 viewport.update()
-                print(f"DEBUG: Viewport updated for {len(job.tools)} tools")
+                conditional_print(f"DEBUG: Viewport updated for {len(job.tools)} tools")
         except Exception as ex:
-            print(f"DEBUG: Viewport update error: {ex}")
+            conditional_print(f"DEBUG: Viewport update error: {ex}")
             pass
         
     def create_tool_item_with_step(self, tool, index):
@@ -839,7 +840,7 @@ class JobTreeView(QTreeView):
             if viewport:
                 viewport.update()
         except Exception as ex:
-            print(f"DEBUG: Viewport update error: {ex}")
+            conditional_print(f"DEBUG: Viewport update error: {ex}")
             pass
             
         return True
@@ -853,7 +854,7 @@ class JobTreeView(QTreeView):
         if target_tool_index not in self.tool_connections[source_tool_index]:
             self.tool_connections[source_tool_index].append(target_tool_index)
             self.tool_connected.emit(source_tool_index, target_tool_index)
-            print(f"DEBUG: Added connection from tool {source_tool_index} to tool {target_tool_index}")
+            conditional_print(f"DEBUG: Added connection from tool {source_tool_index} to tool {target_tool_index}")
             
             # Update viewport to redraw connections
             self.viewport().update()
@@ -870,7 +871,7 @@ class JobTreeView(QTreeView):
                 del self.tool_connections[source_tool_index]
             
             self.tool_disconnected.emit(source_tool_index, target_tool_index)
-            print(f"DEBUG: Removed connection from tool {source_tool_index} to tool {target_tool_index}")
+            conditional_print(f"DEBUG: Removed connection from tool {source_tool_index} to tool {target_tool_index}")
             
             # Update viewport to redraw connections
             self.viewport().update()
@@ -885,7 +886,7 @@ class JobTreeView(QTreeView):
         """Clear all connections"""
         self.tool_connections.clear()
         self.viewport().update()
-        print("DEBUG: Cleared all connections")
+        conditional_print(f"DEBUG: Cleared all connections")
     
     def get_tool_rect_with_ports(self, tool_index):
         """Get tool rectangle with input/output port positions"""
@@ -1084,16 +1085,16 @@ class JobTreeView(QTreeView):
     # Demo and Test Methods
     def create_demo_connections(self):
         """Create demo connections for testing visibility"""
-        print("DEBUG: Creating demo connections for testing...")
+        conditional_print(f"DEBUG: Creating demo connections for testing...")
         
         model = self.model()
         if not isinstance(model, QStandardItemModel) or model.rowCount() == 0:
-            print("DEBUG: No model available for demo connections")
+            conditional_print(f"DEBUG: No model available for demo connections")
             return
             
         job_item = model.item(0)
         if not job_item or job_item.rowCount() < 2:
-            print("DEBUG: Need at least 2 tools for demo connections")
+            conditional_print(f"DEBUG: Need at least 2 tools for demo connections")
             return
         
         # Clear existing connections
@@ -1115,24 +1116,24 @@ class JobTreeView(QTreeView):
                 else:
                     other_tools.append(i)
         
-        print(f"DEBUG: Found {len(source_tools)} source, {len(detect_tools)} detect, {len(other_tools)} other tools")
+        conditional_print(f"DEBUG: Found {len(source_tools)} source, {len(detect_tools)} detect, {len(other_tools)} other tools")
         
         # Create parallel connections: camera source -> multiple detect tools
         if source_tools and detect_tools:
             source_idx = source_tools[0]
             for detect_idx in detect_tools:
                 self.add_connection(source_idx, detect_idx)
-                print(f"DEBUG: Demo connection added: {source_idx} -> {detect_idx}")
+                conditional_print(f"DEBUG: Demo connection added: {source_idx} -> {detect_idx}")
         
         # If no specific types, create sequential connections
         elif job_item.rowCount() >= 2:
             for i in range(job_item.rowCount() - 1):
                 self.add_connection(i, i + 1)
-                print(f"DEBUG: Sequential demo connection added: {i} -> {i + 1}")
+                conditional_print(f"DEBUG: Sequential demo connection added: {i} -> {i + 1}")
         
         # Force repaint
         self.viewport().update()
-        print(f"DEBUG: Demo connections created. Total connections: {len(self.tool_connections)}")
+        conditional_print(f"DEBUG: Demo connections created. Total connections: {len(self.tool_connections)}")
     
     def toggle_parallel_sequential(self):
         """Toggle between parallel and sequential workflow modes"""
@@ -1171,24 +1172,24 @@ class JobTreeView(QTreeView):
         
         if not has_parallel:
             # Switch to parallel: camera source -> multiple detect tools
-            print("DEBUG: Switching to PARALLEL mode")
+            conditional_print(f"DEBUG: Switching to PARALLEL mode")
             if source_tools and len(detect_tools) >= 2:
                 source_idx = source_tools[0]
                 for detect_idx in detect_tools:
                     self.add_connection(source_idx, detect_idx)
-                    print(f"DEBUG: Parallel connection: {source_idx} -> {detect_idx}")
+                    conditional_print(f"DEBUG: Parallel connection: {source_idx} -> {detect_idx}")
             else:
-                print("DEBUG: Need camera source and 2+ detect tools for parallel mode")
+                conditional_print(f"DEBUG: Need camera source and 2+ detect tools for parallel mode")
         else:
             # Switch to sequential: tool1 -> tool2 -> tool3...
-            print("DEBUG: Switching to SEQUENTIAL mode")
+            conditional_print(f"DEBUG: Switching to SEQUENTIAL mode")
             for i in range(len(all_tools) - 1):
                 self.add_connection(all_tools[i], all_tools[i + 1])
-                print(f"DEBUG: Sequential connection: {all_tools[i]} -> {all_tools[i + 1]}")
+                conditional_print(f"DEBUG: Sequential connection: {all_tools[i]} -> {all_tools[i + 1]}")
         
         # Force repaint
         self.viewport().update()
-        print(f"DEBUG: Workflow mode switched. Total connections: {len(self.tool_connections)}")
+        conditional_print(f"DEBUG: Workflow mode switched. Total connections: {len(self.tool_connections)}")
     
     def print_debug_info(self):
         """Print debug information about current state"""

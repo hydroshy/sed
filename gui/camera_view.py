@@ -1,4 +1,5 @@
 import logging
+from utils.debug_utils import conditional_print
 import cv2
 import time
 import threading
@@ -9,8 +10,9 @@ from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
 from gui.detection_area_overlay import DetectionAreaOverlay
 from utils.debug_utils import debug_print
 
-# Configure logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+# Configure logging - only log to file, not console (console handled by main.py)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class FrameHistoryWorker(QObject):
@@ -87,11 +89,11 @@ class CameraDisplayWorker(QObject):
             # Keep only latest frame to avoid memory buildup
             self.frame_queue.clear()
             self.frame_queue.append(frame.copy())
-            print(f"DEBUG: [CameraDisplayWorker.add_frame] Frame added to queue, size={len(self.frame_queue)}")
+            conditional_print(f"DEBUG: [CameraDisplayWorker.add_frame] Frame added to queue, size={len(self.frame_queue)}")
     
     def process_frames(self):
         """Process frames in background thread"""
-        print(f"DEBUG: [CameraDisplayWorker.process_frames] Worker thread started, running={self.running}")
+        conditional_print(f"DEBUG: [CameraDisplayWorker.process_frames] Worker thread started, running={self.running}")
         while self.running:
             try:
                 frame = None
@@ -101,15 +103,15 @@ class CameraDisplayWorker(QObject):
                 
                 if frame is not None:
                     # Process frame in background thread
-                    print(f"DEBUG: [CameraDisplayWorker.process_frames] Processing frame, shape={frame.shape}")
+                    conditional_print(f"DEBUG: [CameraDisplayWorker.process_frames] Processing frame, shape={frame.shape}")
                     processed_qimage, frame_for_history = self._process_frame_to_qimage(frame)
                     
                     if processed_qimage is not None:
-                        print(f"DEBUG: [CameraDisplayWorker.process_frames] Emitting frameProcessed signal")
+                        conditional_print(f"DEBUG: [CameraDisplayWorker.process_frames] Emitting frameProcessed signal")
                         # Emit signal to update UI on main thread
                         self.frameProcessed.emit(processed_qimage, frame_for_history)
                     else:
-                        print(f"DEBUG: [CameraDisplayWorker.process_frames] processed_qimage is None!")
+                        conditional_print(f"DEBUG: [CameraDisplayWorker.process_frames] processed_qimage is None!")
                 
                 # Sleep briefly to avoid busy waiting
                 time.sleep(0.016)  # ~60 FPS max processing rate
@@ -122,7 +124,7 @@ class CameraDisplayWorker(QObject):
         """Process frame to QImage in background thread"""
         try:
             if frame is None or frame.size == 0:
-                print(f"DEBUG: [_process_frame_to_qimage] Invalid frame")
+                conditional_print(f"DEBUG: [_process_frame_to_qimage] Invalid frame")
                 return None, None
             
             # Choose frame to display based on current display mode
@@ -145,7 +147,7 @@ class CameraDisplayWorker(QObject):
             except Exception:
                 pass
             
-            print(f"DEBUG: [_process_frame_to_qimage] Processing with format: {pixel_format}, shape={frame_to_process.shape}")
+            conditional_print(f"DEBUG: [_process_frame_to_qimage] Processing with format: {pixel_format}, shape={frame_to_process.shape}")
             
             # Handle different frame formats safely with proper color conversion
             if len(frame_to_process.shape) == 3 and frame_to_process.shape[2] >= 3:  # Color image with channels
@@ -187,7 +189,7 @@ class CameraDisplayWorker(QObject):
                     frame_to_process = frame_to_process.squeeze()
                     frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_GRAY2RGB)
                 else:
-                    print(f"DEBUG: [_process_frame_to_qimage] Unsupported format: {frame_to_process.shape}")
+                    conditional_print(f"DEBUG: [_process_frame_to_qimage] Unsupported format: {frame_to_process.shape}")
                     logging.warning("Unsupported frame format with shape: %s", frame_to_process.shape)
                     return None, None
             
@@ -200,15 +202,15 @@ class CameraDisplayWorker(QObject):
             frame_to_process = np.ascontiguousarray(frame_to_process)
             
             # Create QImage from processed frame
-            print(f"DEBUG: [_process_frame_to_qimage] Creating QImage: {w}x{h}, channels={ch}")
+            conditional_print(f"DEBUG: [_process_frame_to_qimage] Creating QImage: {w}x{h}, channels={ch}")
             qimage = QImage(frame_to_process.data, w, h, bytes_per_line, QImage.Format_RGB888)
             
             # Return QImage and frame for history (make copies to be thread-safe)
-            print(f"DEBUG: [_process_frame_to_qimage] QImage created successfully, isNull={qimage.isNull()}")
+            conditional_print(f"DEBUG: [_process_frame_to_qimage] QImage created successfully, isNull={qimage.isNull()}")
             return qimage.copy(), frame_to_process.copy()
             
         except Exception as e:
-            print(f"DEBUG: [_process_frame_to_qimage] ERROR: {e}")
+            conditional_print(f"DEBUG: [_process_frame_to_qimage] ERROR: {e}")
             logging.error(f"Error processing frame to QImage: {e}")
             return None, None
     
@@ -302,6 +304,9 @@ class CameraView(QObject):
         self.camera_display_worker = None
         self._shutdown_camera_display = False
         
+        # Zoom level user control tracking
+        self._zoom_manually_set = False  # Flag to track if user manually set zoom (via zoom_in/out/reset)
+        
         # Start worker threads
         self._start_frame_history_worker()
         self._start_camera_display_worker()
@@ -364,30 +369,37 @@ class CameraView(QObject):
             mode: Display mode ('camera', 'detection', 'edge', 'ocr')
             tool_id: Tool ID for specific tool outputs (optional)
         """
-        print(f"DEBUG: [CameraView] Setting display mode to: {mode}, tool_id: {tool_id}")
+        conditional_print(f"DEBUG: [CameraView] Setting display mode to: {mode}, tool_id: {tool_id}")
+        
+        # When switching back to camera mode, reset zoom calculation flag
+        # so next camera frame will recalculate zoom appropriately
+        if mode == "camera" and self.display_mode != "camera":
+            conditional_print(f"DEBUG: [CameraView] Switching from {self.display_mode} back to camera mode - will recalculate zoom on next frame")
+            self._zoom_level_set_for_size = False  # Force recalculation when back to camera
+            self._zoom_manually_set = False  # Reset manual zoom flag when back to camera
+        
         self.display_mode = mode
         self.display_tool_id = tool_id
         
-        # Đảm bảo giữ mức zoom là 1.1 khi thay đổi display mode
-        self.zoom_level = 1.1
+        # Let zoom_level be determined by frame size in display_frame, not hardcoded here
         self._zoom_changed = True
-        print(f"DEBUG: [CameraView] Đã đặt zoom_level = 1.1 trong set_display_mode")
+        conditional_print(f"DEBUG: [CameraView] Display mode set to {mode}, zoom will be adjusted based on mode and frame size")
         
         # Configure display based on mode
         if mode == "camera":
             self.show_detection_overlay = False
-            print("DEBUG: [CameraView] Display mode: Camera source (raw)")
+            conditional_print(f"DEBUG: [CameraView] Display mode: Camera source (raw)")
         elif mode == "detection":
             self.show_detection_overlay = True
-            print(f"DEBUG: [CameraView] Display mode: Detection output (tool_id: {tool_id})")
+            conditional_print(f"DEBUG: [CameraView] Display mode: Detection output (tool_id: {tool_id})")
         elif mode == "edge":
             self.show_detection_overlay = False
-            print(f"DEBUG: [CameraView] Display mode: Edge detection (tool_id: {tool_id})")
+            conditional_print(f"DEBUG: [CameraView] Display mode: Edge detection (tool_id: {tool_id})")
         elif mode == "ocr":
             self.show_detection_overlay = False
-            print(f"DEBUG: [CameraView] Display mode: OCR output (tool_id: {tool_id})")
+            conditional_print(f"DEBUG: [CameraView] Display mode: OCR output (tool_id: {tool_id})")
         else:
-            print(f"DEBUG: [CameraView] Unknown display mode: {mode}, defaulting to camera")
+            conditional_print(f"DEBUG: [CameraView] Unknown display mode: {mode}, defaulting to camera")
             self.display_mode = "camera"
             self.show_detection_overlay = False
             
@@ -403,19 +415,19 @@ class CameraView(QObject):
             # Show processed frame from detection tool if available
             tool_key = f"detection_{self.display_tool_id}"
             if tool_key in self.processed_frames:
-                print(f"DEBUG: [CameraView] Using processed frame from {tool_key}")
+                conditional_print(f"DEBUG: [CameraView] Using processed frame from {tool_key}")
                 return self.processed_frames[tool_key]
             else:
-                print(f"DEBUG: [CameraView] No processed frame available for {tool_key}, using raw")
+                conditional_print(f"DEBUG: [CameraView] No processed frame available for {tool_key}, using raw")
                 return self.current_raw_frame
         elif self.display_mode in ["edge", "ocr"] and self.display_tool_id:
             # Show processed frame from other tools if available  
             tool_key = f"{self.display_mode}_{self.display_tool_id}"
             if tool_key in self.processed_frames:
-                print(f"DEBUG: [CameraView] Using processed frame from {tool_key}")
+                conditional_print(f"DEBUG: [CameraView] Using processed frame from {tool_key}")
                 return self.processed_frames[tool_key]
             else:
-                print(f"DEBUG: [CameraView] No processed frame available for {tool_key}, using raw")
+                conditional_print(f"DEBUG: [CameraView] No processed frame available for {tool_key}, using raw")
                 return self.current_raw_frame
         else:
             # Default to raw camera frame
@@ -424,17 +436,17 @@ class CameraView(QObject):
     def refresh_display_with_new_format(self):
         """Force refresh the current display with new pixel format settings"""
         if hasattr(self, 'current_raw_frame') and self.current_raw_frame is not None:
-            print("DEBUG: [CameraView] Refreshing display with new format using raw frame")
+            conditional_print(f"DEBUG: [CameraView] Refreshing display with new format using raw frame")
             # Re-process the raw frame with new format settings
             self.display_frame(self.current_raw_frame)
             return True
         elif hasattr(self, 'current_frame') and self.current_frame is not None:
-            print("DEBUG: [CameraView] Refreshing display using current_frame")
+            conditional_print(f"DEBUG: [CameraView] Refreshing display using current_frame")
             # Force re-render of current processed frame
             self._show_frame_with_zoom()
             return True
         else:
-            print("DEBUG: [CameraView] No frame available for format refresh")
+            conditional_print(f"DEBUG: [CameraView] No frame available for format refresh")
             return False
 
     def display_frame(self, frame):
@@ -449,18 +461,86 @@ class CameraView(QObject):
             return
 
         logging.debug("Frame received with shape: %s", frame.shape)
-        print(f"DEBUG: [display_frame] Frame received: shape={frame.shape}, worker={self.camera_display_worker is not None}")
+        conditional_print(f"DEBUG: [display_frame] Frame received: shape={frame.shape}, worker={self.camera_display_worker is not None}")
+        
+        # Check if frame size has changed and adjust zoom level accordingly
+        new_height, new_width = frame.shape[:2]
+        frame_size_changed = False
+        
+        if not hasattr(self, '_last_frame_width') or not hasattr(self, '_last_frame_height'):
+            # First frame - initialize tracking variables
+            self._last_frame_width = new_width
+            self._last_frame_height = new_height
+            frame_size_changed = True
+            conditional_print(f"DEBUG: [display_frame] First frame: initializing size tracking to {new_width}x{new_height}")
+        elif (new_width != self._last_frame_width or new_height != self._last_frame_height):
+            # Frame size changed
+            conditional_print(f"DEBUG: [display_frame] Frame size changed from {self._last_frame_width}x{self._last_frame_height} to {new_width}x{new_height}")
+            self._last_frame_width = new_width
+            self._last_frame_height = new_height
+            frame_size_changed = True
+        
+        # Recalculate zoom level based on current frame size
+        # But: if in processed display mode (detection/edge/ocr) and zoom already set,
+        # keep the current zoom to avoid auto-zooming when switching display modes
+        # Also: if user manually set zoom (via zoom_in/out/reset), respect that in non-camera modes
+        should_recalculate_zoom = False
+        
+        if not hasattr(self, '_zoom_level_set_for_size'):
+            # First time setting zoom
+            should_recalculate_zoom = True
+            conditional_print(f"DEBUG: [display_frame] First frame - recalculating zoom")
+        elif frame_size_changed:
+            # Frame size changed from camera - recalculate zoom
+            # But only if we're in camera display mode (not processed mode)
+            # AND user hasn't manually set zoom in processed mode
+            if self.display_mode == "camera":
+                should_recalculate_zoom = True
+                conditional_print(f"DEBUG: [display_frame] Frame size changed and in camera mode - recalculating zoom")
+            elif self._zoom_manually_set:
+                # User manually set zoom in processed mode - keep it
+                conditional_print(f"DEBUG: [display_frame] Frame size changed but user manually set zoom in {self.display_mode} mode - keeping zoom={self.zoom_level:.2f}")
+            else:
+                # In processed display mode (detection/edge/ocr) - keep current zoom
+                conditional_print(f"DEBUG: [display_frame] Frame size changed but in {self.display_mode} mode - keeping current zoom={self.zoom_level:.2f}")
+        
+        if should_recalculate_zoom:
+            # Calculate zoom level to fit image in graphics view
+            # Get view size (should be approximately 800x600 based on UI layout)
+            view_width = self.graphics_view.width() if self.graphics_view else 800
+            view_height = self.graphics_view.height() if self.graphics_view else 600
+            
+            # Calculate scale factors for width and height
+            scale_x = view_width / new_width if new_width > 0 else 1.0
+            scale_y = view_height / new_height if new_height > 0 else 1.0
+            
+            # Use the smaller scale to ensure entire image fits
+            fit_zoom = min(scale_x, scale_y)
+            
+            # For large resolutions (1456x1080+), fit to view
+            # For smaller resolutions (640x480), add some zoom for better detail
+            if new_width >= 1456 or new_height >= 1080:
+                # For large images, use fit zoom to ensure entire image visible
+                # Add 0.95 multiplier to leave some margin
+                self.zoom_level = max(fit_zoom * 0.95, 0.3)
+                conditional_print(f"DEBUG: [display_frame] Large resolution {new_width}x{new_height}: fit_zoom={fit_zoom:.2f}, view={view_width}x{view_height}, set zoom_level to {self.zoom_level:.2f}")
+            else:
+                # For smaller resolutions, use slightly larger zoom for detail, but still fit
+                self.zoom_level = max(fit_zoom * 1.1, 0.8)
+                conditional_print(f"DEBUG: [display_frame] Small resolution {new_width}x{new_height}: fit_zoom={fit_zoom:.2f}, view={view_width}x{view_height}, set zoom_level to {self.zoom_level:.2f}")
+            
+            self._zoom_level_set_for_size = True
         
         # Store raw frame for display mode switching
         self.current_raw_frame = frame.copy()
         
         # Send frame to worker thread for processing
         if self.camera_display_worker:
-            print(f"DEBUG: [display_frame] Adding frame to worker queue")
+            conditional_print(f"DEBUG: [display_frame] Adding frame to worker queue")
             self.camera_display_worker.add_frame(frame)
         else:
             # Fallback to synchronous processing if worker not available
-            print(f"DEBUG: [display_frame] Worker is None! Thread: {self.camera_display_thread}, Running: {self.camera_display_thread.isRunning() if self.camera_display_thread else 'None'}")
+            conditional_print(f"DEBUG: [display_frame] Worker is None! Thread: {self.camera_display_thread}, Running: {self.camera_display_thread.isRunning() if self.camera_display_thread else 'None'}")
             logging.warning("Camera display worker not available, using synchronous processing")
             self._display_frame_sync(frame)
     
@@ -530,19 +610,19 @@ class CameraView(QObject):
                         if 'detect' in tool_name.lower():
                             tool_key = f"detection_detect_tool"
                             self.processed_frames[tool_key] = result_image
-                            print(f"DEBUG: [CameraView] Stored processed frame for {tool_key}")
+                            conditional_print(f"DEBUG: [CameraView] Stored processed frame for {tool_key}")
                         elif 'classification' in tool_name.lower():
                             tool_key = f"classification_classification_tool"
                             self.processed_frames[tool_key] = result_image
-                            print(f"DEBUG: [CameraView] Stored processed frame for {tool_key}")
+                            conditional_print(f"DEBUG: [CameraView] Stored processed frame for {tool_key}")
                         elif 'edge' in tool_name.lower():
                             tool_key = f"edge_edge_tool"
                             self.processed_frames[tool_key] = result_image
-                            print(f"DEBUG: [CameraView] Stored processed frame for {tool_key}")
+                            conditional_print(f"DEBUG: [CameraView] Stored processed frame for {tool_key}")
                         elif 'ocr' in tool_name.lower():
                             tool_key = f"ocr_ocr_tool"
                             self.processed_frames[tool_key] = result_image
-                            print(f"DEBUG: [CameraView] Stored processed frame for {tool_key}")
+                            conditional_print(f"DEBUG: [CameraView] Stored processed frame for {tool_key}")
                 # Also handle dict format with 'data' field (fallback)
                 elif isinstance(tool_result, dict) and 'processed_frame' in tool_result:
                     processed_frame = tool_result['processed_frame']
@@ -550,7 +630,7 @@ class CameraView(QObject):
                         if 'detect' in tool_name.lower():
                             tool_key = f"detection_detect_tool"
                             self.processed_frames[tool_key] = processed_frame
-                            print(f"DEBUG: [CameraView] Stored processed frame for {tool_key} (dict format)")
+                            conditional_print(f"DEBUG: [CameraView] Stored processed frame for {tool_key} (dict format)")
         except Exception as e:
             logging.error(f"Error storing processed frames: {e}")
     
@@ -693,7 +773,7 @@ class CameraView(QObject):
         """
         Hiển thị frame hiện tại với mức zoom và xoay đã cài đặt
         """
-        print(f"DEBUG: [CameraView] _show_frame_with_zoom called, zoom_level={self.zoom_level}")
+        conditional_print(f"DEBUG: [CameraView] _show_frame_with_zoom called, zoom_level={self.zoom_level}")
         
         # Check if we're in trigger mode
         in_trigger_mode = self._is_in_trigger_mode()
@@ -706,12 +786,12 @@ class CameraView(QObject):
         # Handle different display scenarios
         # Case 1: We're in trigger mode and need to use existing or create blank pixmap
         if self.current_frame is None and in_trigger_mode:
-            print("DEBUG: [CameraView] In trigger mode with no frame")
+            conditional_print(f"DEBUG: [CameraView] In trigger mode with no frame")
             
             try:
                 # Use the last valid pixmap if available
                 if hasattr(self, 'pixmap_item') and self.pixmap_item is not None and self.pixmap_item.pixmap() and not self.pixmap_item.pixmap().isNull():
-                    print("DEBUG: [CameraView] Using existing pixmap in trigger mode")
+                    conditional_print(f"DEBUG: [CameraView] Using existing pixmap in trigger mode")
                     pixmap = self.pixmap_item.pixmap()
                     
                     # Update the scene
@@ -719,7 +799,7 @@ class CameraView(QObject):
                     
                 # Or use the last valid QImage if available
                 elif hasattr(self, 'last_valid_qimage') and self.last_valid_qimage is not None and not self.last_valid_qimage.isNull():
-                    print("DEBUG: [CameraView] Using last_valid_qimage in trigger mode")
+                    conditional_print(f"DEBUG: [CameraView] Using last_valid_qimage in trigger mode")
                     pixmap = QPixmap.fromImage(self.last_valid_qimage)
                     
                     # Create or update pixmap item
@@ -730,7 +810,7 @@ class CameraView(QObject):
                     
                 # Last resort: create a blank pixmap
                 else:
-                    print("DEBUG: [CameraView] Creating blank pixmap for trigger mode")
+                    conditional_print(f"DEBUG: [CameraView] Creating blank pixmap for trigger mode")
                     pixmap = QPixmap(1440, 1080)
                     pixmap.fill(Qt.black)
                     
@@ -748,14 +828,14 @@ class CameraView(QObject):
                 self.graphics_view.scale(self.zoom_level, self.zoom_level)
                 return
             except Exception as e:
-                print(f"DEBUG: [CameraView] Error in trigger mode display: {e}")
+                conditional_print(f"DEBUG: [CameraView] Error in trigger mode display: {e}")
                 # Continue to normal frame display
 
         # Case 2: Normal display with actual frame
         try:
             # Process current frame if available
             if self.current_frame is not None:
-                print("DEBUG: [CameraView] Processing actual frame")
+                conditional_print(f"DEBUG: [CameraView] Processing actual frame")
                 h, w, ch = self.current_frame.shape
                 bytes_per_line = ch * w
                 
@@ -768,7 +848,7 @@ class CameraView(QObject):
                     if cs is not None and hasattr(cs, 'get_pixel_format'):
                         pixel_format = cs.get_pixel_format()
                 except Exception as e:
-                    print(f"DEBUG: [CameraView] Error getting pixel format: {e}")
+                    conditional_print(f"DEBUG: [CameraView] Error getting pixel format: {e}")
                 
                 # Convert frame based on channel count and format
                 if ch == 3:  # 3-channel image (BGR or RGB)
@@ -828,23 +908,23 @@ class CameraView(QObject):
                     # No valid RGB image - fallback to last valid image or blank
                     if hasattr(self, 'last_valid_qimage') and self.last_valid_qimage is not None and not self.last_valid_qimage.isNull():
                         pixmap = QPixmap.fromImage(self.last_valid_qimage)
-                        print("DEBUG: [CameraView] Using last valid QImage as fallback")
+                        conditional_print(f"DEBUG: [CameraView] Using last valid QImage as fallback")
                     elif hasattr(self, 'pixmap_item') and self.pixmap_item is not None and not self.pixmap_item.pixmap().isNull():
                         pixmap = self.pixmap_item.pixmap()
-                        print("DEBUG: [CameraView] Using existing pixmap as fallback")
+                        conditional_print(f"DEBUG: [CameraView] Using existing pixmap as fallback")
                     else:
                         # Create a minimal blank pixmap
                         pixmap = QPixmap(1440, 1080)
                         pixmap.fill(Qt.black)
-                        print("DEBUG: [CameraView] Created blank pixmap as fallback")
+                        conditional_print(f"DEBUG: [CameraView] Created blank pixmap as fallback")
             else:
                 # No current frame - should not happen as we already handled trigger mode case
-                print("DEBUG: [CameraView] Unexpected: No frame available in normal display path")
+                conditional_print(f"DEBUG: [CameraView] Unexpected: No frame available in normal display path")
                 return
             
             # Draw detection overlays if enabled
             if 'pixmap' in locals() and self.show_detection_overlay and self.detection_results:
-                print("DEBUG: [CameraView] Drawing detection boxes on pixmap")
+                conditional_print(f"DEBUG: [CameraView] Drawing detection boxes on pixmap")
                 self._draw_detection_boxes_on_pixmap(pixmap)
 
             # Update the pixmap in the scene
@@ -907,7 +987,7 @@ class CameraView(QObject):
 
                     # Only apply zoom transform if the zoom has been changed or it's the first frame
                     if not hasattr(self, '_has_drawn_once') or not self._has_drawn_once or hasattr(self, '_zoom_changed') and self._zoom_changed:
-                        print("DEBUG: [CameraView] Applying zoom transform due to manual change or first frame")
+                        conditional_print(f"DEBUG: [CameraView] Applying zoom transform due to manual change or first frame")
                         
                         # Apply zoom transform
                         self.graphics_view.resetTransform()
@@ -926,14 +1006,14 @@ class CameraView(QObject):
                     self._has_drawn_once = True
                     
                     # Log frame display
-                    print(f"DEBUG: [CameraView] Frame displayed with zoom={self.zoom_level}, rotation={self.rotation_angle}")
+                    conditional_print(f"DEBUG: [CameraView] Frame displayed with zoom={self.zoom_level}, rotation={self.rotation_angle}")
                 else:
                     print("ERROR: [CameraView] No valid pixmap to display")
             except Exception as e:
                 logging.error(f"Error updating pixmap in scene: {e}")
         except Exception as e:
             logging.error(f"Error in frame display: {e}")
-            print(f"DEBUG: [CameraView] Exception in _show_frame_with_zoom: {e}")
+            conditional_print(f"DEBUG: [CameraView] Exception in _show_frame_with_zoom: {e}")
 
     def _is_in_trigger_mode(self):
         """Check if camera is in trigger mode"""
@@ -968,14 +1048,14 @@ class CameraView(QObject):
             - Ensures zoom level stays within reasonable bounds (0.25 to 5.0)
         """
         try:
-            print(f"DEBUG: [CameraView] Applying zoom level: {new_zoom_level}")
+            conditional_print(f"DEBUG: [CameraView] Applying zoom level: {new_zoom_level}")
             
             # Validate zoom level within bounds
             if new_zoom_level < 0.25:
-                print(f"DEBUG: [CameraView] Zoom level too small ({new_zoom_level}), using 0.25")
+                conditional_print(f"DEBUG: [CameraView] Zoom level too small ({new_zoom_level}), using 0.25")
                 new_zoom_level = 0.25
             elif new_zoom_level > 5.0:
-                print(f"DEBUG: [CameraView] Zoom level too large ({new_zoom_level}), using 5.0")
+                conditional_print(f"DEBUG: [CameraView] Zoom level too large ({new_zoom_level}), using 5.0")
                 new_zoom_level = 5.0
             
             # Store the old zoom level for debugging
@@ -992,13 +1072,17 @@ class CameraView(QObject):
             # Clear the zoom changed flag after applying zoom
             self._zoom_changed = False
             
+            # Mark zoom as manually set so it won't be auto-overridden in display modes
+            self._zoom_manually_set = True
+            conditional_print(f"DEBUG: [CameraView] Marked zoom as manually set by user")
+            
             # Center on the image if we have a pixmap
             if hasattr(self, 'pixmap_item') and self.pixmap_item is not None:
                 # Only recenter if significantly zooming in from 1.0 or zooming out to 1.0
                 if (old_zoom <= 1.0 and new_zoom_level > 1.0) or (old_zoom > 1.0 and new_zoom_level <= 1.0):
                     self.graphics_view.centerOn(self.pixmap_item)
                 
-            print(f"DEBUG: [CameraView] Zoom applied: {old_zoom} -> {self.zoom_level}")
+            conditional_print(f"DEBUG: [CameraView] Zoom applied: {old_zoom} -> {self.zoom_level}")
             
             # Update drag mode based on zoom level
             if self.zoom_level > 1.0:
@@ -1012,7 +1096,7 @@ class CameraView(QObject):
                 
             return True
         except Exception as e:
-            print(f"DEBUG: [CameraView] Error applying zoom: {e}")
+            conditional_print(f"DEBUG: [CameraView] Error applying zoom: {e}")
             return False
     
     def zoom_in(self):
@@ -1025,7 +1109,7 @@ class CameraView(QObject):
         3. Schedules the actual zoom application via QTimer to ensure UI thread execution
         4. Uses _apply_zoom to perform the actual transformation
         """
-        print("DEBUG: [CameraView] zoom_in called, current level:", self.zoom_level)
+        conditional_print(f"DEBUG: [CameraView] zoom_in called, current level:", self.zoom_level)
         
         # Use PyQt's QTimer to schedule zoom operation in the main thread's event loop
         from PyQt5.QtCore import QTimer
@@ -1033,7 +1117,7 @@ class CameraView(QObject):
         # Simple throttling to prevent rapid zoom operations
         current_time = time.time()
         if hasattr(self, '_last_zoom_time') and (current_time - self._last_zoom_time) < 0.2:
-            print("DEBUG: [CameraView] Zoom operation too frequent, ignoring")
+            conditional_print(f"DEBUG: [CameraView] Zoom operation too frequent, ignoring")
             return
             
         self._last_zoom_time = current_time
@@ -1057,7 +1141,7 @@ class CameraView(QObject):
         3. Schedules the actual zoom application via QTimer to ensure UI thread execution
         4. Uses _apply_zoom to perform the actual transformation
         """
-        print("DEBUG: [CameraView] zoom_out called, current level:", self.zoom_level)
+        conditional_print(f"DEBUG: [CameraView] zoom_out called, current level:", self.zoom_level)
         
         # Use PyQt's QTimer to schedule zoom operation in the main thread's event loop
         from PyQt5.QtCore import QTimer
@@ -1065,7 +1149,7 @@ class CameraView(QObject):
         # Simple throttling to prevent rapid zoom operations
         current_time = time.time()
         if hasattr(self, '_last_zoom_time') and (current_time - self._last_zoom_time) < 0.2:
-            print("DEBUG: [CameraView] Zoom operation too frequent, ignoring")
+            conditional_print(f"DEBUG: [CameraView] Zoom operation too frequent, ignoring")
             return
             
         self._last_zoom_time = current_time
@@ -1084,7 +1168,7 @@ class CameraView(QObject):
         try:
             # Make sure graphics_view is initialized
             if not hasattr(self, 'graphics_view') or self.graphics_view is None:
-                print("DEBUG: [CameraView] Cannot register zoom events - graphics_view not initialized")
+                conditional_print(f"DEBUG: [CameraView] Cannot register zoom events - graphics_view not initialized")
                 return False
             
             # Set up wheel event handling for zoom
@@ -1111,11 +1195,11 @@ class CameraView(QObject):
                 
                 # Install custom wheel handler
                 self.graphics_view.wheelEvent = _wheel_zoom_event
-                print("DEBUG: [CameraView] Registered wheel zoom event handler")
+                conditional_print(f"DEBUG: [CameraView] Registered wheel zoom event handler")
             
             return True
         except Exception as e:
-            print(f"DEBUG: [CameraView] Error registering zoom events: {e}")
+            conditional_print(f"DEBUG: [CameraView] Error registering zoom events: {e}")
             return False
 
     def rotate_left(self):
@@ -1145,17 +1229,46 @@ class CameraView(QObject):
         Đặt lại mức zoom và xoay về mặc định
         
         Phương thức này reset hoàn toàn view về trạng thái mặc định:
-        - Đặt zoom_level về 1.1
+        - Tính zoom để fit ảnh vào khung cameraView
         - Đặt góc xoay về 0
         - Reset transform
         - Căn giữa hình ảnh
         """
-        print("DEBUG: [CameraView] reset_view called")
+        conditional_print(f"DEBUG: [CameraView] reset_view called")
         
-        # Đặt lại các thông số
-        self.zoom_level = 1.1  # Reset về mức zoom mặc định đã được tăng 1 mức
+        # Tính zoom để fit frame với view (như lần khởi động đầu tiên)
+        if hasattr(self, '_last_frame_width') and hasattr(self, '_last_frame_height'):
+            frame_width = self._last_frame_width
+            frame_height = self._last_frame_height
+            
+            # Get view size
+            view_width = self.graphics_view.width() if self.graphics_view else 800
+            view_height = self.graphics_view.height() if self.graphics_view else 600
+            
+            # Calculate scale factors
+            scale_x = view_width / frame_width if frame_width > 0 else 1.0
+            scale_y = view_height / frame_height if frame_height > 0 else 1.0
+            
+            # Use smaller scale to fit entire image
+            fit_zoom = min(scale_x, scale_y)
+            
+            # Apply same logic as display_frame: add margin for large resolutions
+            if frame_width >= 1440 or frame_height >= 1080:
+                self.zoom_level = max(fit_zoom * 0.95, 0.3)
+                conditional_print(f"DEBUG: [CameraView] Reset zoom for large resolution {frame_width}x{frame_height}: fit_zoom={fit_zoom:.2f}, view={view_width}x{view_height}, set zoom_level to {self.zoom_level:.2f}")
+            else:
+                # For smaller resolutions, add slight zoom for detail but still fit
+                self.zoom_level = max(fit_zoom * 1.1, 0.8)
+                conditional_print(f"DEBUG: [CameraView] Reset zoom for small resolution {frame_width}x{frame_height}: fit_zoom={fit_zoom:.2f}, view={view_width}x{view_height}, set zoom_level to {self.zoom_level:.2f}")
+        else:
+            # No frame yet, use default
+            self.zoom_level = 1.1
+            conditional_print(f"DEBUG: [CameraView] No frame yet, using default zoom_level=1.1")
+        
         self.rotation_angle = 0
         self._zoom_changed = True  # Đảm bảo transform được áp dụng
+        self._zoom_manually_set = True  # Mark zoom as manually set so it won't be auto-overridden
+        conditional_print(f"DEBUG: [CameraView] Marked zoom as manually set by reset button")
         
         # Reset transform trực tiếp
         self.graphics_view.resetTransform()
@@ -1171,14 +1284,14 @@ class CameraView(QObject):
         else:
             self.fit_on_next_frame = True
             
-        print(f"DEBUG: [CameraView] View reset to zoom={self.zoom_level}, rotation={self.rotation_angle}")
+        conditional_print(f"DEBUG: [CameraView] View reset to zoom={self.zoom_level}, rotation={self.rotation_angle}")
 
     def fit_to_view(self):
         """
         Phóng to/thu nhỏ để vừa khung nhìn
         """
         self.fit_on_next_frame = True
-        self.zoom_level = 1.1  # Đảm bảo mức zoom đúng ngay cả khi fit to view
+        # Let zoom_level be determined by frame size, not hardcoded here
         self._show_frame_with_zoom()
 
     def get_current_frame(self):
@@ -1193,12 +1306,42 @@ class CameraView(QObject):
     def handle_resize_event(self):
         """
         Xử lý sự kiện khi view được resize
+        Recalculate zoom to keep image fitting in view
         """
-        # Nếu đang ở chế độ fit, fit lại khi resize
-        if self.fit_on_next_frame:
-            self.graphics_view.fitInView(self.graphics_view.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
-            self.zoom_level = 1.1  # Đảm bảo mức zoom mặc định được duy trì
-            self.fit_on_next_frame = False
+        try:
+            # If we have a frame, recalculate zoom to fit in new view size
+            if hasattr(self, '_last_frame_width') and hasattr(self, '_last_frame_height'):
+                frame_width = self._last_frame_width
+                frame_height = self._last_frame_height
+                
+                # Get new view size
+                view_width = self.graphics_view.width() if self.graphics_view else 800
+                view_height = self.graphics_view.height() if self.graphics_view else 600
+                
+                # Calculate scale factors
+                scale_x = view_width / frame_width if frame_width > 0 else 1.0
+                scale_y = view_height / frame_height if frame_height > 0 else 1.0
+                
+                # Use smaller scale to fit entire image
+                fit_zoom = min(scale_x, scale_y)
+                
+                # Apply zoom with same logic as display_frame
+                if frame_width >= 1456 or frame_height >= 1080:
+                    new_zoom = max(fit_zoom * 0.95, 0.3)
+                else:
+                    new_zoom = max(fit_zoom * 1.1, 0.8)
+                
+                # Apply the new zoom if changed
+                if abs(new_zoom - self.zoom_level) > 0.05:
+                    conditional_print(f"DEBUG: [handle_resize_event] View resized - recalculating zoom from {self.zoom_level:.2f} to {new_zoom:.2f}")
+                    self._apply_zoom(new_zoom)
+            
+            # If fitting mode is enabled, refit
+            if self.fit_on_next_frame:
+                self.graphics_view.fitInView(self.graphics_view.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+                self.fit_on_next_frame = False
+        except Exception as e:
+            logging.error(f"Error handling resize event: {e}")
             
     def toggle_fps_display(self, show_fps):
         """
@@ -1296,7 +1439,7 @@ class CameraView(QObject):
     def set_draw_mode(self, enabled):
         """Enable/disable drawing mode"""
         self.draw_mode = enabled
-        print(f"DEBUG: Drawing mode set to {enabled}")
+        conditional_print(f"DEBUG: Drawing mode set to {enabled}")
         if enabled:
             # Khi vào draw mode, tắt selection và set cursor
             self.graphics_view.setDragMode(QGraphicsView.NoDrag)
@@ -1319,7 +1462,7 @@ class CameraView(QObject):
             scene_pos = self.graphics_view.mapToScene(event.pos())
             self.start_point = (scene_pos.x(), scene_pos.y())
             self.drawing = True
-            print(f"DEBUG: Started drawing at {self.start_point}")
+            conditional_print(f"DEBUG: Started drawing at {self.start_point}")
         else:
             # Call original handler for normal interaction
             self._original_mouse_press(event)
@@ -1363,7 +1506,7 @@ class CameraView(QObject):
                 overlay.set_edit_mode(True)
                 self.overlay_edit_mode = True
                 
-                print(f"DEBUG: Created detection area overlay #{overlay.tool_id}: ({x1}, {y1}) to ({x2}, {y2})")
+                conditional_print(f"DEBUG: Created detection area overlay #{overlay.tool_id}: ({x1}, {y1}) to ({x2}, {y2})")
                 
                 # Emit the area_drawn signal with tool_id
                 self.area_drawn.emit(int(x1), int(y1), int(x2), int(y2))
@@ -1381,7 +1524,7 @@ class CameraView(QObject):
         """Add a detection area to be displayed on camera view"""
         # Use current editing tool ID if available
         tool_id = self.current_editing_tool_id
-        print(f"DEBUG: add_detection_area called with tool_id: {tool_id}")
+        conditional_print(f"DEBUG: add_detection_area called with tool_id: {tool_id}")
         
         if self.current_overlay:
             # Update existing overlay
@@ -1395,9 +1538,9 @@ class CameraView(QObject):
             # Store in overlays dict if tool_id is available
             if tool_id is not None:
                 self.overlays[self.current_overlay.tool_id] = self.current_overlay
-                print(f"DEBUG: Added overlay with tool_id {self.current_overlay.tool_id} to overlays dict")
+                conditional_print(f"DEBUG: Added overlay with tool_id {self.current_overlay.tool_id} to overlays dict")
             
-        print(f"DEBUG: Added detection area overlay: ({x1}, {y1}) to ({x2}, {y2})")
+        conditional_print(f"DEBUG: Added detection area overlay: ({x1}, {y1}) to ({x2}, {y2})")
         return self.current_overlay
     
     def clear_detection_areas(self):
@@ -1409,7 +1552,7 @@ class CameraView(QObject):
         self.overlays.clear()
         self.current_overlay = None
         self.overlay_edit_mode = False
-        print("DEBUG: Cleared all detection area overlays")
+        conditional_print(f"DEBUG: Cleared all detection area overlays")
         
     def clear_all_areas(self):
         """Alias for clear_detection_areas"""
@@ -1417,18 +1560,18 @@ class CameraView(QObject):
         
     def update_detection_areas_visibility(self):
         """Update visibility of detection areas based on current display mode"""
-        print(f"DEBUG: [CameraView] Updating detection areas visibility, show_overlay: {self.show_detection_overlay}")
+        conditional_print(f"DEBUG: [CameraView] Updating detection areas visibility, show_overlay: {self.show_detection_overlay}")
         
         # Update visibility for all overlays
         for tool_id, overlay in self.overlays.items():
             if overlay and hasattr(overlay, 'setVisible'):
                 overlay.setVisible(self.show_detection_overlay)
-                print(f"DEBUG: [CameraView] Set overlay {tool_id} visible: {self.show_detection_overlay}")
+                conditional_print(f"DEBUG: [CameraView] Set overlay {tool_id} visible: {self.show_detection_overlay}")
         
         # Update visibility for current overlay being drawn
         if self.current_overlay and hasattr(self.current_overlay, 'setVisible'):
             self.current_overlay.setVisible(self.show_detection_overlay)
-            print(f"DEBUG: [CameraView] Set current overlay visible: {self.show_detection_overlay}")
+            conditional_print(f"DEBUG: [CameraView] Set current overlay visible: {self.show_detection_overlay}")
         
     def add_tool_overlay(self, x1, y1, x2, y2, tool_id=None):
         """Add overlay for a specific tool"""
@@ -1436,7 +1579,7 @@ class CameraView(QObject):
         overlay = DetectionAreaOverlay(rect, tool_id, camera_view=self)
         self.scene.addItem(overlay)
         self.overlays[overlay.tool_id] = overlay
-        print(f"DEBUG: Added tool overlay #{overlay.tool_id}: ({x1}, {y1}) to ({x2}, {y2})")
+        conditional_print(f"DEBUG: Added tool overlay #{overlay.tool_id}: ({x1}, {y1}) to ({x2}, {y2})")
         return overlay
         
     def remove_tool_overlay(self, tool_id):
@@ -1448,7 +1591,7 @@ class CameraView(QObject):
             del self.overlays[tool_id]
             if self.current_overlay and self.current_overlay.tool_id == tool_id:
                 self.current_overlay = None
-            print(f"DEBUG: Removed tool overlay #{tool_id}")
+            conditional_print(f"DEBUG: Removed tool overlay #{tool_id}")
             return True
         return False
         
@@ -1464,7 +1607,7 @@ class CameraView(QObject):
             overlay.set_edit_mode(True)
             self.current_overlay = overlay
             self.overlay_edit_mode = True
-            print(f"DEBUG: Editing tool overlay #{tool_id}")
+            conditional_print(f"DEBUG: Editing tool overlay #{tool_id}")
             return overlay
         return None
     
@@ -1482,7 +1625,7 @@ class CameraView(QObject):
         """Add a detection area to be displayed on camera view"""
         # Use current editing tool ID if available
         tool_id = getattr(self, 'current_editing_tool_id', None)
-        print(f"DEBUG: [CameraView] add_detection_area using tool_id: {tool_id}")
+        conditional_print(f"DEBUG: [CameraView] add_detection_area using tool_id: {tool_id}")
         return self.add_tool_overlay(x1, y1, x2, y2, tool_id=tool_id)
         
     def get_tool_overlay_coords(self, tool_id):
@@ -1496,7 +1639,7 @@ class CameraView(QObject):
         self.overlay_edit_mode = enabled
         if self.current_overlay:
             self.current_overlay.set_edit_mode(enabled)
-            print(f"DEBUG: Overlay edit mode set to: {enabled}")
+            conditional_print(f"DEBUG: Overlay edit mode set to: {enabled}")
             
     def show_detection_area(self, x1, y1, x2, y2, editable=False):
         """Hiển thị detection area trên camera view"""
@@ -1625,33 +1768,33 @@ class CameraView(QObject):
     def _start_camera_display_worker(self):
         """Start the camera display worker thread"""
         try:
-            print(f"DEBUG: [_start_camera_display_worker] Starting worker, thread={self.camera_display_thread}")
+            conditional_print(f"DEBUG: [_start_camera_display_worker] Starting worker, thread={self.camera_display_thread}")
             if self.camera_display_thread is not None:
-                print(f"DEBUG: [_start_camera_display_worker] Worker already started, returning")
+                conditional_print(f"DEBUG: [_start_camera_display_worker] Worker already started, returning")
                 return  # Already started
             
             # Create worker and thread
-            print(f"DEBUG: [_start_camera_display_worker] Creating CameraDisplayWorker")
+            conditional_print(f"DEBUG: [_start_camera_display_worker] Creating CameraDisplayWorker")
             self.camera_display_worker = CameraDisplayWorker(self)
             self.camera_display_thread = QThread()
             
             # Move worker to thread
-            print(f"DEBUG: [_start_camera_display_worker] Moving worker to thread")
+            conditional_print(f"DEBUG: [_start_camera_display_worker] Moving worker to thread")
             self.camera_display_worker.moveToThread(self.camera_display_thread)
             
             # Connect signals
-            print(f"DEBUG: [_start_camera_display_worker] Connecting signals")
+            conditional_print(f"DEBUG: [_start_camera_display_worker] Connecting signals")
             self.camera_display_thread.started.connect(self.camera_display_worker.process_frames)
             self.camera_display_worker.frameProcessed.connect(self._handle_processed_frame)
             
             # Start thread
-            print(f"DEBUG: [_start_camera_display_worker] Starting thread")
+            conditional_print(f"DEBUG: [_start_camera_display_worker] Starting thread")
             self.camera_display_thread.start()
             logging.info("Camera display worker thread started")
-            print(f"DEBUG: [_start_camera_display_worker] Worker started successfully")
+            conditional_print(f"DEBUG: [_start_camera_display_worker] Worker started successfully")
             
         except Exception as e:
-            print(f"DEBUG: [_start_camera_display_worker] ERROR: {e}")
+            conditional_print(f"DEBUG: [_start_camera_display_worker] ERROR: {e}")
             logging.error(f"Error starting camera display worker: {e}")
     
     def _stop_camera_display_worker(self):
@@ -1674,7 +1817,7 @@ class CameraView(QObject):
     def _handle_processed_frame(self, qimage, frame_for_history):
         """Handle processed frame from worker thread (runs on main thread)"""
         try:
-            print(f"DEBUG: [_handle_processed_frame] Received processed frame, qimage is None: {qimage is None}")
+            conditional_print(f"DEBUG: [_handle_processed_frame] Received processed frame, qimage is None: {qimage is None}")
             if qimage is None:
                 return
             
@@ -1697,11 +1840,11 @@ class CameraView(QObject):
             
             # Keep track of trigger mode state
             if hasattr(self, 'in_trigger_mode') and self.in_trigger_mode != in_trigger_mode:
-                print(f"DEBUG: [CameraView] Trigger mode changed: {in_trigger_mode}")
+                conditional_print(f"DEBUG: [CameraView] Trigger mode changed: {in_trigger_mode}")
             self.in_trigger_mode = in_trigger_mode
             
             # Display the processed QImage
-            print(f"DEBUG: [_handle_processed_frame] Calling _display_qimage")
+            conditional_print(f"DEBUG: [_handle_processed_frame] Calling _display_qimage")
             self._display_qimage(qimage)
             
             # Calculate FPS
@@ -1710,31 +1853,31 @@ class CameraView(QObject):
             # NOTE: Frame history is now updated in _display_qimage() only to avoid duplicates
             
         except Exception as e:
-            print(f"DEBUG: [_handle_processed_frame] ERROR: {e}")
+            conditional_print(f"DEBUG: [_handle_processed_frame] ERROR: {e}")
             logging.error(f"Error handling processed frame: {e}")
     
     def _display_qimage(self, qimage):
         """Display QImage in graphics view (main thread only)"""
         try:
-            print(f"DEBUG: [_display_qimage] Displaying QImage")
+            conditional_print(f"DEBUG: [_display_qimage] Displaying QImage")
             # Convert QImage to QPixmap
             pixmap = QPixmap.fromImage(qimage)
-            print(f"DEBUG: [_display_qimage] Pixmap created, isNull={pixmap.isNull()}, size={pixmap.size()}")
+            conditional_print(f"DEBUG: [_display_qimage] Pixmap created, isNull={pixmap.isNull()}, size={pixmap.size()}")
             if pixmap.isNull():
-                print(f"DEBUG: [_display_qimage] Pixmap is null, returning")
+                conditional_print(f"DEBUG: [_display_qimage] Pixmap is null, returning")
                 return
             
             # Get or create graphics scene
             scene = self.graphics_view.scene()
             if scene is None:
-                print(f"DEBUG: [_display_qimage] Creating new graphics scene")
+                conditional_print(f"DEBUG: [_display_qimage] Creating new graphics scene")
                 scene = QGraphicsScene()
                 self.graphics_view.setScene(scene)
             else:
                 scene.clear()
             
             # Add pixmap to scene
-            print(f"DEBUG: [_display_qimage] Adding pixmap to scene")
+            conditional_print(f"DEBUG: [_display_qimage] Adding pixmap to scene")
             scene.addPixmap(pixmap)
             
             # Apply zoom and rotation if needed
@@ -1883,7 +2026,7 @@ class CameraView(QObject):
                 return
             
             # Skip if frame is too large (performance optimization)
-            if frame.size > 1440 * 1080 * 3:  # Skip very large frames for review views
+            if frame.size > 1456 * 1080 * 3:  # Skip very large frames for review views
                 return
             
             # Configure review view for read-only display

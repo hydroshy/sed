@@ -3,6 +3,7 @@ from PyQt5.QtCore import Qt, QTimer
 from controller.tcp_controller import TCPController
 from gui.tcp_optimized_trigger import OptimizedTCPControllerManager
 import logging
+from utils.debug_utils import conditional_print
 import time
 
 class TCPControllerManager:
@@ -218,13 +219,13 @@ class TCPControllerManager:
         """
         try:
             logging.info(f"[TCPController] Sensor IN received: sensor_id={sensor_id}")
-            print(f"DEBUG: [TCPController] Sensor IN received: {sensor_id}")
+            conditional_print(f"DEBUG: [TCPController] Sensor IN received: {sensor_id}")
             
             # Get result tab manager
             result_tab_manager = getattr(self.main_window, 'result_tab_manager', None)
             if not result_tab_manager:
                 logging.warning("[TCPController] Result Tab Manager not found!")
-                print("DEBUG: [TCPController] Result Tab Manager not found!")
+                conditional_print(f"DEBUG: [TCPController] Result Tab Manager not found!")
                 return
             
             # Gọi method tạo frame và ghép result
@@ -232,7 +233,7 @@ class TCPControllerManager:
             
             if frame_id > 0:
                 logging.info(f"[TCPController] Frame created: frame_id={frame_id}, sensor_id={sensor_id}")
-                print(f"DEBUG: [TCPController] Frame created: {frame_id}")
+                conditional_print(f"DEBUG: [TCPController] Frame created: {frame_id}")
                 
                 # Optional: hiển thị message trên UI
                 if self.message_list:
@@ -240,11 +241,11 @@ class TCPControllerManager:
                     self.message_list.scrollToBottom()
             else:
                 logging.error(f"[TCPController] Failed to create frame for sensor_id={sensor_id}")
-                print(f"DEBUG: [TCPController] Failed to create frame")
+                conditional_print(f"DEBUG: [TCPController] Failed to create frame")
                 
         except Exception as e:
             logging.error(f"[TCPController] Error handling sensor IN: {e}", exc_info=True)
-            print(f"DEBUG: [TCPController] Error handling sensor IN: {e}")
+            conditional_print(f"DEBUG: [TCPController] Error handling sensor IN: {e}")
     
     def _handle_sensor_out_event(self, sensor_id: int):
         """
@@ -259,7 +260,7 @@ class TCPControllerManager:
         """
         try:
             logging.info(f"[TCPController] 🔚 Sensor OUT received: sensor_id={sensor_id}")
-            print(f"DEBUG: [TCPController] 🔚 Sensor OUT received: {sensor_id}")
+            conditional_print(f"DEBUG: [TCPController] 🔚 Sensor OUT received: {sensor_id}")
             
             # Get result tab manager
             result_tab_manager = getattr(self.main_window, 'result_tab_manager', None)
@@ -272,7 +273,7 @@ class TCPControllerManager:
             
             if success:
                 logging.info(f"[TCPController] Sensor OUT matched successfully")
-                print(f"DEBUG: [TCPController] Sensor OUT matched")
+                conditional_print(f"DEBUG: [TCPController] Sensor OUT matched")
                 
                 # ✅ NEW: Execute servo command based on frame status
                 self._execute_servo_command_for_done_frame()
@@ -283,11 +284,11 @@ class TCPControllerManager:
                     self.message_list.scrollToBottom()
             else:
                 logging.warning(f"[TCPController] Sensor OUT not matched (no pending frame)")
-                print(f"DEBUG: [TCPController] Sensor OUT not matched")
+                conditional_print(f"DEBUG: [TCPController] Sensor OUT not matched")
                 
         except Exception as e:
             logging.error(f"[TCPController] Error handling sensor OUT: {e}", exc_info=True)
-            print(f"DEBUG: [TCPController] Error handling sensor OUT: {e}")
+            conditional_print(f"DEBUG: [TCPController] Error handling sensor OUT: {e}")
     
     def _execute_servo_command_for_done_frame(self):
         """
@@ -323,14 +324,14 @@ class TCPControllerManager:
             if frame_status == "OK":
                 servo_command = "GOTO 5"
                 logging.info(f"[TCPController] ✅ Frame {done_frame.frame_id} is OK → Servo command: GOTO 5")
-                print(f"DEBUG: [TCPController] ✅ OK status → GOTO 5")
+                conditional_print(f"DEBUG: [TCPController] ✅ OK status → GOTO 5")
             elif frame_status == "NG":
                 servo_command = "GOTO 45"
                 logging.info(f"[TCPController] ❌ Frame {done_frame.frame_id} is NG → Servo command: GOTO 45")
-                print(f"DEBUG: [TCPController] ❌ NG status → GOTO 45")
+                conditional_print(f"DEBUG: [TCPController] ❌ NG status → GOTO 45")
             else:
                 logging.warning(f"[TCPController] Frame status is '{frame_status}' (not OK/NG), skipping servo command")
-                print(f"DEBUG: [TCPController] Skipping: status={frame_status}")
+                conditional_print(f"DEBUG: [TCPController] Skipping: status={frame_status}")
                 return
             
             # Send servo command via TCP
@@ -339,7 +340,7 @@ class TCPControllerManager:
                 
                 if success:
                     logging.info(f"[TCPController] ✅ Servo command sent: {servo_command}")
-                    print(f"DEBUG: [TCPController] ✅ TX: {servo_command}")
+                    conditional_print(f"DEBUG: [TCPController] ✅ TX: {servo_command}")
                     
                     # Add to message list for UI display
                     if self.message_list:
@@ -347,14 +348,14 @@ class TCPControllerManager:
                         self.message_list.scrollToBottom()
                 else:
                     logging.error(f"[TCPController] Failed to send servo command: {servo_command}")
-                    print(f"DEBUG: [TCPController] ❌ Failed to send: {servo_command}")
+                    conditional_print(f"DEBUG: [TCPController] ❌ Failed to send: {servo_command}")
             else:
                 logging.warning("[TCPController] Cannot send servo command: TCP not connected")
-                print(f"DEBUG: [TCPController] TCP not connected")
+                conditional_print(f"DEBUG: [TCPController] TCP not connected")
             
         except Exception as e:
             logging.error(f"[TCPController] Error executing servo command: {e}", exc_info=True)
-            print(f"DEBUG: [TCPController] Error executing servo: {e}")
+            conditional_print(f"DEBUG: [TCPController] Error executing servo: {e}")
     
     def _on_connect_click(self):
         """Handle connect/disconnect button clicks"""

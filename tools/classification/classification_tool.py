@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import json
 import logging
+from utils.debug_utils import conditional_print
 from typing import Dict, Any, Tuple, Optional, List, Union
 
 import numpy as np
@@ -274,7 +275,7 @@ class ClassificationTool(BaseTool):
         std = self.config.get("std", [0.229, 0.224, 0.225])
         
         # Debug log (reduced for performance)
-        # print(f"DEBUG: ClassificationTool preprocessing with dimensions {width}x{height}")
+        # conditional_print(f"DEBUG: ClassificationTool preprocessing with dimensions {width}x{height}")
         
         # Resize image
         resized = cv2.resize(image, (width, height))

@@ -11,6 +11,7 @@ Purpose:
 """
 
 import logging
+from utils.debug_utils import conditional_print
 from typing import Dict, List, Any, Optional, Tuple
 import numpy as np
 
@@ -90,13 +91,13 @@ class ResultManager:
             self.ng_ok_enabled = True
             
             logger.info(f"ResultManager: Reference set from DetectTool with {len(detections)} objects")
-            print(f"DEBUG: [ResultManager] Reference set from DetectTool: {len(detections)} objects")
+            conditional_print(f"DEBUG: [ResultManager] Reference set from DetectTool: {len(detections)} objects")
             
             return True
             
         except Exception as e:
             logger.error(f"ResultManager: Error setting reference: {e}")
-            print(f"DEBUG: [ResultManager] Error setting reference: {e}")
+            conditional_print(f"DEBUG: [ResultManager] Error setting reference: {e}")
             return False
     
     def evaluate_detect_results(self, detections: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -368,7 +369,7 @@ class ResultManager:
         }
         self.ng_ok_enabled = False
         logger.info("ResultManager: Reference cleared")
-        print("DEBUG: [ResultManager] Reference cleared")
+        conditional_print(f"DEBUG: [ResultManager] Reference cleared")
     
     def get_info(self) -> Dict[str, Any]:
         """Get ResultManager information"""

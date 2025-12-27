@@ -2,6 +2,7 @@ from PyQt5.QtCore import QObject, pyqtSlot, QThread, pyqtSignal, QTimer
 from PyQt5.QtWidgets import QApplication, QComboBox
 from camera.camera_stream import CameraStream
 from gui.camera_view import CameraView
+from utils.debug_utils import conditional_print
 import logging
 import re
 import inspect
@@ -163,7 +164,7 @@ class CameraManager(QObject):
             self.camera_view.zoom_level = 1.1
             if hasattr(self.camera_view, '_zoom_changed'):
                 self.camera_view._zoom_changed = True
-            print("DEBUG: [CameraManager] Set zoom_level = 1.1 in setup")
+            conditional_print(f"DEBUG: [CameraManager] Set zoom_level = 1.1 in setup")
         self.camera_stream.frame_ready.connect(self.camera_view.display_frame)
         # Rebind frame_ready to route through our handler so we can run the job pipeline
         try:
@@ -232,7 +233,7 @@ class CameraManager(QObject):
                     self.camera_view.zoom_level = 1.1
                     if hasattr(self.camera_view, '_zoom_changed'):
                         self.camera_view._zoom_changed = True
-                    print("DEBUG: [CameraManager] Đã đặt zoom_level = 1.1 trong register_tool")
+                    conditional_print(f"DEBUG: [CameraManager] Đã đặt zoom_level = 1.1 trong register_tool")
                 
                 return True
         except Exception as e:
@@ -299,9 +300,9 @@ class CameraManager(QObject):
             # Count calls for debugging
             self._frame_call_count = getattr(self, '_frame_call_count', 0) + 1
             if trigger_capturing:
-                print(f"DEBUG: [CameraManager] _on_frame_from_camera called during TRIGGER CAPTURE (call #{self._frame_call_count}) - processing job for trigger frame")
+                conditional_print(f"DEBUG: [CameraManager] _on_frame_from_camera called during TRIGGER CAPTURE (call #{self._frame_call_count}) - processing job for trigger frame")
             else:
-                print(f"DEBUG: [CameraManager] _on_frame_from_camera called - _trigger_capturing=False (call #{self._frame_call_count}), processing live frame")
+                conditional_print(f"DEBUG: [CameraManager] _on_frame_from_camera called - _trigger_capturing=False (call #{self._frame_call_count}), processing live frame")
             
             # If we're waiting for the first frame after (re)start, clear the flag and sync UI
             if getattr(self, '_waiting_first_frame', False):
@@ -334,7 +335,7 @@ class CameraManager(QObject):
 
             # Debug: Show what tools are in the job
             tools_list = ", ".join([f"{t.name}" for t in current_job.tools])
-            print(f"DEBUG: Job has {len(current_job.tools)} tools: [{tools_list}]")
+            conditional_print(f"DEBUG: Job has {len(current_job.tools)} tools: [{tools_list}]")
 
             try:
                 # Build context for pipeline: include pixel_format for correct color handling
@@ -346,14 +347,14 @@ class CameraManager(QObject):
                         current_format = self.camera_stream.get_pixel_format()
                         if current_format and current_format in ['BGR888', 'RGB888', 'XRGB8888', 'YUV420', 'NV12']:
                             pixel_format = current_format
-                            print(f"DEBUG: [CameraManager] Using current camera format: {pixel_format}")
+                            conditional_print(f"DEBUG: [CameraManager] Using current camera format: {pixel_format}")
                     except Exception as e:
-                        print(f"DEBUG: [CameraManager] Could not get camera format: {e}, using default RGB888")
+                        conditional_print(f"DEBUG: [CameraManager] Could not get camera format: {e}, using default RGB888")
                 
-                print(f"DEBUG: [CameraManager] Frame format: {pixel_format} for job processing")
+                conditional_print(f"DEBUG: [CameraManager] Frame format: {pixel_format} for job processing")
                 
                 initial_context = {"force_save": True, "pixel_format": str(pixel_format)}
-                print(f"DEBUG: [CameraManager] RUNNING JOB PIPELINE (trigger_capturing={getattr(self, '_trigger_capturing', False)})")
+                conditional_print(f"DEBUG: [CameraManager] RUNNING JOB PIPELINE (trigger_capturing={getattr(self, '_trigger_capturing', False)})")
                 
                 # Tính toán thời gian thực thi
                 import time as time_module
@@ -361,7 +362,7 @@ class CameraManager(QObject):
                 processed_image, job_results = job_manager.run_current_job(frame, context=initial_context)
                 total_execution_time = time_module.time() - start_time
                 
-                print(f"DEBUG: [CameraManager] JOB PIPELINE COMPLETED in {total_execution_time:.3f}s")
+                conditional_print(f"DEBUG: [CameraManager] JOB PIPELINE COMPLETED in {total_execution_time:.3f}s")
                 
                 # Cập nhật executionTime label với inference time từ ONNX model
                 try:
@@ -403,7 +404,7 @@ class CameraManager(QObject):
                         if hasattr(self, 'main_window') and self.main_window:
                             if hasattr(self.main_window, 'executionTime') and self.main_window.executionTime:
                                 self.main_window.executionTime.display(round(inference_time, 3))
-                                print(f"DEBUG: Updated executionTime label: {inference_time:.3f}s")
+                                conditional_print(f"DEBUG: Updated executionTime label: {inference_time:.3f}s")
                 except Exception as update_err:
                     logging.debug(f"Could not update executionTime label: {update_err}")
                 
@@ -465,7 +466,7 @@ class CameraManager(QObject):
                 self.camera_view.zoom_level = 1.1
                 if hasattr(self.camera_view, '_zoom_changed'):
                     self.camera_view._zoom_changed = True
-                print("DEBUG: [CameraManager] Đã đặt zoom_level = 1.1 trong stop_camera_for_apply")
+                conditional_print(f"DEBUG: [CameraManager] Đã đặt zoom_level = 1.1 trong stop_camera_for_apply")
                 
             # Refresh source output combo to show updated pipeline
             self.refresh_source_output_combo()
@@ -703,22 +704,22 @@ class CameraManager(QObject):
                     if hasattr(self.camera_stream, 'fifo_queue') and self.camera_stream.fifo_queue:
                         queue_size = len(self.camera_stream.fifo_queue.queue) if hasattr(self.camera_stream.fifo_queue, 'queue') else 0
                         if queue_size > 0:
-                            print(f"DEBUG: [CameraManager] Frame pending detected ({queue_size} frames), flushing to apply new {setting_type} setting")
+                            conditional_print(f"DEBUG: [CameraManager] Frame pending detected ({queue_size} frames), flushing to apply new {setting_type} setting")
                             if hasattr(self.camera_stream, 'cancel_all_and_flush'):
                                 self.camera_stream.cancel_all_and_flush()
                 else:
-                    print(f"DEBUG: [CameraManager] Skipping flush during mode change (already flushed)")
+                    conditional_print(f"DEBUG: [CameraManager] Skipping flush during mode change (already flushed)")
                 
                 # APPLY NEW SETTING
                 if setting_type == 'exposure':
                     self.camera_stream.set_exposure(value)
-                    print(f"DEBUG: [CameraManager] Applied new exposure: {value}")
+                    conditional_print(f"DEBUG: [CameraManager] Applied new exposure: {value}")
                 elif setting_type == 'gain':
                     self.camera_stream.set_gain(value)
-                    print(f"DEBUG: [CameraManager] Applied new gain: {value}")
+                    conditional_print(f"DEBUG: [CameraManager] Applied new gain: {value}")
                 elif setting_type == 'ev':
                     self.camera_stream.set_ev(value)
-                    print(f"DEBUG: [CameraManager] Applied new EV: {value}")
+                    conditional_print(f"DEBUG: [CameraManager] Applied new EV: {value}")
             except AttributeError:
                 # Camera stream kh  ng c   method n  y, skip
                 pass
@@ -813,7 +814,7 @@ class CameraManager(QObject):
         """     t gi   tr    gain"""
         try:
             value = float(value)
-            print(f"DEBUG: [CameraManager] Setting gain value to {value}")
+            conditional_print(f"DEBUG: [CameraManager] Setting gain value to {value}")
             # Update UI
             if self.gain_edit:
                 self.gain_edit.setText(str(value))
@@ -824,13 +825,13 @@ class CameraManager(QObject):
                 try:
                     success = self.camera_stream.set_gain(value)
                     if not success:
-                        print(f"DEBUG: [CameraManager] Failed to set gain on camera stream")
+                        conditional_print(f"DEBUG: [CameraManager] Failed to set gain on camera stream")
                 except Exception as e:
-                    print(f"DEBUG: [CameraManager] Error setting gain: {e}")
+                    conditional_print(f"DEBUG: [CameraManager] Error setting gain: {e}")
             
             return True
         except (ValueError, AttributeError) as e:
-            print(f"DEBUG: [CameraManager] Error setting gain value: {e}")
+            conditional_print(f"DEBUG: [CameraManager] Error setting gain value: {e}")
             logging.error(f"Failed to set gain value: {e}", exc_info=True)
             return False
             
@@ -851,11 +852,11 @@ class CameraManager(QObject):
         try:
             # Handle tuple case (min, max, current)
             if isinstance(value, tuple) and len(value) >= 3:
-                print(f"DEBUG: [CameraManager] Received EV tuple: {value}, using value[2]")
+                conditional_print(f"DEBUG: [CameraManager] Received EV tuple: {value}, using value[2]")
                 value = value[2]  # Use the current value (third element)
                 
             value = float(value)
-            print(f"DEBUG: [CameraManager] Setting EV value to {value}")
+            conditional_print(f"DEBUG: [CameraManager] Setting EV value to {value}")
             
             # Update UI
             if self.ev_edit:
@@ -870,13 +871,13 @@ class CameraManager(QObject):
                 try:
                     success = self.camera_stream.set_ev(value)
                     if not success:
-                        print(f"DEBUG: [CameraManager] Failed to set EV on camera stream")
+                        conditional_print(f"DEBUG: [CameraManager] Failed to set EV on camera stream")
                 except Exception as e:
-                    print(f"DEBUG: [CameraManager] Error setting EV: {e}")
+                    conditional_print(f"DEBUG: [CameraManager] Error setting EV: {e}")
             
             return True
         except (ValueError, AttributeError, TypeError) as e:
-            print(f"DEBUG: [CameraManager] Error setting EV value: {e}")
+            conditional_print(f"DEBUG: [CameraManager] Error setting EV value: {e}")
             logging.error(f"Failed to set EV value: {e}", exc_info=True)
             return False
             return False
@@ -993,7 +994,7 @@ class CameraManager(QObject):
         try:
             # Check if value is a tuple and extract current value
             if isinstance(value, tuple) and len(value) >= 3:
-                print(f"DEBUG: [CameraManager] Received EV tuple: {value}, using value[2]")
+                conditional_print(f"DEBUG: [CameraManager] Received EV tuple: {value}, using value[2]")
                 value = value[2]  # Use the current value (third element)
                 
             # Convert to float for UI
@@ -1009,14 +1010,14 @@ class CameraManager(QObject):
                 self.camera_stream.set_ev(ev_value)
                 
         except (ValueError, TypeError) as e:
-            print(f"DEBUG: [CameraManager] Error in set_ev: {e}")
+            conditional_print(f"DEBUG: [CameraManager] Error in set_ev: {e}")
             # Default to 0.0 if conversion fails
             if self.ev_edit and hasattr(self.ev_edit, 'setValue'):
                 self.ev_edit.setValue(0.0)
 
     def on_exposure_edit_changed(self):
         """X    l   khi ng     i d  ng thay      i gi   tr    exposure trong spinbox - ch    l  u v  o pending"""
-        print(f"DEBUG: on_exposure_edit_changed called")
+        conditional_print(f"DEBUG: on_exposure_edit_changed called")
         try:
             if self.exposure_edit:
                 # Get value from spinbox (microseconds) - kh  ng c   n convert
@@ -1025,20 +1026,20 @@ class CameraManager(QObject):
                 else:  # QLineEdit fallback
                     value_us = float(self.exposure_edit.text())
                 
-                print(f"DEBUG: New exposure value: {value_us}   s")
-                print(f"DEBUG: Manual mode: {not self._is_auto_exposure}")
+                conditional_print(f"DEBUG: New exposure value: {value_us}   s")
+                conditional_print(f"DEBUG: Manual mode: {not self._is_auto_exposure}")
                 
                 # L  u tr   c ti   p gi   tr    microseconds v  o pending settings
                 self._pending_exposure_settings['exposure'] = value_us
-                print(f"DEBUG: Saved to pending settings")
+                conditional_print(f"DEBUG: Saved to pending settings")
 
                 # Instant apply:   p d   ng ngay khi     manual mode       ng     i d  ng th   y hi   u    ng t   c th   i
                 # Ch    apply khi _instant_apply b   t v   kh  ng     auto-exposure
                 try:
                     self._apply_setting_if_manual('exposure', value_us)
-                    print("DEBUG: Instant-applied exposure to camera (manual mode)")
+                    conditional_print(f"DEBUG: Instant-applied exposure to camera (manual mode)")
                 except Exception as e:
-                    print(f"DEBUG: Failed instant apply exposure: {e}")
+                    conditional_print(f"DEBUG: Failed instant apply exposure: {e}")
                 
                 # Notify settings manager about the change for synchronization
                 if self.settings_manager:
@@ -1047,12 +1048,12 @@ class CameraManager(QObject):
                     # self.settings_manager.sync_settings_across_pages()
                 
         except (ValueError, AttributeError) as e:
-            print(f"DEBUG: Error in exposure edit changed: {e}")
+            conditional_print(f"DEBUG: Error in exposure edit changed: {e}")
     
     def set_settings_manager(self, settings_manager):
         """Set reference to settings manager for synchronization"""
         self.settings_manager = settings_manager
-        print(f"DEBUG: CameraManager linked to SettingsManager")
+        conditional_print(f"DEBUG: CameraManager linked to SettingsManager")
 
     def on_gain_edit_changed(self, value=None):
         """X    l   khi ng     i d  ng thay      i gi   tr    gain"""
@@ -1090,32 +1091,32 @@ class CameraManager(QObject):
         # L   y gi   tr    th   c t    t    camera n   u c   API
         if hasattr(self.camera_stream, 'get_exposure'):
             exposure = self.camera_stream.get_exposure()
-            print(f"DEBUG: Got exposure from camera: {exposure}")
+            conditional_print(f"DEBUG: Got exposure from camera: {exposure}")
             if exposure:  # Ch    update n   u c   gi   tr    h   p l   
                 if self.exposure_edit:
                     if hasattr(self.exposure_edit, 'setValue'):
                         self.exposure_edit.setValue(float(exposure))
-                        print(f"DEBUG: Set exposure in UI: {exposure}")
+                        conditional_print(f"DEBUG: Set exposure in UI: {exposure}")
                     else:
                         self.exposure_edit.setText(str(exposure))
                         
         if hasattr(self.camera_stream, 'get_gain'):
             try:
                 gain = self.camera_stream.get_gain()
-                print(f"DEBUG: Got gain from camera: {gain}")
+                conditional_print(f"DEBUG: Got gain from camera: {gain}")
                 if gain is not None:
                     self.set_gain(gain)
             except Exception as e:
-                print(f"DEBUG: [CameraManager] Error getting gain: {e}")
+                conditional_print(f"DEBUG: [CameraManager] Error getting gain: {e}")
                 
         if hasattr(self.camera_stream, 'get_ev'):
             try:
                 ev = self.camera_stream.get_ev()
-                print(f"DEBUG: Got EV from camera: {ev}")
+                conditional_print(f"DEBUG: Got EV from camera: {ev}")
                 if ev is not None:
                     self.set_ev(ev)
             except Exception as e:
-                print(f"DEBUG: [CameraManager] Error getting/setting EV: {e}")
+                conditional_print(f"DEBUG: [CameraManager] Error getting/setting EV: {e}")
             
     def _show_camera_error(self, message):
         """Show camera error message to user"""
@@ -1128,19 +1129,19 @@ class CameraManager(QObject):
             msg_box.setInformativeText("Please check camera connection and try again.")
             msg_box.exec_()
         except Exception as e:
-            print(f"DEBUG: [CameraManager] Error showing message box: {e}")
+            conditional_print(f"DEBUG: [CameraManager] Error showing message box: {e}")
     
     def toggle_live_camera(self, checked):
         """B   t/t   t ch          camera tr   c ti   p"""
-        print(f"DEBUG: [CameraManager] toggle_live_camera called with checked={checked}")
+        conditional_print(f"DEBUG: [CameraManager] toggle_live_camera called with checked={checked}")
         # Y  u c   u c   Camera Source trong workflow tr     c khi b   t camera        
         if not self.camera_stream:
-            print("DEBUG: [CameraManager] No camera stream available")
+            conditional_print(f"DEBUG: [CameraManager] No camera stream available")
             return False
             
         try:
             if checked:
-                print("DEBUG: [CameraManager] Starting live camera...")
+                conditional_print(f"DEBUG: [CameraManager] Starting live camera...")
                 
                 # Process pending events to keep UI responsive
                 QApplication.processEvents()
@@ -1150,27 +1151,27 @@ class CameraManager(QObject):
                 try:
                     # First try direct method access - this helps with finding the true error
                     try:
-                        print("DEBUG: [CameraManager] First attempt - direct start_online_camera()")
+                        conditional_print(f"DEBUG: [CameraManager] First attempt - direct start_online_camera()")
                         success = self.camera_stream.start_online_camera()
                     except AttributeError as e:
-                        print(f"DEBUG: [CameraManager] AttributeError: {e}")
+                        conditional_print(f"DEBUG: [CameraManager] AttributeError: {e}")
                         # Fall back to other method name
-                        print("DEBUG: [CameraManager] Falling back to start_live_camera()")
+                        conditional_print(f"DEBUG: [CameraManager] Falling back to start_live_camera()")
                         try:
                             success = self.camera_stream.start_live_camera()
                         except AttributeError:
                             # Implement method directly if needed
-                            print("DEBUG: [CameraManager] Both methods missing - implementing inline")
+                            conditional_print(f"DEBUG: [CameraManager] Both methods missing - implementing inline")
                             success = self._implement_start_live()
                 except Exception as e:
-                    print(f"DEBUG: [CameraManager] Error starting camera: {e}")
+                    conditional_print(f"DEBUG: [CameraManager] Error starting camera: {e}")
                     success = False
                 
                 # Process events again after camera start
                 QApplication.processEvents()
                 
                 if success:
-                    print("DEBUG: [CameraManager] Live camera started successfully")
+                    conditional_print(f"DEBUG: [CameraManager] Live camera started successfully")
                     # Sync camera params sau m   t ch  t delay       camera start ho  n to  n
                     from PyQt5.QtCore import QTimer
                     # Th    sync multiple times            m b   o camera      s   n s  ng
@@ -1178,7 +1179,7 @@ class CameraManager(QObject):
                     QTimer.singleShot(2000, self.update_camera_params_from_camera)  # retry sau 2s
                     return True
                 else:
-                    print("DEBUG: [CameraManager] Failed to start live camera")
+                    conditional_print(f"DEBUG: [CameraManager] Failed to start live camera")
                     # Show error to user
                     self._show_camera_error("Failed to start live preview")
                     # Update UI to reflect failure
@@ -1186,7 +1187,7 @@ class CameraManager(QObject):
                     self.update_camera_mode_ui()
                     return False
             else:
-                print("DEBUG: [CameraManager] Stopping live camera...")
+                conditional_print(f"DEBUG: [CameraManager] Stopping live camera...")
                 
                 # Process events before stop
                 QApplication.processEvents()
@@ -1194,25 +1195,25 @@ class CameraManager(QObject):
                 try:
                     # Preferred safe stop
                     try:
-                        print("DEBUG: [CameraManager] Preferred stop - cancel_and_stop_live()")
+                        conditional_print(f"DEBUG: [CameraManager] Preferred stop - cancel_and_stop_live()")
                         self.camera_stream.cancel_and_stop_live()
                     except AttributeError as e:
-                        print(f"DEBUG: [CameraManager] AttributeError cancel_and_stop_live: {e}")
+                        conditional_print(f"DEBUG: [CameraManager] AttributeError cancel_and_stop_live: {e}")
                         if hasattr(self.camera_stream, 'cancel_all_and_flush'):
                             self.camera_stream.cancel_all_and_flush()
                         if hasattr(self.camera_stream, 'stop_live'):
                             self.camera_stream.stop_live()
                 except Exception as e:
-                    print(f"DEBUG: [CameraManager] Error stopping camera: {e}")
+                    conditional_print(f"DEBUG: [CameraManager] Error stopping camera: {e}")
                 
                 # Process events after stop to ensure UI updates
                 QApplication.processEvents()
                 
-                print("DEBUG: [CameraManager] Live camera stopped")
+                conditional_print(f"DEBUG: [CameraManager] Live camera stopped")
                 return True
                 
         except Exception as e:
-            print(f"DEBUG: [CameraManager] Error in toggle_live_camera: {e}")
+            conditional_print(f"DEBUG: [CameraManager] Error in toggle_live_camera: {e}")
             # Show error to user
             self._show_camera_error(f"Camera operation failed: {str(e)}")
             # Reset state on error
@@ -1253,26 +1254,26 @@ class CameraManager(QObject):
                 if hasattr(self.camera_stream, 'fifo_queue') and self.camera_stream.fifo_queue:
                     queue_size = len(self.camera_stream.fifo_queue.queue) if hasattr(self.camera_stream.fifo_queue, 'queue') else 0
                     if queue_size > 0:
-                        print(f"DEBUG: [CameraManager] Frame pending detected ({queue_size} frames), flushing to switch to manual exposure mode")
+                        conditional_print(f"DEBUG: [CameraManager] Frame pending detected ({queue_size} frames), flushing to switch to manual exposure mode")
                         if hasattr(self.camera_stream, 'cancel_all_and_flush'):
                             self.camera_stream.cancel_all_and_flush()
         else:
-            print(f"DEBUG: [CameraManager] Skipping flush during mode change (already flushed)")
+            conditional_print(f"DEBUG: [CameraManager] Skipping flush during mode change (already flushed)")
         
         if hasattr(self.camera_stream, 'set_auto_exposure'):
             self.camera_stream.set_auto_exposure(False)
-            print("DEBUG: Set camera auto exposure to False")
+            conditional_print(f"DEBUG: Set camera auto exposure to False")
         
         # Enable c  c widget   i   u ch   nh ph  i s  ng
         if self.exposure_edit:
             self.exposure_edit.setEnabled(True)
-            print("DEBUG: Enabled exposure_edit")
+            conditional_print(f"DEBUG: Enabled exposure_edit")
         if self.gain_edit:
             self.gain_edit.setEnabled(True)
         if self.ev_edit:
             self.ev_edit.setEnabled(True)
             
-        print(f"DEBUG: Manual exposure mode set, _is_auto_exposure = {self._is_auto_exposure}")
+        conditional_print(f"DEBUG: Manual exposure mode set, _is_auto_exposure = {self._is_auto_exposure}")
             
     @pyqtSlot(int)
     def update_focus_value(self, value):
@@ -1293,7 +1294,7 @@ class CameraManager(QObject):
         # Ng     i d  ng c   th    ch   p    nh tr     c khi th  m Camera Source v  o pipeline
             
         if self.camera_stream:
-            print("DEBUG: [CameraManager] Triggering capture asynchronously...")
+            conditional_print(f"DEBUG: [CameraManager] Triggering capture asynchronously...")
             
             # Visual feedback - temporarily change button text
             if self.trigger_camera_btn and self.current_mode == 'trigger':
@@ -1306,7 +1307,7 @@ class CameraManager(QObject):
                 
                 # Kh  ng c  n chuy   n sang trigger mode n   a
                 # Gi    nguy  n ch          hi   n t   i (live ho   c trigger)
-                print(f"DEBUG: [CameraManager] Capturing in current mode: {self.current_mode}")
+                conditional_print(f"DEBUG: [CameraManager] Capturing in current mode: {self.current_mode}")
                 
                 # Apply job setting to camera stream
                 if hasattr(self.camera_stream, 'set_job_enabled'):
@@ -1319,28 +1320,28 @@ class CameraManager(QObject):
                 if hasattr(self.camera_stream, 'trigger_capture_async'):
                     success = self.camera_stream.trigger_capture_async()
                     if not success:
-                        print("DEBUG: [CameraManager] Failed to start async trigger")
+                        conditional_print(f"DEBUG: [CameraManager] Failed to start async trigger")
                         # Fallback to synchronous capture if async failed
                         if hasattr(self.camera_stream, 'trigger_capture'):
                             try:
                                 self.camera_stream.trigger_capture()
                             except Exception as e:
-                                print(f"DEBUG: [CameraManager] Error in synchronous trigger_capture: {e}")
+                                conditional_print(f"DEBUG: [CameraManager] Error in synchronous trigger_capture: {e}")
                                 self._show_camera_error(f"Error capturing image: {str(e)}")
                         else:
-                            print("DEBUG: [CameraManager] No trigger_capture method available")
+                            conditional_print(f"DEBUG: [CameraManager] No trigger_capture method available")
                             self._show_camera_error("Camera trigger feature is not available. Please update the camera module.")
                 else:
                     # Fallback to old synchronous method if async not available
-                    print("DEBUG: [CameraManager] Async trigger not available, using sync")
+                    conditional_print(f"DEBUG: [CameraManager] Async trigger not available, using sync")
                     if hasattr(self.camera_stream, 'trigger_capture'):
                         try:
                             self.camera_stream.trigger_capture()
                         except Exception as e:
-                            print(f"DEBUG: [CameraManager] Error in synchronous trigger_capture: {e}")
+                            conditional_print(f"DEBUG: [CameraManager] Error in synchronous trigger_capture: {e}")
                             self._show_camera_error(f"Error capturing image: {str(e)}")
                     else:
-                        print("DEBUG: [CameraManager] No trigger_capture method available")
+                        conditional_print(f"DEBUG: [CameraManager] No trigger_capture method available")
                         self._show_camera_error("Camera trigger feature is not available. Please update the camera module.")
                 
                 # Restore button after timeout n   u kh  ng c   ph   n h   i
@@ -1359,24 +1360,24 @@ class CameraManager(QObject):
                     try:
                         self.camera_stream.trigger_capture_async()
                     except Exception as e:
-                        print(f"DEBUG: [CameraManager] Error in async trigger: {e}")
+                        conditional_print(f"DEBUG: [CameraManager] Error in async trigger: {e}")
                         self._show_camera_error(f"Error capturing image: {str(e)}")
                 elif hasattr(self.camera_stream, 'trigger_capture'):
                     try:
                         self.camera_stream.trigger_capture()
                     except Exception as e:
-                        print(f"DEBUG: [CameraManager] Error in direct trigger: {e}")
+                        conditional_print(f"DEBUG: [CameraManager] Error in direct trigger: {e}")
                         self._show_camera_error(f"Error capturing image: {str(e)}")
                 else:
-                    print("DEBUG: [CameraManager] No trigger methods available")
+                    conditional_print(f"DEBUG: [CameraManager] No trigger methods available")
                     self._show_camera_error("Camera trigger feature is not available. Please update the camera module.")
         else:
-            print("DEBUG: [CameraManager] No camera stream available")
+            conditional_print(f"DEBUG: [CameraManager] No camera stream available")
             self._show_camera_error("Camera is not available. Please check camera connection.")
 
     def sync_exposure_to_camera(self):
         """     ng b    h  a c  c th  ng s    exposure hi   n t   i t    UI v  o camera"""
-        print("DEBUG: [CameraManager] Syncing exposure settings to camera")
+        conditional_print(f"DEBUG: [CameraManager] Syncing exposure settings to camera")
         try:
             # L   y gi   tr    exposure t    UI
             if self.exposure_edit:
@@ -1386,11 +1387,11 @@ class CameraManager(QObject):
                     else:
                         exposure_value = int(self.exposure_edit.text())
                     
-                    print(f"DEBUG: [CameraManager] Syncing exposure value: {exposure_value}")
+                    conditional_print(f"DEBUG: [CameraManager] Syncing exposure value: {exposure_value}")
                     if hasattr(self.camera_stream, 'set_exposure'):
                         self.camera_stream.set_exposure(exposure_value)
                 except (ValueError, AttributeError) as e:
-                    print(f"DEBUG: [CameraManager] Error getting exposure value from UI: {e}")
+                    conditional_print(f"DEBUG: [CameraManager] Error getting exposure value from UI: {e}")
             
             # L   y gi   tr    gain t    UI
             if self.gain_edit:
@@ -1400,11 +1401,11 @@ class CameraManager(QObject):
                     else:
                         gain_value = float(self.gain_edit.text())
                     
-                    print(f"DEBUG: [CameraManager] Syncing gain value: {gain_value}")
+                    conditional_print(f"DEBUG: [CameraManager] Syncing gain value: {gain_value}")
                     if hasattr(self.camera_stream, 'set_gain'):
                         self.camera_stream.set_gain(gain_value)
                 except (ValueError, AttributeError) as e:
-                    print(f"DEBUG: [CameraManager] Error getting gain value from UI: {e}")
+                    conditional_print(f"DEBUG: [CameraManager] Error getting gain value from UI: {e}")
             
             # L   y gi   tr    EV t    UI
             if self.ev_edit:
@@ -1414,20 +1415,20 @@ class CameraManager(QObject):
                     else:
                         ev_value = float(self.ev_edit.text())
                     
-                    print(f"DEBUG: [CameraManager] Syncing EV value: {ev_value}")
+                    conditional_print(f"DEBUG: [CameraManager] Syncing EV value: {ev_value}")
                     if hasattr(self.camera_stream, 'set_ev'):
                         self.camera_stream.set_ev(ev_value)
                 except (ValueError, AttributeError) as e:
-                    print(f"DEBUG: [CameraManager] Error getting EV value from UI: {e}")
+                    conditional_print(f"DEBUG: [CameraManager] Error getting EV value from UI: {e}")
             
             #      ng b    ch          auto exposure
             if hasattr(self.camera_stream, 'set_auto_exposure'):
-                print(f"DEBUG: [CameraManager] Syncing auto exposure: {self._is_auto_exposure}")
+                conditional_print(f"DEBUG: [CameraManager] Syncing auto exposure: {self._is_auto_exposure}")
                 self.camera_stream.set_auto_exposure(self._is_auto_exposure)
                 
             return True
         except Exception as e:
-            print(f"DEBUG: [CameraManager] Error syncing exposure settings: {e}")
+            conditional_print(f"DEBUG: [CameraManager] Error syncing exposure settings: {e}")
             return False
 
     def set_trigger_mode(self, enabled):
@@ -1451,7 +1452,7 @@ class CameraManager(QObject):
                     queue_size = len(self.camera_stream.fifo_queue.queue) if hasattr(self.camera_stream.fifo_queue, 'queue') else 0
                     if queue_size > 0:
                         mode_name = "trigger" if enabled else "live"
-                        print(f"DEBUG: [CameraManager] Frame pending detected ({queue_size} frames), flushing to switch to {mode_name} mode")
+                        conditional_print(f"DEBUG: [CameraManager] Frame pending detected ({queue_size} frames), flushing to switch to {mode_name} mode")
                         if hasattr(self.camera_stream, 'cancel_all_and_flush'):
                             self.camera_stream.cancel_all_and_flush()
             
@@ -1484,7 +1485,7 @@ class CameraManager(QObject):
                 self.trigger_camera_btn.setProperty("forcedDisabled", True)
                 self.trigger_camera_btn.setStyleSheet("background-color: #cccccc; color: #888888;")  # Gray when disabled
                 self.trigger_camera_btn.repaint()  # Force immediate UI update
-                print("DEBUG: [CameraManager] Immediately disabled trigger button when switching to live mode")
+                conditional_print(f"DEBUG: [CameraManager] Immediately disabled trigger button when switching to live mode")
             
             # Update camera hardware in background thread to prevent UI blocking
             if self.camera_stream and hasattr(self.camera_stream, 'set_trigger_mode'):
@@ -1517,7 +1518,7 @@ class CameraManager(QObject):
         # Điều này đặc biệt quan trọng nếu hardware mode change thất bại
         try:
             current_mode = self.current_mode if self.current_mode else 'live'
-            print(f"DEBUG: [CameraManager] Trigger mode operation completed, refreshing UI for mode: {current_mode}")
+            conditional_print(f"DEBUG: [CameraManager] Trigger mode operation completed, refreshing UI for mode: {current_mode}")
             
             # Đặc biệt đảm bảo nút trigger bị vô hiệu hóa trong chế độ live
             if current_mode == 'live' and self.trigger_camera_btn:
@@ -1566,7 +1567,7 @@ class CameraManager(QObject):
         # IMPORTANT: Flush any pending frames with old format
         # This ensures next frame will be with NEW format
         if self.camera_stream and hasattr(self.camera_stream, 'cancel_all_and_flush'):
-            print("DEBUG: [CameraManager] Format change completed, flushing old frames to apply new format")
+            conditional_print(f"DEBUG: [CameraManager] Format change completed, flushing old frames to apply new format")
             self.camera_stream.cancel_all_and_flush()
         
         # Refresh display after format change
@@ -1597,18 +1598,18 @@ class CameraManager(QObject):
         2. CameraManager.zoom_in -> CameraView.zoom_in
         3. CameraView.zoom_in -> CameraView._apply_zoom (with throttling)
         """
-        print("DEBUG: [CameraManager] zoom_in called")
+        conditional_print(f"DEBUG: [CameraManager] zoom_in called")
         
         # Check if camera_view is available
         if not self.camera_view:
-            print("DEBUG: [CameraManager] zoom_in failed - camera_view is None")
+            conditional_print(f"DEBUG: [CameraManager] zoom_in failed - camera_view is None")
             return
             
         # Direct approach - call camera_view.zoom_in directly
         try:
             self.camera_view.zoom_in()
         except Exception as e:
-            print(f"DEBUG: [CameraManager] Error calling camera_view.zoom_in(): {e}")
+            conditional_print(f"DEBUG: [CameraManager] Error calling camera_view.zoom_in(): {e}")
             
     def zoom_out(self):
         """
@@ -1621,18 +1622,18 @@ class CameraManager(QObject):
         2. CameraManager.zoom_out -> CameraView.zoom_out
         3. CameraView.zoom_out -> CameraView._apply_zoom (with throttling)
         """
-        print("DEBUG: [CameraManager] zoom_out called")
+        conditional_print(f"DEBUG: [CameraManager] zoom_out called")
         
         # Check if camera_view is available
         if not self.camera_view:
-            print("DEBUG: [CameraManager] zoom_out failed - camera_view is None")
+            conditional_print(f"DEBUG: [CameraManager] zoom_out failed - camera_view is None")
             return
         
         # Direct approach - call camera_view.zoom_out directly
         try:
             self.camera_view.zoom_out()
         except Exception as e:
-            print(f"DEBUG: [CameraManager] Error calling camera_view.zoom_out(): {e}")
+            conditional_print(f"DEBUG: [CameraManager] Error calling camera_view.zoom_out(): {e}")
             
     def reset_view(self):
         """
@@ -1644,18 +1645,18 @@ class CameraManager(QObject):
         1. MainWindow button click -> CameraManager.reset_view
         2. CameraManager.reset_view -> CameraView.reset_view
         """
-        print("DEBUG: [CameraManager] reset_view called")
+        conditional_print(f"DEBUG: [CameraManager] reset_view called")
         
         # Check if camera_view is available
         if not self.camera_view:
-            print("DEBUG: [CameraManager] reset_view failed - camera_view is None")
+            conditional_print(f"DEBUG: [CameraManager] reset_view failed - camera_view is None")
             return
         
         # Direct approach - call camera_view.reset_view directly
         try:
             self.camera_view.reset_view()
         except Exception as e:
-            print(f"DEBUG: [CameraManager] Error calling camera_view.reset_view(): {e}")
+            conditional_print(f"DEBUG: [CameraManager] Error calling camera_view.reset_view(): {e}")
             
     def handle_resize_event(self):
         """X    l   s    ki   n khi c   a s    thay      i k  ch th     c"""
@@ -1711,7 +1712,7 @@ class CameraManager(QObject):
         if self.camera_stream and not self.camera_stream.is_running():
             try:
                 # start_online_camera() will preserve current trigger mode automatically
-                print(f"DEBUG: [CameraManager] Starting camera")
+                conditional_print(f"DEBUG: [CameraManager] Starting camera")
                 success = self.camera_stream.start_online_camera()
                 
                 if success:
@@ -1754,13 +1755,13 @@ class CameraManager(QObject):
                     except Exception:
                         pass
                         
-                    print("DEBUG: [CameraManager] Live camera started successfully with display mode:", current_data)
+                    conditional_print(f"DEBUG: [CameraManager] Live camera started successfully with display mode:", current_data)
                     return True
                 else:
-                    print("DEBUG: [CameraManager] Failed to start live camera")
+                    conditional_print(f"DEBUG: [CameraManager] Failed to start live camera")
                     return False
             except Exception as e:
-                print(f"DEBUG: [CameraManager] Exception starting live camera: {e}")
+                conditional_print(f"DEBUG: [CameraManager] Exception starting live camera: {e}")
                 return False
         else:
             # Camera stream not available
@@ -1781,58 +1782,58 @@ class CameraManager(QObject):
             pass
         
         current_checked = self.live_camera_btn.isChecked() if self.live_camera_btn else True
-        print(f"DEBUG: [CameraManager] Live Camera button clicked, checked: {current_checked}")
+        conditional_print(f"DEBUG: [CameraManager] Live Camera button clicked, checked: {current_checked}")
         
         # Kiểm tra xem có đang edit Camera Source không
         editing_camera_tool = self._is_editing_camera_tool()
-        print(f"DEBUG: [CameraManager] Editing Camera Source: {editing_camera_tool}")
+        conditional_print(f"DEBUG: [CameraManager] Editing Camera Source: {editing_camera_tool}")
         
         if not self.camera_stream:
-            print("DEBUG: [CameraManager] No camera stream available")
+            conditional_print(f"DEBUG: [CameraManager] No camera stream available")
             if self.live_camera_btn:
                 self.live_camera_btn.setChecked(False)
             return
         
         # Lấy chế độ camera hiện tại
         current_mode = self.current_mode if self.current_mode else 'live'
-        print(f"DEBUG: [CameraManager] Current camera mode: {current_mode}")
+        conditional_print(f"DEBUG: [CameraManager] Current camera mode: {current_mode}")
             
         if current_checked:
             # START camera based on mode
-            print("DEBUG: [CameraManager] Starting camera stream...")
+            conditional_print(f"DEBUG: [CameraManager] Starting camera stream...")
             try:
                 if current_mode == 'live':
                     # LIVE MODE: Start continuous streaming
-                    print("DEBUG: [CameraManager] LIVE MODE: Starting continuous camera stream")
+                    conditional_print(f"DEBUG: [CameraManager] LIVE MODE: Starting continuous camera stream")
                     success = self._start_camera_stream_continuous()
                 else:
                     # TRIGGER MODE: Hoạt động chế độ hiện tại (giữ trigger mode, không ép continuous)
-                    print("DEBUG: [CameraManager] TRIGGER MODE: Keeping current trigger mode")
+                    conditional_print(f"DEBUG: [CameraManager] TRIGGER MODE: Keeping current trigger mode")
                     success = self._start_camera_stream()
                 
                 if success:
-                    print("DEBUG: [CameraManager] Camera stream started successfully")
+                    conditional_print(f"DEBUG: [CameraManager] Camera stream started successfully")
                     if editing_camera_tool:
-                        print("DEBUG: [CameraManager] Running in Camera Source edit mode - live preview")
+                        conditional_print(f"DEBUG: [CameraManager] Running in Camera Source edit mode - live preview")
                 else:
-                    print("DEBUG: [CameraManager] Failed to start camera stream")
+                    conditional_print(f"DEBUG: [CameraManager] Failed to start camera stream")
                     if self.live_camera_btn:
                         self.live_camera_btn.setChecked(False)
             except Exception as e:
-                print(f"DEBUG: [CameraManager] Error starting camera stream: {e}")
+                conditional_print(f"DEBUG: [CameraManager] Error starting camera stream: {e}")
                 if self.live_camera_btn:
                     self.live_camera_btn.setChecked(False)
         else:
             # STOP camera stream
-            print("DEBUG: [CameraManager] Stopping camera stream...")
+            conditional_print(f"DEBUG: [CameraManager] Stopping camera stream...")
             try:
                 success = self._stop_camera_stream()
                 if success:
-                    print("DEBUG: [CameraManager] Camera stream stopped successfully")
+                    conditional_print(f"DEBUG: [CameraManager] Camera stream stopped successfully")
                 else:
-                    print("DEBUG: [CameraManager] Failed to stop camera stream")
+                    conditional_print(f"DEBUG: [CameraManager] Failed to stop camera stream")
             except Exception as e:
-                print(f"DEBUG: [CameraManager] Error stopping camera stream: {e}")
+                conditional_print(f"DEBUG: [CameraManager] Error stopping camera stream: {e}")
         
         # Update UI to reflect current streaming state (not mode)
         self.update_camera_mode_ui()
@@ -1849,20 +1850,20 @@ class CameraManager(QObject):
         try:
             # Check if camera is already streaming
             if hasattr(self.camera_stream, 'is_live') and self.camera_stream.is_live:
-                print("DEBUG: [CameraManager] Camera stream already running")
+                conditional_print(f"DEBUG: [CameraManager] Camera stream already running")
                 return True
             
             # Ensure we're NOT in trigger mode - explicitly use continuous/live mode
-            print("DEBUG: [CameraManager] Ensuring continuous live mode...")
+            conditional_print(f"DEBUG: [CameraManager] Ensuring continuous live mode...")
             
             # Disable external trigger if it's enabled
             if hasattr(self.camera_stream, 'external_trigger_enabled') and self.camera_stream.external_trigger_enabled:
-                print("DEBUG: [CameraManager] Disabling external trigger for continuous mode")
+                conditional_print(f"DEBUG: [CameraManager] Disabling external trigger for continuous mode")
                 if hasattr(self.camera_stream, 'set_trigger_mode'):
                     self.camera_stream.set_trigger_mode(False)
             
             # Start live preview stream (continuous)
-            print("DEBUG: [CameraManager] Starting continuous live stream...")
+            conditional_print(f"DEBUG: [CameraManager] Starting continuous live stream...")
             if hasattr(self.camera_stream, 'start_online_camera'):
                 success = self.camera_stream.start_online_camera()
             elif hasattr(self.camera_stream, 'start_live'):
@@ -1874,21 +1875,21 @@ class CameraManager(QObject):
                 return False
             
             if success:
-                print("DEBUG: [CameraManager] Continuous camera stream started successfully")
+                conditional_print(f"DEBUG: [CameraManager] Continuous camera stream started successfully")
                 
                 # Enable job execution for frame processing
                 self.job_enabled = True
                 if hasattr(self.camera_stream, 'set_job_enabled'):
                     self.camera_stream.set_job_enabled(True)
                 
-                print("DEBUG: [CameraManager] Continuous camera stream started with job processing enabled")
+                conditional_print(f"DEBUG: [CameraManager] Continuous camera stream started with job processing enabled")
                 return True
             else:
-                print("DEBUG: [CameraManager] Failed to start continuous camera stream")
+                conditional_print(f"DEBUG: [CameraManager] Failed to start continuous camera stream")
                 return False
                 
         except Exception as e:
-            print(f"DEBUG: [CameraManager] Exception starting continuous camera stream: {e}")
+            conditional_print(f"DEBUG: [CameraManager] Exception starting continuous camera stream: {e}")
             return False
     
     def _start_camera_stream(self):
@@ -1902,7 +1903,7 @@ class CameraManager(QObject):
         try:
             # Check if camera is already streaming
             if hasattr(self.camera_stream, 'is_live') and self.camera_stream.is_live:
-                print("DEBUG: [CameraManager] Camera stream already running")
+                conditional_print(f"DEBUG: [CameraManager] Camera stream already running")
                 return True
             
             # Kiểm tra xem có đang edit Camera Source không
@@ -1914,7 +1915,7 @@ class CameraManager(QObject):
                 current_mode = 'live'
             
             # Lưu và in ra thông tin về trạng thái camera mode và edit mode
-            print(f"DEBUG: [CameraManager] Starting stream with current mode: {current_mode}, edit mode: {editing_camera_tool}")
+            conditional_print(f"DEBUG: [CameraManager] Starting stream with current mode: {current_mode}, edit mode: {editing_camera_tool}")
             
             # Start simple preview stream (like testjob.py)
             if hasattr(self.camera_stream, 'start_preview'):
@@ -1924,7 +1925,7 @@ class CameraManager(QObject):
                 success = self.camera_stream.start_online_camera()
             
             if success:
-                print(f"DEBUG: [CameraManager] Camera stream started successfully, edit mode: {editing_camera_tool}")
+                conditional_print(f"DEBUG: [CameraManager] Camera stream started successfully, edit mode: {editing_camera_tool}")
                 
                 # Nếu đang edit Camera Source, không cần kích hoạt job processing
                 if editing_camera_tool:
@@ -1937,14 +1938,14 @@ class CameraManager(QObject):
                     self.job_enabled = True
                     if hasattr(self.camera_stream, 'set_job_enabled'):
                         self.camera_stream.set_job_enabled(True)
-                print("DEBUG: [CameraManager] Camera stream started with job processing enabled")
+                conditional_print(f"DEBUG: [CameraManager] Camera stream started with job processing enabled")
                 return True
             else:
-                print("DEBUG: [CameraManager] Failed to start camera stream")
+                conditional_print(f"DEBUG: [CameraManager] Failed to start camera stream")
                 return False
                 
         except Exception as e:
-            print(f"DEBUG: [CameraManager] Exception starting camera stream: {e}")
+            conditional_print(f"DEBUG: [CameraManager] Exception starting camera stream: {e}")
             return False
     
     def _stop_camera_stream(self):
@@ -1968,11 +1969,11 @@ class CameraManager(QObject):
                 self.camera_stream.cancel_all_and_flush()
                 success = True
             
-            print("DEBUG: [CameraManager] Camera stream stopped")
+            conditional_print(f"DEBUG: [CameraManager] Camera stream stopped")
             return success
             
         except Exception as e:
-            print(f"DEBUG: [CameraManager] Exception stopping camera stream: {e}")
+            conditional_print(f"DEBUG: [CameraManager] Exception stopping camera stream: {e}")
             return False
     
     def activate_capture_request(self):
@@ -1993,7 +1994,7 @@ class CameraManager(QObject):
                 
         # Kiểm tra và ngăn chặn kích hoạt khi ở chế độ live (trừ khi đang edit)
         if current_mode == 'live' and not editing_camera_tool:
-            print(f"DEBUG: [CameraManager] Cannot trigger in LIVE mode (editing={editing_camera_tool})")
+            conditional_print(f"DEBUG: [CameraManager] Cannot trigger in LIVE mode (editing={editing_camera_tool})")
             return False
         
         if self.camera_stream:
@@ -2009,42 +2010,42 @@ class CameraManager(QObject):
             # Nếu camera chưa chạy, thử bắt đầu camera trước
             if not camera_is_running and hasattr(self, '_start_camera_stream'):
                 try:
-                    print("DEBUG: [CameraManager] Auto-starting camera stream for capture in edit mode")
+                    conditional_print(f"DEBUG: [CameraManager] Auto-starting camera stream for capture in edit mode")
                     self._start_camera_stream()
                 except Exception as e:
-                    print(f"DEBUG: [CameraManager] Error auto-starting camera for edit mode capture: {e}")
+                    conditional_print(f"DEBUG: [CameraManager] Error auto-starting camera for edit mode capture: {e}")
         # Nếu không đang edit, chỉ capture khi camera đang chạy hoặc có thể start được
         elif not camera_is_running:
-            print("DEBUG: [CameraManager] Camera is not running, trying to start for capture_request")
+            conditional_print(f"DEBUG: [CameraManager] Camera is not running, trying to start for capture_request")
             # Try to start camera for capture_request
             if hasattr(self, '_start_camera_stream'):
                 try:
                     self._start_camera_stream()
                 except Exception as e:
-                    print(f"DEBUG: [CameraManager] Error starting camera for capture: {e}")
+                    conditional_print(f"DEBUG: [CameraManager] Error starting camera for capture: {e}")
                     return False
             
         # Use trigger_capture for frame capture
         try:
             if not self.camera_stream:
-                print("DEBUG: [CameraManager] No camera stream available")
+                conditional_print(f"DEBUG: [CameraManager] No camera stream available")
                 return False
             
             # TIMING FIX: Send light trigger EXACTLY when trigger_capture is called
             # This ensures light has maximum time to stabilize before frame is available
-            print("DEBUG: [CameraManager] Calling trigger_capture()")
-            print(f"DEBUG: [CameraManager] Camera running: {camera_is_running}, Editing Camera Source: {editing_camera_tool}, Mode: {current_mode}")
+            conditional_print(f"DEBUG: [CameraManager] Calling trigger_capture()")
+            conditional_print(f"DEBUG: [CameraManager] Camera running: {camera_is_running}, Editing Camera Source: {editing_camera_tool}, Mode: {current_mode}")
             
             # TR1 already sent in on_trigger_camera_clicked() before delay trigger
             # No need to send again here - just capture the frame
             self.camera_stream.trigger_capture()
             
             # trigger_capture() emits frame_ready signal, so return success
-            print("DEBUG: [CameraManager] Frame capture triggered successfully")
+            conditional_print(f"DEBUG: [CameraManager] Frame capture triggered successfully")
             return True
                 
         except Exception as e:
-            print(f"DEBUG: [CameraManager] Error in trigger_capture: {e}")
+            conditional_print(f"DEBUG: [CameraManager] Error in trigger_capture: {e}")
             self._show_camera_error(f"Error capturing frame: {str(e)}")
             
         return False
@@ -2063,11 +2064,11 @@ class CameraManager(QObject):
     def on_trigger_camera_clicked(self):
         """Xử lý khi click Trigger Camera button - gửi lệnh triggerCamera qua TCP"""
         current_time = time.time()
-        print("DEBUG: [CameraManager] Trigger camera button clicked at", current_time)
+        conditional_print(f"DEBUG: [CameraManager] Trigger camera button clicked at", current_time)
         
         # GUARD: Block if trigger is currently processing
         if getattr(self, '_trigger_processing', False):
-            print(f"DEBUG: [CameraManager] BLOCKED: Trigger already processing, ignoring click")
+            conditional_print(f"DEBUG: [CameraManager] BLOCKED: Trigger already processing, ignoring click")
             return
         
         # GUARD: Prevent rapid double-clicks
@@ -2075,19 +2076,19 @@ class CameraManager(QObject):
         last_trigger = getattr(self, '_last_ui_trigger_time', 0.0)
         time_since_last = (current_time - last_trigger) * 1000  # Convert to ms
         if time_since_last < 500:  # Less than 500ms since last trigger
-            print(f"DEBUG: [CameraManager] BLOCKED: Trigger clicked too fast ({time_since_last:.1f}ms since last). Ignoring.")
+            conditional_print(f"DEBUG: [CameraManager] BLOCKED: Trigger clicked too fast ({time_since_last:.1f}ms since last). Ignoring.")
             return
         self._last_ui_trigger_time = current_time
         
         # Set processing flag to block subsequent clicks
         self._trigger_processing = True
-        print("DEBUG: [CameraManager] SET _trigger_processing = True")
+        conditional_print(f"DEBUG: [CameraManager] SET _trigger_processing = True")
         
         # Kiểm tra nút có thực sự được kích hoạt hay không
         button_is_enabled = True
         if self.trigger_camera_btn and hasattr(self.trigger_camera_btn, 'isEnabled'):
             button_is_enabled = self.trigger_camera_btn.isEnabled()
-            print(f"DEBUG: [CameraManager] Trigger button enabled state: {button_is_enabled}")
+            conditional_print(f"DEBUG: [CameraManager] Trigger button enabled state: {button_is_enabled}")
             
             # Force update của button state để đảm bảo UI hiển thị đúng
             if not button_is_enabled:
@@ -2106,7 +2107,7 @@ class CameraManager(QObject):
             # Fallback to local mode
             current_mode = self.current_mode if self.current_mode else 'live'
             
-        print(f"DEBUG: [CameraManager] Camera running: {self.is_camera_running()}, Editing Camera Source: {self._is_editing_camera_tool()}, Mode: {current_mode}")
+        conditional_print(f"DEBUG: [CameraManager] Camera running: {self.is_camera_running()}, Editing Camera Source: {self._is_editing_camera_tool()}, Mode: {current_mode}")
             
         # Chỉ kích hoạt trigger khi ở chế độ trigger và nút được kích hoạt
         if current_mode == 'trigger' and button_is_enabled:
@@ -2114,14 +2115,14 @@ class CameraManager(QObject):
             if self.trigger_camera_btn:
                 self.trigger_camera_btn.setEnabled(False)
                 self.trigger_camera_btn.repaint()
-                print("DEBUG: [CameraManager] Trigger button DISABLED to prevent multiple clicks")
+                conditional_print(f"DEBUG: [CameraManager] Trigger button DISABLED to prevent multiple clicks")
 
             # 🔄 Send TRIGGER command via TCP to Pico
-            print("DEBUG: [CameraManager] Sending 'TRIGGER' command via TCP to Pico...")
+            conditional_print(f"DEBUG: [CameraManager] Sending 'TRIGGER' command via TCP to Pico...")
             try:
                 # Get tcp_controller from main_window
                 if not hasattr(self.main_window, 'tcp_controller'):
-                    print("DEBUG: [CameraManager] TCP controller not found in main_window")
+                    conditional_print(f"DEBUG: [CameraManager] TCP controller not found in main_window")
                     self._trigger_processing = False
                     if self.trigger_camera_btn:
                         self.trigger_camera_btn.setEnabled(True)
@@ -2132,7 +2133,7 @@ class CameraManager(QObject):
                 
                 # Check if TCP connection is active
                 if not tcp_controller.tcp_controller.is_connected:
-                    print("DEBUG: [CameraManager] TCP connection not active")
+                    conditional_print(f"DEBUG: [CameraManager] TCP connection not active")
                     self._trigger_processing = False
                     if self.trigger_camera_btn:
                         self.trigger_camera_btn.setEnabled(True)
@@ -2144,27 +2145,27 @@ class CameraManager(QObject):
                 success = tcp_controller.tcp_controller.send_message(trigger_command)
                 
                 if success:
-                    print(f"DEBUG: [CameraManager] Successfully sent TCP command: {trigger_command}")
+                    conditional_print(f"DEBUG: [CameraManager] Successfully sent TCP command: {trigger_command}")
                 else:
-                    print(f"DEBUG: [CameraManager] Failed to send TCP command: {trigger_command}")
+                    conditional_print(f"DEBUG: [CameraManager] Failed to send TCP command: {trigger_command}")
                 
                 # Wait briefly for processing
                 time.sleep(0.2)  # 200ms to allow processing
                 
             except Exception as e:
-                print(f"DEBUG: [CameraManager] Error sending TRIGGER command via TCP: {e}")
+                conditional_print(f"DEBUG: [CameraManager] Error sending TRIGGER command via TCP: {e}")
             finally:
                 # Re-enable trigger button after processing complete
                 if self.trigger_camera_btn:
                     self.trigger_camera_btn.setEnabled(True)
                     self.trigger_camera_btn.repaint()
-                    print("DEBUG: [CameraManager] Trigger button RE-ENABLED after processing")
+                    conditional_print(f"DEBUG: [CameraManager] Trigger button RE-ENABLED after processing")
                 
                 # Clear processing flag to allow next trigger
                 self._trigger_processing = False
-                print("DEBUG: [CameraManager] CLEARED _trigger_processing = False")
+                conditional_print(f"DEBUG: [CameraManager] CLEARED _trigger_processing = False")
         else:
-            print("DEBUG: [CameraManager] Ignore trigger button click in live mode or button disabled")
+            conditional_print(f"DEBUG: [CameraManager] Ignore trigger button click in live mode or button disabled")
             # Clear processing flag if we couldn't trigger
             self._trigger_processing = False
             self._trigger_processing = False
@@ -2182,13 +2183,13 @@ class CameraManager(QObject):
         camera_tool = self.find_camera_tool()
         if camera_tool:
             current_mode = camera_tool.get_camera_mode()
-            print(f"DEBUG: [CameraManager] Updating UI for mode from CameraTool: {current_mode}")
+            conditional_print(f"DEBUG: [CameraManager] Updating UI for mode from CameraTool: {current_mode}")
         else:
             # Fallback to local mode with default
             if self.current_mode is None:
                 self.current_mode = 'live'
             current_mode = self.current_mode
-            print(f"DEBUG: [CameraManager] Using local mode (no CameraTool): {current_mode}")
+            conditional_print(f"DEBUG: [CameraManager] Using local mode (no CameraTool): {current_mode}")
         
         # Kiểm tra camera có đang chạy không
         camera_is_running = self.is_camera_running()
@@ -2223,10 +2224,10 @@ class CameraManager(QObject):
             # Trong mọi trường hợp khác, vô hiệu hóa nút
             trigger_enabled = False
             
-        print(f"DEBUG: [CameraManager] Trigger enabled: {trigger_enabled}, mode: {current_mode}, editing: {editing_camera_tool}, online_checked: {online_camera_checked}, has_tool: {has_camera_tool}")
+        conditional_print(f"DEBUG: [CameraManager] Trigger enabled: {trigger_enabled}, mode: {current_mode}, editing: {editing_camera_tool}, online_checked: {online_camera_checked}, has_tool: {has_camera_tool}")
         
         is_camera_btn_checked = self.live_camera_btn and self.live_camera_btn.isChecked()
-        print(f"DEBUG: [CameraManager] Camera is running: {camera_is_running}, editing Camera Source: {editing_camera_tool}, button checked: {is_camera_btn_checked}")
+        conditional_print(f"DEBUG: [CameraManager] Camera is running: {camera_is_running}, editing Camera Source: {editing_camera_tool}, button checked: {is_camera_btn_checked}")
         
         # Update trigger button state regardless of live button state
         if self.trigger_camera_btn:
@@ -2250,7 +2251,7 @@ class CameraManager(QObject):
                     }
                 """)
                 self.trigger_camera_btn.setToolTip("Not available in Live Camera Mode")
-                print("DEBUG: [CameraManager] Live mode - trigger button DISABLED")
+                conditional_print(f"DEBUG: [CameraManager] Live mode - trigger button DISABLED")
                 
             elif current_mode == 'trigger':
                 # Trigger mode - enable/disable based on trigger_enabled flag
@@ -2275,7 +2276,7 @@ class CameraManager(QObject):
                         self.trigger_camera_btn.setToolTip("Click onlineCamera button first")
                     else:
                         self.trigger_camera_btn.setToolTip("Camera not ready")
-                    print("DEBUG: [CameraManager] Trigger mode - trigger button DISABLED")
+                    conditional_print(f"DEBUG: [CameraManager] Trigger mode - trigger button DISABLED")
                 else:
                     # ✅ Kích hoạt và hiển thị màu cam khi ở chế độ trigger (including edit mode)
                     self.trigger_camera_btn.setStyleSheet("background-color: #ffa62b")  # Orange
@@ -2283,12 +2284,12 @@ class CameraManager(QObject):
                         self.trigger_camera_btn.setToolTip("Test trigger (Edit mode)")
                     else:
                         self.trigger_camera_btn.setToolTip("Trigger camera to capture")
-                    print("DEBUG: [CameraManager] Trigger mode - trigger button ENABLED")
+                    conditional_print(f"DEBUG: [CameraManager] Trigger mode - trigger button ENABLED")
             else:
                 # Default - disable
                 self.trigger_camera_btn.setEnabled(False)
                 self.trigger_camera_btn.setStyleSheet("background-color: #cccccc")
-                print("DEBUG: [CameraManager] Default mode - trigger button DISABLED")
+                conditional_print(f"DEBUG: [CameraManager] Default mode - trigger button DISABLED")
         
         # Update live button state
         if self.live_camera_btn:
@@ -2391,7 +2392,7 @@ class CameraManager(QObject):
     
     def on_live_camera_mode_clicked(self, from_init=False):
         """X    l   khi click Live Camera Mode button - delegate to CameraTool"""
-        print(f"DEBUG: [CameraManager] Live camera mode button clicked (from_init={from_init})")
+        conditional_print(f"DEBUG: [CameraManager] Live camera mode button clicked (from_init={from_init})")
         
         # Lưu lại mode trước đó để biết nếu đang chuyển từ trigger sang live
         previous_mode = self.current_mode
@@ -2404,23 +2405,23 @@ class CameraManager(QObject):
         # Find the Camera Source tool and delegate mode change to it
         camera_tool = self.find_camera_tool()
         if camera_tool:
-            print("DEBUG: [CameraManager] Found Camera Source tool, delegating mode change")
+            conditional_print(f"DEBUG: [CameraManager] Found Camera Source tool, delegating mode change")
             success = camera_tool.set_camera_mode("live")
             if success:
-                print("DEBUG: [CameraManager] Live mode set successfully via CameraTool")
+                conditional_print(f"DEBUG: [CameraManager] Live mode set successfully via CameraTool")
                 # Nếu đang chuyển từ trigger sang live và camera chưa chạy, tự động bật camera
                 if was_in_trigger_mode and self.camera_stream and hasattr(self.camera_stream, 'is_running'):
                     camera_running = self.camera_stream.is_running()
                     if not camera_running:
-                        print("DEBUG: [CameraManager] Auto-starting camera when switching from trigger to live mode")
+                        conditional_print(f"DEBUG: [CameraManager] Auto-starting camera when switching from trigger to live mode")
                         self._start_camera_stream()
                         if self.live_camera_btn:
                             self.live_camera_btn.setChecked(True)
             else:
-                print("DEBUG: [CameraManager] Failed to set live mode via CameraTool")
+                conditional_print(f"DEBUG: [CameraManager] Failed to set live mode via CameraTool")
         else:
             # Fallback: handle mode change directly if no Camera Source tool found
-            print("DEBUG: [CameraManager] No Camera Source tool found, handling mode change directly")
+            conditional_print(f"DEBUG: [CameraManager] No Camera Source tool found, handling mode change directly")
             self._handle_live_mode_directly()
 
         # Persist preference
@@ -2450,7 +2451,7 @@ class CameraManager(QObject):
             self.set_auto_exposure_mode()
             self.update_exposure_mode_ui()
         except Exception as e:
-            print(f"DEBUG: [CameraManager] Error forcing auto AE on live mode: {e}")
+            conditional_print(f"DEBUG: [CameraManager] Error forcing auto AE on live mode: {e}")
 
         try:
             # AWB back to auto
@@ -2462,11 +2463,19 @@ class CameraManager(QObject):
             if hasattr(self, 'update_awb_mode_ui'):
                 self.update_awb_mode_ui()
         except Exception as e:
-            print(f"DEBUG: [CameraManager] Error forcing auto AWB on live mode: {e}")
+            conditional_print(f"DEBUG: [CameraManager] Error forcing auto AWB on live mode: {e}")
+        
+        # When switching to live mode, also set format to XRGB8888
+        try:
+            if self.camera_stream and hasattr(self.camera_stream, 'set_format'):
+                self.camera_stream.set_format('RGB888')  # Will be converted to XRGB8888
+                conditional_print(f"DEBUG: [CameraManager] Set camera format to XRGB8888 for live mode")
+        except Exception as e:
+            conditional_print(f"DEBUG: [CameraManager] Error setting format for live mode: {e}")
 
     def on_trigger_camera_mode_clicked(self):
         """X    l   khi click Trigger Camera Mode button - delegate to CameraTool"""
-        print("DEBUG: [CameraManager] Trigger camera mode button clicked")
+        conditional_print(f"DEBUG: [CameraManager] Trigger camera mode button clicked")
 
         # FLUSH PENDING FRAME ONCE AT THE START
         # Flush all pending frames so all subsequent settings apply immediately
@@ -2475,7 +2484,7 @@ class CameraManager(QObject):
             if hasattr(self.camera_stream, 'fifo_queue') and self.camera_stream.fifo_queue:
                 queue_size = len(self.camera_stream.fifo_queue.queue) if hasattr(self.camera_stream.fifo_queue, 'queue') else 0
                 if queue_size > 0:
-                    print(f"DEBUG: [CameraManager] Frame pending detected ({queue_size} frames), flushing ONCE for trigger mode change")
+                    conditional_print(f"DEBUG: [CameraManager] Frame pending detected ({queue_size} frames), flushing ONCE for trigger mode change")
                     if hasattr(self.camera_stream, 'cancel_all_and_flush'):
                         self.camera_stream.cancel_all_and_flush()
 
@@ -2486,15 +2495,15 @@ class CameraManager(QObject):
             # Find the Camera Source tool and delegate mode change to it
             camera_tool = self.find_camera_tool()
             if camera_tool:
-                print("DEBUG: [CameraManager] Found Camera Source tool, delegating mode change")
+                conditional_print(f"DEBUG: [CameraManager] Found Camera Source tool, delegating mode change")
                 success = camera_tool.set_camera_mode("trigger")
                 if success:
-                    print("DEBUG: [CameraManager] Trigger mode set successfully via CameraTool")
+                    conditional_print(f"DEBUG: [CameraManager] Trigger mode set successfully via CameraTool")
                 else:
-                    print("DEBUG: [CameraManager] Failed to set trigger mode via CameraTool")
+                    conditional_print(f"DEBUG: [CameraManager] Failed to set trigger mode via CameraTool")
             else:
                 # Fallback: handle mode change directly if no Camera Source tool found
-                print("DEBUG: [CameraManager] No Camera Source tool found, handling mode change directly")
+                conditional_print(f"DEBUG: [CameraManager] No Camera Source tool found, handling mode change directly")
                 self._handle_trigger_mode_directly()
 
             # Persist preference
@@ -2537,7 +2546,7 @@ class CameraManager(QObject):
                     except Exception:
                         pass
             except Exception as e:
-                print(f"DEBUG: [CameraManager] Error forcing manual AE on trigger mode: {e}")
+                conditional_print(f"DEBUG: [CameraManager] Error forcing manual AE on trigger mode: {e}")
 
             # 2) White Balance -> Manual AWB and push current R/B gains if available
             try:
@@ -2564,11 +2573,11 @@ class CameraManager(QObject):
                 if ct and hasattr(ct, 'set_colour_gains') and r is not None and b is not None:
                     ct.set_colour_gains(r, b)
             except Exception as e:
-                print(f"DEBUG: [CameraManager] Error forcing manual AWB on trigger mode: {e}")
+                conditional_print(f"DEBUG: [CameraManager] Error forcing manual AWB on trigger mode: {e}")
         finally:
             # Reset flag when done
             self._mode_changing = False
-            print("DEBUG: [CameraManager] Mode change complete, _mode_changing flag reset")
+            conditional_print(f"DEBUG: [CameraManager] Mode change complete, _mode_changing flag reset")
 
         # Force update UI to ensure trigger button is enabled if conditions are met
         self.update_camera_mode_ui()
@@ -2607,7 +2616,7 @@ class CameraManager(QObject):
                 except Exception:
                     pass
         except Exception as e:
-            print(f"DEBUG: [CameraManager] Error forcing manual AE on trigger mode: {e}")
+            conditional_print(f"DEBUG: [CameraManager] Error forcing manual AE on trigger mode: {e}")
 
         # 2) White Balance -> Manual AWB and push current R/B gains if available
         try:
@@ -2634,11 +2643,11 @@ class CameraManager(QObject):
             if ct and hasattr(ct, 'set_colour_gains') and r is not None and b is not None:
                 ct.set_colour_gains(r, b)
         except Exception as e:
-            print(f"DEBUG: [CameraManager] Error forcing manual AWB on trigger mode: {e}")
+            conditional_print(f"DEBUG: [CameraManager] Error forcing manual AWB on trigger mode: {e}")
     
     def _handle_live_mode_directly(self):
         """Fallback handler for live mode when no CameraTool is available"""
-        print("DEBUG: [CameraManager] Handling live mode directly")
+        conditional_print(f"DEBUG: [CameraManager] Handling live mode directly")
         
         # Update UI state
         if self.live_camera_mode:
@@ -2658,7 +2667,7 @@ class CameraManager(QObject):
             # Không tự động kích hoạt khi đang được gọi từ MainWindow.__init__
             from_init = getattr(self, '_from_init', False)
             if not from_init and getattr(self, 'previous_mode', None) == 'trigger':
-                print("DEBUG: [CameraManager] Auto-starting camera when switching from trigger to live mode")
+                conditional_print(f"DEBUG: [CameraManager] Auto-starting camera when switching from trigger to live mode")
                 self._start_camera_stream()
                 if self.live_camera_btn:
                     self.live_camera_btn.setChecked(True)
@@ -2670,26 +2679,26 @@ class CameraManager(QObject):
             self.camera_stream.set_job_enabled(True)
         
         # Apply hardware changes - explicitly disable trigger mode for live
-        print("DEBUG: [CameraManager] Setting trigger mode to FALSE for live mode")
+        conditional_print(f"DEBUG: [CameraManager] Setting trigger mode to FALSE for live mode")
         self.set_trigger_mode(False)
         
         # Log trạng thái edit để debug
         if editing_camera_tool:
-            print("DEBUG: [CameraManager] Editing Camera Source in live mode")
+            conditional_print(f"DEBUG: [CameraManager] Editing Camera Source in live mode")
             
         # Trong chế độ live, nút trigger LUÔN bị vô hiệu hóa, bất kể có đang edit hay không
         if self.trigger_camera_btn:
             self.trigger_camera_btn.setEnabled(False)
             self.trigger_camera_btn.setText("Trigger Camera")
             self.trigger_camera_btn.setStyleSheet("background-color: #cccccc; color: #888888;")  # Gray when disabled
-            print("DEBUG: [CameraManager] Live mode - forcing trigger button disabled (no exceptions)")
+            conditional_print(f"DEBUG: [CameraManager] Live mode - forcing trigger button disabled (no exceptions)")
         
         # Luôn cập nhật UI
         self.update_camera_mode_ui()
     
     def _handle_trigger_mode_directly(self):
         """Fallback handler for trigger mode when no CameraTool is available"""
-        print("DEBUG: [CameraManager] Handling trigger mode directly")
+        conditional_print(f"DEBUG: [CameraManager] Handling trigger mode directly")
         
         # Update UI state
         if self.trigger_camera_mode:
@@ -2711,12 +2720,12 @@ class CameraManager(QObject):
             self.camera_stream.set_job_enabled(True)
         
         # Apply hardware changes - explicitly enable trigger mode
-        print("DEBUG: [CameraManager] Setting trigger mode to TRUE for trigger mode")
+        conditional_print(f"DEBUG: [CameraManager] Setting trigger mode to TRUE for trigger mode")
         self.set_trigger_mode(True)
         
         # Nếu đang trong chế độ edit Camera Source, tùy chỉnh UI để biểu thị
         if editing_camera_tool:
-            print("DEBUG: [CameraManager] Editing Camera Source in trigger mode")
+            conditional_print(f"DEBUG: [CameraManager] Editing Camera Source in trigger mode")
             # Update UI properly using update_camera_mode_ui
             pass
         
@@ -2916,13 +2925,13 @@ class CameraManager(QObject):
             # Get ResultManager
             result_manager = getattr(self.main_window, 'result_manager', None)
             if not result_manager:
-                print("DEBUG: [CameraManager] ResultManager not found in main_window")
+                conditional_print(f"DEBUG: [CameraManager] ResultManager not found in main_window")
                 return
             
             # Get executionLabel
             execution_label = getattr(self.main_window, 'executionLabel', None)
             if not execution_label:
-                print("DEBUG: [CameraManager] executionLabel not found")
+                conditional_print(f"DEBUG: [CameraManager] executionLabel not found")
                 return
             
             # First, try to get result from ResultTool in job pipeline (new way)
@@ -2933,29 +2942,29 @@ class CameraManager(QObject):
             
             if isinstance(job_results, dict):
                 # Debug: log the structure of job_results
-                print(f"DEBUG: [CameraManager] job_results keys: {list(job_results.keys())}")
-                print(f"DEBUG: [CameraManager] job_results content: {job_results}")
+                conditional_print(f"DEBUG: [CameraManager] job_results keys: {list(job_results.keys())}")
+                conditional_print(f"DEBUG: [CameraManager] job_results content: {job_results}")
                 
                 # Get inference_time from top-level job_results (added by job_manager)
                 inference_time = job_results.get('inference_time', 0.0)
-                print(f"DEBUG: [CameraManager] Top-level inference_time: {inference_time:.3f}s")
+                conditional_print(f"DEBUG: [CameraManager] Top-level inference_time: {inference_time:.3f}s")
                 
                 if inference_time == 0.0:
                     # Try getting from tool_results
                     tool_results = job_results.get('tool_results', {})
-                    print(f"DEBUG: [CameraManager] tool_results keys: {list(tool_results.keys()) if tool_results else 'empty'}")
+                    conditional_print(f"DEBUG: [CameraManager] tool_results keys: {list(tool_results.keys()) if tool_results else 'empty'}")
                     if isinstance(tool_results, dict):
                         for tool_name, tool_result in tool_results.items():
-                            print(f"DEBUG: [CameraManager] Checking tool {tool_name}: {type(tool_result)}")
+                            conditional_print(f"DEBUG: [CameraManager] Checking tool {tool_name}: {type(tool_result)}")
                             if isinstance(tool_result, dict) and 'inference_time' in tool_result:
                                 inference_time = tool_result['inference_time']
-                                print(f"DEBUG: [CameraManager] Got inference_time from {tool_name}: {inference_time:.3f}s")
+                                conditional_print(f"DEBUG: [CameraManager] Got inference_time from {tool_name}: {inference_time:.3f}s")
                                 break
                 
                 # Try alternative path: results -> Detect Tool -> data
                 if inference_time == 0.0:
                     results_data = job_results.get('results', {})
-                    print(f"DEBUG: [CameraManager] results keys: {list(results_data.keys()) if results_data else 'empty'}")
+                    conditional_print(f"DEBUG: [CameraManager] results keys: {list(results_data.keys()) if results_data else 'empty'}")
                     if isinstance(results_data, dict):
                         for tool_name in ['Detect Tool', 'detect_tool', 'DetectTool']:
                             if tool_name in results_data:
@@ -2964,10 +2973,10 @@ class CameraManager(QObject):
                                     data = tool_data.get('data', {})
                                     if isinstance(data, dict) and 'inference_time' in data:
                                         inference_time = data['inference_time']
-                                        print(f"DEBUG: [CameraManager] Got inference_time from results.{tool_name}.data: {inference_time:.3f}s")
+                                        conditional_print(f"DEBUG: [CameraManager] Got inference_time from results.{tool_name}.data: {inference_time:.3f}s")
                                         break
                 
-                print(f"DEBUG: [CameraManager] Final inference_time: {inference_time:.3f}s")
+                conditional_print(f"DEBUG: [CameraManager] Final inference_time: {inference_time:.3f}s")
                 
                 # Check for Result Tool output (new threshold-based evaluation)
                 # Results are nested under 'results' key in job_results
@@ -2980,14 +2989,14 @@ class CameraManager(QObject):
                     if 'ng_ok_result' in result_data:
                         status = result_data.get('ng_ok_result', 'NG')
                         reason = result_data.get('ng_ok_reason', 'Unknown')
-                        print(f"DEBUG: [CameraManager] Using ResultTool evaluation: {status} - {reason}")
+                        conditional_print(f"DEBUG: [CameraManager] Using ResultTool evaluation: {status} - {reason}")
                     else:
                         # Fallback to old ResultManager method
-                        print(f"DEBUG: [CameraManager] No ng_ok_result in ResultTool data, using legacy ResultManager")
+                        conditional_print(f"DEBUG: [CameraManager] No ng_ok_result in ResultTool data, using legacy ResultManager")
                         result_data = {}  # Reset for legacy path
                 else:
                     # Fallback to old ResultManager method for backward compatibility
-                    print(f"DEBUG: [CameraManager] No ResultTool in job_results, using legacy ResultManager")
+                    conditional_print(f"DEBUG: [CameraManager] No ResultTool in job_results, using legacy ResultManager")
                     result_data = {}  # Reset for legacy path
                     
                     # Extract current detections from job_results nested structure
@@ -3022,8 +3031,8 @@ class CameraManager(QObject):
                 }}
             """)
             
-            print(f"DEBUG: [CameraManager] Execution status: {status} (from ResultManager)")
-            print(f"DEBUG: [CameraManager] Reason: {reason}")
+            conditional_print(f"DEBUG: [CameraManager] Execution status: {status} (from ResultManager)")
+            conditional_print(f"DEBUG: [CameraManager] Reason: {reason}")
             
             # IMPORTANT: Record this result to ResultManager's frame history
             # This is needed for review labels to show OK/NG status for each frame
@@ -3040,9 +3049,9 @@ class CameraManager(QObject):
                         status=status,
                         similarity=0.0  # Use 0.0 as placeholder
                     )
-                    print(f"DEBUG: [CameraManager] Recorded result to ResultManager history: {status}")
+                    conditional_print(f"DEBUG: [CameraManager] Recorded result to ResultManager history: {status}")
             except Exception as e:
-                print(f"DEBUG: [CameraManager] Could not record result to ResultManager: {e}")
+                conditional_print(f"DEBUG: [CameraManager] Could not record result to ResultManager: {e}")
             
             # NEW: Attach job result to waiting frame (frame created from TCP start_rising)
             # If no frame waiting, BUFFER the result to attach when frame arrives
@@ -3067,7 +3076,7 @@ class CameraManager(QObject):
                             'inference_time': inference_time,
                         }
                     
-                    print(f"DEBUG: [CameraManager] Detection data: inference_time={inference_time:.3f}s, detection_count={detection_data.get('detection_count', 0)}")
+                    conditional_print(f"DEBUG: [CameraManager] Detection data: inference_time={inference_time:.3f}s, detection_count={detection_data.get('detection_count', 0)}")
                     
                     # Try to attach result to waiting frame
                     success = result_tab_manager.attach_job_result_to_waiting_frame(
@@ -3079,12 +3088,12 @@ class CameraManager(QObject):
                     
                     if success:
                         logging.info(f"[CameraManager] Attached job result to waiting frame: status={status}")
-                        print(f"DEBUG: [CameraManager] Attached job result to frame: status={status}")
+                        conditional_print(f"DEBUG: [CameraManager] Attached job result to frame: status={status}")
                     else:
                         # ✅ CRITICAL FIX: Buffer result if no waiting frame
                         # When TCP start_rising arrives, it will attach immediately
                         logging.info("[CameraManager] No waiting frame - buffering result for later")
-                        print("DEBUG: [CameraManager] Buffering result (TCP signal not received yet)")
+                        conditional_print(f"DEBUG: [CameraManager] Buffering result (TCP signal not received yet)")
                         
                         # Save result to pending buffer
                         buffer_success = result_tab_manager.save_pending_job_result(
@@ -3097,21 +3106,21 @@ class CameraManager(QObject):
                         
                         if buffer_success:
                             logging.info(f"[CameraManager] ✅ Result buffered successfully: {status}, inference_time={inference_time:.3f}s")
-                            print(f"DEBUG: [CameraManager] ✅ Result buffered: {status} (inference_time={inference_time:.3f}s)")
+                            conditional_print(f"DEBUG: [CameraManager] ✅ Result buffered: {status} (inference_time={inference_time:.3f}s)")
                         else:
                             logging.error("[CameraManager] Failed to buffer result")
-                            print("DEBUG: [CameraManager] ❌ Failed to buffer result")
+                            conditional_print(f"DEBUG: [CameraManager] ❌ Failed to buffer result")
                 else:
                     logging.warning("[CameraManager] Result Tab Manager not found in main_window")
-                    print("DEBUG: [CameraManager] Result Tab Manager not available")
+                    conditional_print(f"DEBUG: [CameraManager] Result Tab Manager not available")
             except Exception as e:
                 logging.error(f"[CameraManager] Error attaching/buffering job result: {e}", exc_info=True)
-                print(f"DEBUG: [CameraManager] Error attaching/buffering job result: {e}")
+                conditional_print(f"DEBUG: [CameraManager] Error attaching/buffering job result: {e}")
             
             
         except Exception as e:
             logging.error(f"Error updating execution label: {e}")
-            print(f"DEBUG: [CameraManager] Error updating execution label: {e}")
+            conditional_print(f"DEBUG: [CameraManager] Error updating execution label: {e}")
     
     
     def set_ng_ok_reference_from_current_detections(self):
@@ -3124,12 +3133,12 @@ class CameraManager(QObject):
         try:
             # Get main window and result manager
             if not hasattr(self, 'main_window') or not self.main_window:
-                print("DEBUG: [CameraManager] main_window not available")
+                conditional_print(f"DEBUG: [CameraManager] main_window not available")
                 return False
             
             result_manager = getattr(self.main_window, 'result_manager', None)
             if not result_manager:
-                print("DEBUG: [CameraManager] ResultManager not available")
+                conditional_print(f"DEBUG: [CameraManager] ResultManager not available")
                 return False
             
             # Get current job and detect tool
@@ -3137,7 +3146,7 @@ class CameraManager(QObject):
             current_job = job_manager.get_current_job()
             
             if not current_job:
-                print("DEBUG: [CameraManager] No current job")
+                conditional_print(f"DEBUG: [CameraManager] No current job")
                 return False
             
             # Find detect tool in job
@@ -3148,14 +3157,14 @@ class CameraManager(QObject):
                     break
             
             if not detect_tool:
-                print("DEBUG: [CameraManager] No DetectTool found in job")
+                conditional_print(f"DEBUG: [CameraManager] No DetectTool found in job")
                 return False
             
             # Get last detections from detect tool
             last_detections = detect_tool.get_last_detections()
             
             if not last_detections:
-                print("DEBUG: [CameraManager] No detections to set as reference")
+                conditional_print(f"DEBUG: [CameraManager] No detections to set as reference")
                 return False
             
             # Set reference in ResultManager (independent from job pipeline!)
@@ -3171,7 +3180,7 @@ class CameraManager(QObject):
             
         except Exception as e:
             logging.error(f"Error setting reference: {e}")
-            print(f"DEBUG: [CameraManager] Error setting reference: {e}")
+            conditional_print(f"DEBUG: [CameraManager] Error setting reference: {e}")
             return False
     
     
@@ -3181,5 +3190,5 @@ class CameraManager(QObject):
             # Safely refresh UI state; real apply logic can be added here.
             self.update_camera_mode_ui()
         except Exception as e:
-            print(f"DEBUG: [CameraManager] on_apply_settings_clicked error: {e}")
+            conditional_print(f"DEBUG: [CameraManager] on_apply_settings_clicked error: {e}")
         return True

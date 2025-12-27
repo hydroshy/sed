@@ -5,6 +5,14 @@ import logging
 from PyQt5.QtWidgets import QApplication, QMessageBox
 from PyQt5.QtCore import Qt
 
+
+class DebugOnlyStreamHandler(logging.StreamHandler):
+    """Custom handler that only outputs DEBUG level messages to terminal"""
+    def emit(self, record):
+        # Only show DEBUG level messages to console, everything else goes to file only
+        if record.levelno >= logging.DEBUG and record.levelno < logging.INFO:
+            super().emit(record)
+
 # Xử lý PyKMS trên Raspberry Pi 
 try:
     # Kiểm tra nếu đang chạy trên Raspberry Pi
@@ -47,13 +55,19 @@ except Exception as e:
     pass
 
 # Configure logging
+# Only DEBUG level messages go to terminal when --debug is used
+# All messages go to file
+debug_handler = None
+file_handler = logging.FileHandler('sed_app.log')
+file_handler.setLevel(logging.DEBUG)
+file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(file_formatter)
+
+# We'll set up the stream handler later after parsing args
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('sed_app.log'),
-        logging.StreamHandler()
-    ]
+    handlers=[file_handler]
 )
 
 logger = logging.getLogger(__name__)
@@ -90,7 +104,14 @@ def main():
     # Set debug level if requested
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
-        logger.debug("Debug logging enabled")
+        
+        # Add stream handler that ONLY shows DEBUG messages
+        debug_stream_handler = DebugOnlyStreamHandler()
+        debug_formatter = logging.Formatter('DEBUG: %(message)s')  # Simple format for DEBUG
+        debug_stream_handler.setFormatter(debug_formatter)
+        logging.getLogger().addHandler(debug_stream_handler)
+        
+        logger.debug("Debug logging enabled - only DEBUG messages will show in terminal")
         
         try:
             from utils.debug_utils import set_debug_mode
@@ -99,6 +120,10 @@ def main():
         except ImportError as e:
             logger.warning(f"Could not import debug_utils: {e}")
             logger.warning("Continuing without debug mode")
+    else:
+        # When not in debug mode, suppress terminal output (only file logging)
+        # Terminal will only show if there's an error via dialogs
+        logging.getLogger().setLevel(logging.DEBUG)  # File still gets DEBUG, but terminal gets nothing
     
     # Force Qt platform if specified
     if args.platform:

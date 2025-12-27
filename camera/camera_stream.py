@@ -106,7 +106,7 @@ class CameraStream(QObject):
         
         self.is_camera_available = has_picamera2
         # Track current pixel format selection for preview/display
-        self._pixel_format = 'XBGR8888'
+        self._pixel_format = 'RGB888'
         self.current_exposure = 5000  # Default 5ms exposure
         self.current_gain = 1.0       # Default analogue gain
         self.current_ev = 0.0         # Default EV (UI only)
@@ -244,7 +244,7 @@ class CameraStream(QObject):
                 try:
                     # Try with preferred size - picamera2 will handle if not supported
                     self.preview_config = self.picam2.create_preview_configuration(
-                        main={"size": preferred_size, "format": "XBGR8888"}
+                        main={"size": preferred_size, "format": "RGB888"}
                     )
                     actual_size = self.preview_config.get("main", {}).get("size")
                     
@@ -262,7 +262,7 @@ class CameraStream(QObject):
                     try:
                         # Fallback to format only, let camera choose size
                         self.preview_config = self.picam2.create_preview_configuration(
-                            main={"format": "XBGR8888"}
+                            main={"format": "RGB888"}
                         )
                         actual_size = self.preview_config.get("main", {}).get("size")
                         logger.info(f"Preview config: Using camera default size: {actual_size}")
@@ -278,7 +278,7 @@ class CameraStream(QObject):
                 try:
                     # Try with preferred size - picamera2 will handle if not supported
                     self.still_config = self.picam2.create_still_configuration(
-                        main={"size": preferred_size, "format": "XBGR8888"}
+                        main={"size": preferred_size, "format": "RGB888"}
                     )
                     actual_size = self.still_config.get("main", {}).get("size")
                     
@@ -385,7 +385,7 @@ class CameraStream(QObject):
             # Configure and start with AE/AWB enabled
             if not getattr(self, 'preview_config', None):
                 try:
-                    self.preview_config = self.picam2.create_preview_configuration(main={"format": "XBGR8888"})
+                    self.preview_config = self.picam2.create_preview_configuration(main={"format": "RGB888"})
                 except Exception:
                     self.preview_config = self.picam2.create_preview_configuration()
             if "controls" not in self.preview_config:
@@ -417,7 +417,7 @@ class CameraStream(QObject):
             # Persist locked values
             if not getattr(self, 'preview_config', None):
                 try:
-                    self.preview_config = self.picam2.create_preview_configuration(main={"format": "XBGR8888"})
+                    self.preview_config = self.picam2.create_preview_configuration(main={"format": "RGB888"})
                 except Exception:
                     self.preview_config = self.picam2.create_preview_configuration()
             if "controls" not in self.preview_config:
@@ -469,14 +469,14 @@ class CameraStream(QObject):
             # After creating configs, immediately sync the actual formats that will be used
             # Picamera2 may have selected different formats in the config objects
             if hasattr(self, 'preview_config') and self.preview_config and "main" in self.preview_config:
-                actual_preview_format = self.preview_config["main"].get("format", "XBGR8888")
+                actual_preview_format = self.preview_config["main"].get("format", "RGB888")
                 self._pixel_format = str(actual_preview_format)
                 logger.debug(f"Preview config has format: {actual_preview_format}")
             
             # Verify configs exist, if not create fallback
             if not getattr(self, 'preview_config', None):
                 try:
-                    self.preview_config = self.picam2.create_preview_configuration(main={"format": "XBGR8888"})
+                    self.preview_config = self.picam2.create_preview_configuration(main={"format": "RGB888"})
                 except Exception:
                     self.preview_config = self.picam2.create_preview_configuration()
             
@@ -524,8 +524,8 @@ class CameraStream(QObject):
                 
                 # Set specific size for IMX cameras if needed
                 if "size" not in self.preview_config["main"]:
-                    self.preview_config["main"]["size"] = (1440, 1080)
-                    logger.debug("Fixed preview size to 1440x1080 for IMX camera")
+                    self.preview_config["main"]["size"] = (1456, 1080)
+                    logger.debug("Fixed preview size to 1456x1080 for IMX camera")
             
         except Exception as e:
             logger.warning(f"Warning in fix_preview_size: {e}")
@@ -580,18 +580,18 @@ class CameraStream(QObject):
         
     def _generate_test_frame(self):
         """Generate a test frame for testing without a real camera"""
-        h, w = 1080, 1440
+        h, w = 1080, 1456
         # Create base gradients for channels
         r = np.tile(np.linspace(0, 255, w, dtype=np.uint8), (h, 1))
         g = np.tile(np.linspace(0, 255, h, dtype=np.uint8).reshape(h, 1), (1, w))
         b = np.full((h, w), int(time.time() * 10) % 255, dtype=np.uint8)
 
-        pf = getattr(self, '_pixel_format', 'XBGR8888')
+        pf = getattr(self, '_pixel_format', 'RGB888')
         if pf == 'BGR888':
             frame = np.dstack((b, g, r))
         elif pf == 'RGB888':
             frame = np.dstack((r, g, b))
-        elif pf == 'XBGR8888':
+        elif pf == 'XRGB8888' or pf == 'RGB888':
             # Assemble RGBA with opaque alpha; viewer will convert to RGB
             a = np.full((h, w), 255, dtype=np.uint8)
             frame = np.dstack((r, g, b, a))
@@ -701,11 +701,11 @@ class CameraStream(QObject):
             try:
                 if enabled:
                     logger.debug("Restarting camera in trigger mode")
-                    # Use preview_config for trigger mode to get 1440x1080
-                    # (still_config may not support 1440x1080 on this camera hardware)
+                    # Use preview_config for trigger mode to get 1456x1080
+                    # (still_config may not support 1456x1080 on this camera hardware)
                     try:
                         if hasattr(self, 'preview_config') and self.preview_config:
-                            logger.debug("Using preview_config for trigger mode (should give 1440x1080)")
+                            logger.debug("Using preview_config for trigger mode (should give 1456x1080)")
                             self.picam2.configure(self.preview_config)
                             logger.debug("Camera configured with trigger mode using preview_config")
                             
@@ -716,16 +716,16 @@ class CameraStream(QObject):
                         else:
                             logger.warning("No preview_config available, trying still_config fallback")
                             self.still_config = self.picam2.create_still_configuration(
-                                main={"size": (1440, 1080), "format": "XBGR8888"}
+                                main={"size": (1456, 1080), "format": "RGB888"}
                             )
-                            logger.debug("Still config created for trigger mode (size 1440x1080)")
+                            logger.debug("Still config created for trigger mode (size 1456x1080)")
                             self.picam2.configure(self.still_config)
                             logger.debug("Camera configured with trigger mode")
                             
                             # Query actual size camera accepted
                             actual_size = self.get_actual_frame_size()
                             if actual_size:
-                                logger.warning(f"⚠️  Requested 1440x1080 but camera accepted: {actual_size}")
+                                logger.warning(f"⚠️  Requested 1456x1080 but camera accepted: {actual_size}")
                         
                     except Exception as config_e:
                         logger.warning(f"Failed to set trigger config, using default: {config_e}")
@@ -774,32 +774,48 @@ class CameraStream(QObject):
                 self.camera_error.emit(f"Frame processing error: {str(e)}")
     
     def _ensure_preview_config_format(self):
-        """Ensure preview_config has XBGR8888 format set correctly
+        """Ensure preview_config and still_config have RGB888 format set correctly
         
-        This is called before using preview_config to ensure the format
+        This is called before using any config to ensure the format
         doesn't get overridden by picamera2's defaults.
         """
+        # Ensure preview_config format
         if not hasattr(self, 'preview_config') or self.preview_config is None:
             logger.debug("preview_config not initialized yet, will use default format")
-            self._pixel_format = "XBGR8888"
-            return
+            self._pixel_format = "RGB888"
+        else:
+            try:
+                # Ensure main format is RGB888
+                if "main" not in self.preview_config:
+                    self.preview_config["main"] = {}
+                
+                current_format = self.preview_config["main"].get("format", "UNKNOWN")
+                if current_format != "RGB888":
+                    logger.debug(f"Updating preview_config format from {current_format} to RGB888")
+                    self.preview_config["main"]["format"] = "RGB888"
+                
+                # Also update the internal tracking
+                self._pixel_format = "RGB888"
+                logger.debug(f"preview_config format ensured: RGB888")
+                
+            except Exception as e:
+                logger.error(f"Error ensuring preview_config format: {e}")
         
-        try:
-            # Ensure main format is XBGR8888
-            if "main" not in self.preview_config:
-                self.preview_config["main"] = {}
-            
-            current_format = self.preview_config["main"].get("format", "UNKNOWN")
-            if current_format != "XBGR8888":
-                logger.debug(f"Updating preview_config format from {current_format} to XBGR8888")
-                self.preview_config["main"]["format"] = "XBGR8888"
-            
-            # Also update the internal tracking
-            self._pixel_format = "XBGR8888"
-            logger.debug(f"preview_config format ensured: XBGR8888")
-            
-        except Exception as e:
-            logger.error(f"Error ensuring preview_config format: {e}")
+        # Ensure still_config format too
+        if hasattr(self, 'still_config') and self.still_config is not None:
+            try:
+                if "main" not in self.still_config:
+                    self.still_config["main"] = {}
+                
+                current_format = self.still_config["main"].get("format", "UNKNOWN")
+                if current_format != "RGB888":
+                    logger.debug(f"Updating still_config format from {current_format} to RGB888")
+                    self.still_config["main"]["format"] = "RGB888"
+                
+                logger.debug(f"still_config format ensured: RGB888")
+                
+            except Exception as e:
+                logger.error(f"Error ensuring still_config format: {e}")
     
     def _sync_actual_format_after_config(self):
         """After configuring camera, read and sync the actual format used.
@@ -840,7 +856,7 @@ class CameraStream(QObject):
             
             # Fallback: use what we have in preview_config
             if hasattr(self, 'preview_config') and self.preview_config and "main" in self.preview_config:
-                actual_format = self.preview_config["main"].get("format", "XBGR8888")
+                actual_format = self.preview_config["main"].get("format", "RGB888")
                 self._pixel_format = str(actual_format)
                 logger.warning(f"Using fallback format from preview_config: {actual_format}")
                     
@@ -875,8 +891,7 @@ class CameraStream(QObject):
                 return False
             
         try:
-            # DON'T automatically disable hardware trigger here
-            # Let the caller decide if they want trigger mode or not
+            # Check current trigger mode to decide which config to use
             logger.debug(f"Current trigger mode: {self.external_trigger_enabled}")
             
             # Ensure camera is initialized
@@ -891,17 +906,32 @@ class CameraStream(QObject):
                 logger.debug("Camera already started, stopping first")
                 self.picam2.stop()
             
-            # Ensure preview_config has correct XBGR8888 format before configuring
+            # Choose config based on trigger mode
+            if self.external_trigger_enabled:
+                logger.debug("Trigger mode ENABLED - using still_config for 1456x1080")
+                logger.debug(f"still_config exists: {self.still_config is not None}")
+                if self.still_config:
+                    still_size = self.still_config.get("main", {}).get("size")
+                    logger.debug(f"still_config size: {still_size}")
+                config_to_use = self.still_config
+                mode_name = "Trigger"
+            else:
+                logger.debug("Trigger mode DISABLED - using preview_config")
+                config_to_use = self.preview_config
+                mode_name = "Live"
+            
+            # Ensure the selected config has correct format
             self._ensure_preview_config_format()
             
-            # Configure for preview
-            self.picam2.configure(self.preview_config)
-            logger.debug("Camera configured for preview")
+            # Configure with selected config
+            logger.debug(f"Configuring camera with {mode_name} mode config")
+            self.picam2.configure(config_to_use)
+            logger.debug(f"Camera configured for {mode_name} mode")
             
-            # Query actual size camera accepted for preview
+            # Query actual size camera accepted
             actual_size = self.get_actual_frame_size()
             if actual_size:
-                logger.info(f"📷 Live mode - Requested 1440x1080, camera accepted: {actual_size}")
+                logger.info(f"📷 {mode_name} mode - Requested 1456x1080, camera accepted: {actual_size}")
             
             # Sync the actual format that picamera2 applied (may differ from requested)
             self._sync_actual_format_after_config()
@@ -911,7 +941,7 @@ class CameraStream(QObject):
             logger.info(f"Actual format after configuration: {actual_fmt}")
             
             # Start the camera
-            logger.debug(f"Starting camera in live mode (Job: {'ON' if self.job_enabled else 'OFF'})")
+            logger.debug(f"Starting camera in {mode_name} mode (Job: {'ON' if self.job_enabled else 'OFF'})")
             if self.job_enabled:
                 self.picam2.start()
             else:
@@ -929,7 +959,7 @@ class CameraStream(QObject):
                     self.timer.start(interval)
             
             self.is_live = True
-            logger.info("Live view started successfully")
+            logger.info(f"Live view started successfully in {mode_name} mode")
             
             return True
             
@@ -1210,20 +1240,22 @@ class CameraStream(QObject):
         """
         try:
             # Map our format strings to picamera2 actual formats
+            # Note: picamera2 uses "RGB888", "BGR888", "XBGR8888", "XRGB8888" as format names
+            # However, the actual format that gets applied depends on camera capabilities
             format_map = {
-                'RGB888': 'XRGB8888',      # RGB888 -> XRGB8888 (picamera2 actual format)
-                'BGR888': 'XBGR8888',      # BGR888 -> XBGR8888 (picamera2 actual format)
-                'XRGB8888': 'XRGB8888',    # Already correct
-                'XBGR8888': 'XBGR8888',    # Already correct
-                'YUV420': 'YUV420',
-                'NV12': 'NV12',
+                'RGB888': 'RGB888',        # RGB888 -> RGB888 (standard RGB format for picamera2)
+                'BGR888': 'BGR888',        # BGR888 -> BGR888 (standard BGR format for picamera2)
+                'XRGB8888': 'RGB888',      # XRGB8888 -> RGB888 (map to RGB888 for compatibility)
+                'XBGR8888': 'BGR888',      # XBGR8888 -> BGR888 (map to BGR888 for compatibility)
+                'YUV420': 'YUV420',        # YUV420 -> YUV420
+                'NV12': 'NV12',            # NV12 -> NV12
             }
             
             # Persist our format string (not actual hardware format)
             self._pixel_format = str(pixel_format)
             
             # Get actual hardware format for picamera2
-            actual_format = format_map.get(str(pixel_format), 'XBGR8888')
+            actual_format = format_map.get(str(pixel_format), 'XRGB8888')
             
             if not self.is_camera_available or not hasattr(self, 'picam2') or self.picam2 is None:
                 # Stub path: just ack success
@@ -1327,7 +1359,7 @@ class CameraStream(QObject):
             # Fallback to our preview_config
             if hasattr(self, 'preview_config') and self.preview_config:
                 if "main" in self.preview_config:
-                    actual_format = self.preview_config["main"].get("format", "XBGR8888")
+                    actual_format = self.preview_config["main"].get("format", "XRGB8888")
                     logger.debug(f"Actual camera format from preview_config: {actual_format}")
                     return str(actual_format)
             

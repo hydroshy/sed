@@ -1,6 +1,7 @@
 from PyQt5.QtCore import QObject
 from PyQt5.QtWidgets import QStackedWidget, QWidget, QPushButton, QSlider, QSpinBox, QDoubleSpinBox, QLineEdit, QComboBox, QCheckBox
 import logging
+from utils.debug_utils import conditional_print
 from typing import Dict, Any, Optional
 
 class SettingsManager(QObject):
@@ -155,11 +156,11 @@ class SettingsManager(QObject):
                     msg.setText("Job already contains a Camera Source tool.\n\nOnly 1 camera can be connected at a time.")
                     msg.setStandardButtons(QMessageBox.Ok)
                     msg.exec_()
-                    print("DEBUG: User tried to add multiple Camera Source tools - blocked at switch_to_tool_setting_page")
+                    conditional_print(f"DEBUG: User tried to add multiple Camera Source tools - blocked at switch_to_tool_setting_page")
                     logging.warning("SettingsManager: Attempted to add multiple Camera Source tools - blocked at switch_to_tool_setting_page")
                     return False
             else:
-                print("DEBUG: In EDIT MODE - allowing Camera Source edit despite existing instance")
+                conditional_print(f"DEBUG: In EDIT MODE - allowing Camera Source edit despite existing instance")
                 logging.info("SettingsManager: In EDIT MODE - skipping duplicate check")
             
         if not self.setting_stacked_widget:
@@ -248,6 +249,14 @@ class SettingsManager(QObject):
                 
                 # When switching to camera settings page: reflect current mode in UI and (optionally) start preview
                 if page_type == "camera":
+                    # Load camera formats into formatCameraComboBox first
+                    try:
+                        if hasattr(self.main_window, '_load_camera_formats'):
+                            self.main_window._load_camera_formats()
+                            logging.info("SettingsManager: Loaded camera formats into comboBox")
+                    except Exception as e:
+                        logging.warning(f"SettingsManager: Failed to load camera formats: {e}")
+                    
                     if hasattr(self.main_window, 'camera_manager') and self.main_window.camera_manager:
                         # Sync mode buttons to current live/trigger state
                         try:

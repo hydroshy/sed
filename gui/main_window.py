@@ -8,6 +8,7 @@ from PyQt5.QtGui import QKeySequence
 from PyQt5 import uic
 import os
 import logging
+from utils.debug_utils import conditional_print
 import time
 from job.job_manager import JobManager
 from gui.tool_manager import ToolManager
@@ -19,8 +20,9 @@ from gui.result_manager import ResultManager
 from gui.result_tab_manager import ResultTabManager
 from gui.workflow_view import WorkflowWidget
 
-# Configure logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+# Configure logging - only log to file, not console (console handled by main.py)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 class MainWindow(QMainWindow):
     def _clear_tool_config_ui(self):
@@ -148,9 +150,9 @@ class MainWindow(QMainWindow):
                                 old_widget.deleteLater()
                             
                             logging.info("JobView upgraded to JobTreeView with drag-drop support!")
-                            print(f"DEBUG: JobView type after upgrade: {type(self.jobView)}")
-                            print(f"DEBUG: JobView drag enabled: {self.jobView.dragEnabled()}")
-                            print(f"DEBUG: JobView accepts drops: {self.jobView.acceptDrops()}")
+                            conditional_print(f"DEBUG: JobView type after upgrade: {type(self.jobView)}")
+                            conditional_print(f"DEBUG: JobView drag enabled: {self.jobView.dragEnabled()}")
+                            conditional_print(f"DEBUG: JobView accepts drops: {self.jobView.acceptDrops()}")
                             return True
                         else:
                             logging.warning("Could not find jobView in parent layout")
@@ -275,14 +277,14 @@ class MainWindow(QMainWindow):
                     self.formatCameraComboBox = combo
                     break
         
-        print(f"DEBUG: formatCameraComboBox found: {self.formatCameraComboBox is not None}")
+        conditional_print(f"DEBUG: formatCameraComboBox found: {self.formatCameraComboBox is not None}")
         if self.formatCameraComboBox:
-            print(f"DEBUG: formatCameraComboBox type: {type(self.formatCameraComboBox)}")
+            conditional_print(f"DEBUG: formatCameraComboBox type: {type(self.formatCameraComboBox)}")
         else:
-            print("DEBUG: formatCameraComboBox is None - searching for all ComboBoxes")
+            conditional_print(f"DEBUG: formatCameraComboBox is None - searching for all ComboBoxes")
             all_combos = self.findChildren(QComboBox)
             for combo in all_combos:
-                print(f"DEBUG: Found combo: {combo.objectName()}")
+                conditional_print(f"DEBUG: Found combo: {combo.objectName()}")
         
         # Settings control buttons
         self.applySetting = self.findChild(QPushButton, 'applySetting')
@@ -400,15 +402,15 @@ class MainWindow(QMainWindow):
         
         # Source output combo box to control camera view pipeline
         self.sourceOutputComboBox = self.findChild(QComboBox, 'sourceOutputComboBox')
-        print(f"DEBUG: main_window sourceOutputComboBox found: {self.sourceOutputComboBox is not None}")
+        conditional_print(f"DEBUG: main_window sourceOutputComboBox found: {self.sourceOutputComboBox is not None}")
         if self.sourceOutputComboBox:
-            print(f"DEBUG: sourceOutputComboBox type: {type(self.sourceOutputComboBox)}")
+            conditional_print(f"DEBUG: sourceOutputComboBox type: {type(self.sourceOutputComboBox)}")
         else:
-            print("DEBUG: sourceOutputComboBox is None!")
+            conditional_print(f"DEBUG: sourceOutputComboBox is None!")
             # Try to find it with different methods
             all_combos = self.findChildren(QComboBox)
             for combo in all_combos:
-                print(f"DEBUG: Found combo: {combo.objectName()}")
+                conditional_print(f"DEBUG: Found combo: {combo.objectName()}")
             # Try to find it specifically
             source_combo = None
             for combo in all_combos:
@@ -416,7 +418,7 @@ class MainWindow(QMainWindow):
                     source_combo = combo
                     break
             if source_combo:
-                print(f"DEBUG: Found sourceOutput combo via manual search: {source_combo.objectName()}")
+                conditional_print(f"DEBUG: Found sourceOutput combo via manual search: {source_combo.objectName()}")
                 self.sourceOutputComboBox = source_combo
         
         # Settings widgets
@@ -1143,17 +1145,17 @@ class MainWindow(QMainWindow):
                 self.onlineCamera.setEnabled(True)
                 self._set_camera_button_off_style()
                 logging.info("Camera button enabled (has Camera Source in job)")
-                print(f"DEBUG: [MainWindow] Camera button ENABLED - has_camera_source={has_camera_source}, is_editing_camera_tool={is_editing_camera_tool}")
+                conditional_print(f"DEBUG: [MainWindow] Camera button ENABLED - has_camera_source={has_camera_source}, is_editing_camera_tool={is_editing_camera_tool}")
             else:
                 # Disable button and set gray style
                 self.onlineCamera.setEnabled(False)
                 self.onlineCamera.setChecked(False)
                 if is_editing_camera_tool:
                     logging.info("Camera button disabled (editing Camera Tool)")
-                    print(f"DEBUG: [MainWindow] Camera button DISABLED - editing tool - has_camera_source={has_camera_source}, is_editing_camera_tool={is_editing_camera_tool}")
+                    conditional_print(f"DEBUG: [MainWindow] Camera button DISABLED - editing tool - has_camera_source={has_camera_source}, is_editing_camera_tool={is_editing_camera_tool}")
                 else:
                     logging.info("Camera button disabled (no Camera Source in job)")
-                    print(f"DEBUG: [MainWindow] Camera button DISABLED - no camera source - has_camera_source={has_camera_source}, is_editing_camera_tool={is_editing_camera_tool}")
+                    conditional_print(f"DEBUG: [MainWindow] Camera button DISABLED - no camera source - has_camera_source={has_camera_source}, is_editing_camera_tool={is_editing_camera_tool}")
                 self.onlineCamera.setStyleSheet("""
                     QPushButton {
                         background-color: #cccccc;  /* Gray */
@@ -1286,7 +1288,7 @@ class MainWindow(QMainWindow):
             
             # Simple, direct zoom handler
             def safe_zoom_in_handler():
-                print("DEBUG: [MainWindow] Zoom in button pressed")
+                conditional_print(f"DEBUG: [MainWindow] Zoom in button pressed")
                 
                 # Simple direct connection - CameraManager will handle all the details
                 try:
@@ -1294,13 +1296,13 @@ class MainWindow(QMainWindow):
                         # Let CameraManager handle the zoom
                         self.camera_manager.zoom_in()
                     else:
-                        print("DEBUG: [MainWindow] Cannot zoom in - camera_manager not available")
+                        conditional_print(f"DEBUG: [MainWindow] Cannot zoom in - camera_manager not available")
                 except Exception as e:
-                    print(f"DEBUG: [MainWindow] Error in zoom_in handling: {e}")
+                    conditional_print(f"DEBUG: [MainWindow] Error in zoom_in handling: {e}")
                 
             # Connect to our safe handler instead of directly to zoom_in
             self.zoomIn.clicked.connect(safe_zoom_in_handler)
-            print("DEBUG: [MainWindow] zoomIn button connected with enhanced protection")
+            conditional_print(f"DEBUG: [MainWindow] zoomIn button connected with enhanced protection")
             
         if self.zoomOut:
             # Disconnect any existing connections first
@@ -1315,7 +1317,7 @@ class MainWindow(QMainWindow):
             # Create a more controlled connection to prevent event flooding
             # Simple, direct zoom handler
             def safe_zoom_out_handler():
-                print("DEBUG: [MainWindow] Zoom out button pressed")
+                conditional_print(f"DEBUG: [MainWindow] Zoom out button pressed")
                 
                 # Simple direct connection - CameraManager will handle all the details
                 try:
@@ -1323,13 +1325,13 @@ class MainWindow(QMainWindow):
                         # Let CameraManager handle the zoom
                         self.camera_manager.zoom_out()
                     else:
-                        print("DEBUG: [MainWindow] Cannot zoom out - camera_manager not available")
+                        conditional_print(f"DEBUG: [MainWindow] Cannot zoom out - camera_manager not available")
                 except Exception as e:
-                    print(f"DEBUG: [MainWindow] Error in zoom_out handling: {e}")
+                    conditional_print(f"DEBUG: [MainWindow] Error in zoom_out handling: {e}")
                 
             # Connect to our safe handler instead of directly to zoom_out
             self.zoomOut.clicked.connect(safe_zoom_out_handler)
-            print("DEBUG: [MainWindow] zoomOut button connected with enhanced protection")
+            conditional_print(f"DEBUG: [MainWindow] zoomOut button connected with enhanced protection")
             
         if self.rotateLeft:
             self.rotateLeft.clicked.connect(self.camera_manager.rotate_left)
@@ -1349,7 +1351,7 @@ class MainWindow(QMainWindow):
             
             # Simple, direct zoom reset handler
             def safe_zoom_reset_handler():
-                print("DEBUG: [MainWindow] Zoom reset button pressed")
+                conditional_print(f"DEBUG: [MainWindow] Zoom reset button pressed")
                 
                 # Simple direct connection - CameraManager will handle all the details
                 try:
@@ -1357,13 +1359,13 @@ class MainWindow(QMainWindow):
                         # Let CameraManager handle the zoom reset
                         self.camera_manager.reset_view()
                     else:
-                        print("DEBUG: [MainWindow] Cannot reset zoom - camera_manager not available")
+                        conditional_print(f"DEBUG: [MainWindow] Cannot reset zoom - camera_manager not available")
                 except Exception as e:
-                    print(f"DEBUG: [MainWindow] Error in zoom_reset handling: {e}")
+                    conditional_print(f"DEBUG: [MainWindow] Error in zoom_reset handling: {e}")
                 
             # Connect to our safe handler instead of directly to reset_view
             self.zoomReset.clicked.connect(safe_zoom_reset_handler)
-            print("DEBUG: [MainWindow] zoomReset button connected with enhanced protection")
+            conditional_print(f"DEBUG: [MainWindow] zoomReset button connected with enhanced protection")
 
         # Camera pixel format combo box: apply immediately when selection changes
         try:
@@ -1436,7 +1438,7 @@ class MainWindow(QMainWindow):
             set_reference_shortcut.activated.connect(self._on_set_reference_shortcut)
             logging.info("Keyboard shortcut Ctrl+R registered for setting NG/OK reference")
             
-            print("DEBUG: [MainWindow] NG/OK shortcuts setup successfully - Use Ctrl+R to set reference")
+            conditional_print(f"DEBUG: [MainWindow] NG/OK shortcuts setup successfully - Use Ctrl+R to set reference")
             
         except Exception as e:
             logging.error(f"Error setting up NG/OK shortcuts: {e}", exc_info=True)
@@ -1447,10 +1449,10 @@ class MainWindow(QMainWindow):
         """
         try:
             if not hasattr(self, 'camera_manager') or not self.camera_manager:
-                print("DEBUG: [MainWindow] Camera manager not available for set reference")
+                conditional_print(f"DEBUG: [MainWindow] Camera manager not available for set reference")
                 return
             
-            print("DEBUG: [MainWindow] Ctrl+R pressed - Setting NG/OK reference from current detections")
+            conditional_print(f"DEBUG: [MainWindow] Ctrl+R pressed - Setting NG/OK reference from current detections")
             success = self.camera_manager.set_ng_ok_reference_from_current_detections()
             
             if success:
@@ -1462,7 +1464,7 @@ class MainWindow(QMainWindow):
                     
         except Exception as e:
             logging.error(f"Error in set reference shortcut handler: {e}", exc_info=True)
-            print(f"DEBUG: [MainWindow] Error: {e}")
+            conditional_print(f"DEBUG: [MainWindow] Error: {e}")
     
 
     def _add_camera_source_to_combo_box(self):
@@ -1498,8 +1500,8 @@ class MainWindow(QMainWindow):
         """Xử lý khi người dùng nhấn nút Add Tool"""
         # Lấy công cụ được chọn
         tool_name = self.tool_manager.on_add_tool()
-        print(f"DEBUG: _on_add_tool called, tool_name: {tool_name}")
-        print(f"DEBUG: tool_manager._pending_tool after on_add_tool: {getattr(self.tool_manager, '_pending_tool', 'None')}")
+        conditional_print(f"DEBUG: _on_add_tool called, tool_name: {tool_name}")
+        conditional_print(f"DEBUG: tool_manager._pending_tool after on_add_tool: {getattr(self.tool_manager, '_pending_tool', 'None')}")
         
         # Khi add tool mới, không truyền detection_area từ tool trước đó
         # pending_detection_area chỉ dùng cho preview/crop khi cần
@@ -1516,15 +1518,15 @@ class MainWindow(QMainWindow):
                 if self.settings_manager.switch_to_tool_setting_page("Classification Tool"):
                     self.refresh_classification_tool_manager()
             elif tool_name == "Detect Tool":
-                print(f"DEBUG: Switching to Detect Tool settings page")
+                conditional_print(f"DEBUG: Switching to Detect Tool settings page")
                 if self.settings_manager.switch_to_tool_setting_page("Detect Tool"):
                     self.refresh_detect_tool_manager()
-                    print(f"DEBUG: Detect tool manager refreshed")
+                    conditional_print(f"DEBUG: Detect tool manager refreshed")
             elif tool_name == "Result Tool":
-                print(f"DEBUG: Switching to Result Tool settings page")
+                conditional_print(f"DEBUG: Switching to Result Tool settings page")
                 if self.settings_manager.switch_to_tool_setting_page("Result Tool"):
                     self._clear_tool_config_ui()
-                    print(f"DEBUG: Result Tool settings page displayed")
+                    conditional_print(f"DEBUG: Result Tool settings page displayed")
             else:
                 self.settings_manager.switch_to_tool_setting_page(tool_name)
                 self._clear_tool_config_ui()
@@ -1711,7 +1713,7 @@ class MainWindow(QMainWindow):
             # Set current editing tool ID BEFORE any overlay operations
             if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                 self.camera_manager.camera_view.current_editing_tool_id = selected_tool.tool_id
-                print(f"DEBUG: Set current_editing_tool_id to: {selected_tool.tool_id}")
+                conditional_print(f"DEBUG: Set current_editing_tool_id to: {selected_tool.tool_id}")
             
             detection_area = None
             if hasattr(selected_tool, 'config') and hasattr(selected_tool.config, 'get'):
@@ -1721,16 +1723,16 @@ class MainWindow(QMainWindow):
             if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                 overlay = self.camera_manager.camera_view.edit_tool_overlay(selected_tool.tool_id)
                 if overlay:
-                    print(f"DEBUG: Editing tool #{selected_tool.tool_id}")
+                    conditional_print(f"DEBUG: Editing tool #{selected_tool.tool_id}")
                 else:
-                    print(f"DEBUG: Tool #{selected_tool.tool_id} overlay not found")
+                    conditional_print(f"DEBUG: Tool #{selected_tool.tool_id} overlay not found")
             self.settings_manager.switch_to_tool_setting_page(selected_tool.name)
             self._load_tool_config_to_ui(selected_tool)
             
             # Update camera button state when editing a tool (especially Camera Tool)
             self._update_camera_button_state()
         else:
-            print("DEBUG: No tool selected for editing")
+            conditional_print(f"DEBUG: No tool selected for editing")
             
     def _auto_stop_camera_for_edit(self):
         """Automatically stop camera when editing Camera Source"""
@@ -1750,7 +1752,7 @@ class MainWindow(QMainWindow):
             
             # Remove tool from job
             self.tool_manager.remove_tool_from_job(selected_tool)
-            print(f"DEBUG: Removed tool #{selected_tool.tool_id}")
+            conditional_print(f"DEBUG: Removed tool #{selected_tool.tool_id}")
             
             # Update camera button state when tool is removed
             self._update_camera_button_state()
@@ -1758,28 +1760,28 @@ class MainWindow(QMainWindow):
             # Cập nhật workflow view
             self._update_workflow_view()
         else:
-            print("DEBUG: No tool selected for removal")
+            conditional_print(f"DEBUG: No tool selected for removal")
     
     def _on_apply_setting(self):
         """Xử lý khi người dùng nhấn nút Apply trong trang cài đặt"""
-        print("DEBUG: _on_apply_setting called in MainWindow")
+        conditional_print(f"DEBUG: _on_apply_setting called in MainWindow")
         # Flush camera pipeline before applying to avoid pending requests
         try:
             if hasattr(self, 'camera_manager') and self.camera_manager and \
                hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream and \
                hasattr(self.camera_manager.camera_stream, 'cancel_all_and_flush'):
                 self.camera_manager.camera_stream.cancel_all_and_flush()
-                print("DEBUG: [MainWindow] cancel_all_and_flush called before apply settings")
+                conditional_print(f"DEBUG: [MainWindow] cancel_all_and_flush called before apply settings")
         except Exception:
             pass
 
         # Synchronize settings across all pages before applying
-        print("DEBUG: Synchronizing settings across pages...")
+        conditional_print(f"DEBUG: Synchronizing settings across pages...")
         self.settings_manager.sync_settings_across_pages()
         
         # Get current page type to handle page-specific logic
         current_page = self.settings_manager.get_current_page_type()
-        print(f"DEBUG: Applying settings for page type: {current_page}")
+        conditional_print(f"DEBUG: Applying settings for page type: {current_page}")
         
         # Handle camera settings page
         if current_page == "camera":
@@ -1788,7 +1790,7 @@ class MainWindow(QMainWindow):
             # Check if we're EDITING an existing Camera Source tool vs ADDING a new one
             if self._editing_tool and (self._editing_tool.display_name == "Camera Source" or self._editing_tool.name == "Camera Source"):
                 # EDIT MODE: Update existing Camera Source tool configuration
-                print(f"DEBUG: Updating existing Camera Source tool configuration")
+                conditional_print(f"DEBUG: Updating existing Camera Source tool configuration")
                 self._editing_tool = None
                 if hasattr(self.tool_manager, '_update_job_view'):
                     self.tool_manager._update_job_view()
@@ -1799,7 +1801,7 @@ class MainWindow(QMainWindow):
             
             # Check if Camera Source tool is pending and add it (NEW TOOL mode)
             if hasattr(self.tool_manager, '_pending_tool') and self.tool_manager._pending_tool == "Camera Source":
-                print("DEBUG: Applying Camera Source tool settings")
+                conditional_print(f"DEBUG: Applying Camera Source tool settings")
                 
                 # CHECK: Verify only 1 Camera Source in current job BEFORE adding
                 has_camera_source = False
@@ -1820,7 +1822,7 @@ class MainWindow(QMainWindow):
                     msg.setText("Job already contains a Camera Source tool.\n\nOnly 1 camera can be connected at a time.")
                     msg.setStandardButtons(QMessageBox.Ok)
                     msg.exec_()
-                    print("DEBUG: User tried to add multiple Camera Source tools - blocked before apply")
+                    conditional_print(f"DEBUG: User tried to add multiple Camera Source tools - blocked before apply")
                     logging.warning("MainWindow: Attempted to add multiple Camera Source tools - blocked")
                     return
                 
@@ -1831,7 +1833,7 @@ class MainWindow(QMainWindow):
                 # Call the tool manager to create and add the Camera Source tool
                 added_tool = self.tool_manager.on_apply_setting()
                 if added_tool:
-                    print(f"DEBUG: Camera Source tool added successfully with ID: {added_tool.tool_id}")
+                    conditional_print(f"DEBUG: Camera Source tool added successfully with ID: {added_tool.tool_id}")
                     # Update job view to show the new tool
                     self.tool_manager._update_job_view()
                     # Update camera button state to enable it now that we have a Camera Source
@@ -1839,9 +1841,9 @@ class MainWindow(QMainWindow):
                     self._update_camera_button_state()
                     
                     # Don't automatically start camera - user must choose manually
-                    print("DEBUG: Camera Source tool added - user must manually start camera using Live/Trigger buttons")
+                    conditional_print(f"DEBUG: Camera Source tool added - user must manually start camera using Live/Trigger buttons")
                 else:
-                    print("DEBUG: Failed to add Camera Source tool")
+                    conditional_print(f"DEBUG: Failed to add Camera Source tool")
             
             # Chuyển về trang palette sau khi áp dụng cài đặt camera
             self.settings_manager.return_to_palette_page()
@@ -1854,13 +1856,13 @@ class MainWindow(QMainWindow):
 
         # Handle detection settings page
         if current_page == "detect":
-            print(f"DEBUG: Entering detect page handling")
-            print(f"DEBUG: _editing_tool: {self._editing_tool}")
-            print(f"DEBUG: tool_manager._pending_tool: {getattr(self.tool_manager, '_pending_tool', 'None')}")
+            conditional_print(f"DEBUG: Entering detect page handling")
+            conditional_print(f"DEBUG: _editing_tool: {self._editing_tool}")
+            conditional_print(f"DEBUG: tool_manager._pending_tool: {getattr(self.tool_manager, '_pending_tool', 'None')}")
             
             # Nếu đang ở chế độ chỉnh sửa tool (edit), chỉ cập nhật config tool đó
             if self._editing_tool is not None:
-                print(f"DEBUG: Updating config for editing tool: {self._editing_tool.display_name}")
+                conditional_print(f"DEBUG: Updating config for editing tool: {self._editing_tool.display_name}")
                 detection_area = self._collect_detection_area()
                 if self._editing_tool.name == "Detect Tool" and hasattr(self, 'detect_tool_manager'):
                     new_config = self.detect_tool_manager.get_tool_config()
@@ -1868,11 +1870,11 @@ class MainWindow(QMainWindow):
                     if detection_area:
                         new_config['detection_area'] = detection_area
                     self._editing_tool.config = new_config
-                    print(f"DEBUG: Updated DetectTool config: {self._editing_tool.config}")
+                    conditional_print(f"DEBUG: Updated DetectTool config: {self._editing_tool.config}")
                     # Mark config as changed so DetectTool will re-initialize on next process()
                     if hasattr(self._editing_tool, 'mark_config_changed'):
                         self._editing_tool.mark_config_changed()
-                        print(f"DEBUG: Marked DetectTool config as changed for re-initialization")
+                        conditional_print(f"DEBUG: Marked DetectTool config as changed for re-initialization")
                 else:
                     # For other tools, update config with detection_area if present
                     if hasattr(self._editing_tool, 'config') and detection_area:
@@ -1885,7 +1887,7 @@ class MainWindow(QMainWindow):
                 self.settings_manager.return_to_palette_page()
                 
                 # Reset ReviewView and ReviewLabels after tool edit
-                print("DEBUG: Resetting ReviewView and ReviewLabels after tool edit")
+                conditional_print(f"DEBUG: Resetting ReviewView and ReviewLabels after tool edit")
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                     camera_view = self.camera_manager.camera_view
                     # Clear frame and detection history
@@ -1894,7 +1896,7 @@ class MainWindow(QMainWindow):
                         camera_view.detections_history.clear()
                     # Force refresh review views with empty content
                     camera_view._update_review_views_with_frames([])
-                    print("DEBUG: ReviewView and ReviewLabels cleared after tool edit")
+                    conditional_print(f"DEBUG: ReviewView and ReviewLabels cleared after tool edit")
                 
                 # --- Always robustly disable edit mode for all overlays and current_overlay ---
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
@@ -1903,22 +1905,22 @@ class MainWindow(QMainWindow):
                     if hasattr(camera_view, 'overlays'):
                         for overlay in camera_view.overlays.values():
                             overlay.set_edit_mode(False)
-                            print(f"DEBUG: Overlay #{overlay.tool_id} edit_mode after apply: {overlay.edit_mode}")
+                            conditional_print(f"DEBUG: Overlay #{overlay.tool_id} edit_mode after apply: {overlay.edit_mode}")
                     # Tắt edit mode cho current_overlay nếu còn tồn tại
                     if hasattr(camera_view, 'current_overlay'):
                         if camera_view.current_overlay:
                             camera_view.current_overlay.set_edit_mode(False)
-                            print(f"DEBUG: Current overlay edit_mode after apply: {camera_view.current_overlay.edit_mode}")
+                            conditional_print(f"DEBUG: Current overlay edit_mode after apply: {camera_view.current_overlay.edit_mode}")
                         camera_view.current_overlay = None
                     camera_view.set_overlay_edit_mode(False)
-                print("DEBUG: All overlays and current_overlay are now not editable after apply.")
+                conditional_print(f"DEBUG: All overlays and current_overlay are now not editable after apply.")
                 
                 # Cập nhật workflow view
                 self._update_workflow_view()
                 return
             
-            print(f"DEBUG: Not in edit mode, checking if should add new DetectTool")
-            print(f"DEBUG: Has detect_tool_manager: {hasattr(self, 'detect_tool_manager')}")
+            conditional_print(f"DEBUG: Not in edit mode, checking if should add new DetectTool")
+            conditional_print(f"DEBUG: Has detect_tool_manager: {hasattr(self, 'detect_tool_manager')}")
         
         # Handle classification settings page (simple apply -> add tool)
         if current_page == "classification":
@@ -1928,14 +1930,14 @@ class MainWindow(QMainWindow):
                     self.tool_manager._update_job_view()
                 
                 # Reset ReviewView and ReviewLabels after Classification Tool applied
-                print("DEBUG: Resetting ReviewView and ReviewLabels after Classification Tool apply")
+                conditional_print(f"DEBUG: Resetting ReviewView and ReviewLabels after Classification Tool apply")
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                     camera_view = self.camera_manager.camera_view
                     camera_view.frame_history.clear()
                     if hasattr(camera_view, 'detections_history'):
                         camera_view.detections_history.clear()
                     camera_view._update_review_views_with_frames([])
-                    print("DEBUG: ReviewView and ReviewLabels cleared after Classification Tool apply")
+                    conditional_print(f"DEBUG: ReviewView and ReviewLabels cleared after Classification Tool apply")
                 
                 self.settings_manager.return_to_palette_page()
                 # Disable overlays edit mode (consistency)
@@ -1952,14 +1954,14 @@ class MainWindow(QMainWindow):
         # Continue with detect page logic if not in edit mode
         if current_page == "detect":
             # Nếu không phải chế độ edit, xử lý như cũ (thêm mới tool)
-            print(f"DEBUG: Detection page - _pending_tool: {getattr(self.tool_manager, '_pending_tool', 'None')}")
-            print(f"DEBUG: Detection page - _editing_tool: {self._editing_tool}")
+            conditional_print(f"DEBUG: Detection page - _pending_tool: {getattr(self.tool_manager, '_pending_tool', 'None')}")
+            conditional_print(f"DEBUG: Detection page - _editing_tool: {self._editing_tool}")
             
             logging.debug(f"Detection page - tool_manager has _pending_tool: {hasattr(self.tool_manager, '_pending_tool')}")
             if hasattr(self.tool_manager, '_pending_tool'):
                 logging.debug(f"_pending_tool value: {getattr(self.tool_manager, '_pending_tool', 'None')}")
             if hasattr(self.tool_manager, '_pending_tool') and self.tool_manager._pending_tool == "Detect Tool":
-                print("DEBUG: Processing Detect Tool via detect_tool_manager path")
+                conditional_print(f"DEBUG: Processing Detect Tool via detect_tool_manager path")
                 logging.info("Applying Detect Tool configuration...")
                 # --- Always save detection_area from UI to config before applying ---
                 detection_area = self._collect_detection_area()
@@ -1972,7 +1974,7 @@ class MainWindow(QMainWindow):
                     self.tool_manager._update_job_view()
                 
                 # Reset ReviewView and ReviewLabels after Detect Tool applied
-                print("DEBUG: Resetting ReviewView and ReviewLabels after Detect Tool apply")
+                conditional_print(f"DEBUG: Resetting ReviewView and ReviewLabels after Detect Tool apply")
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                     camera_view = self.camera_manager.camera_view
                     # Clear frame and detection history
@@ -1981,7 +1983,7 @@ class MainWindow(QMainWindow):
                         camera_view.detections_history.clear()
                     # Force refresh review views with empty content
                     camera_view._update_review_views_with_frames([])
-                    print("DEBUG: ReviewView and ReviewLabels cleared after Detect Tool apply")
+                    conditional_print(f"DEBUG: ReviewView and ReviewLabels cleared after Detect Tool apply")
                 
                 self.settings_manager.return_to_palette_page()  # Changed from return_to_camera_setting_page
                 # --- Tắt edit mode cho overlays như cancelSetting ---
@@ -1993,20 +1995,20 @@ class MainWindow(QMainWindow):
                     if hasattr(camera_view, 'current_overlay'):
                         camera_view.current_overlay = None
                     camera_view.set_overlay_edit_mode(False)
-                    print("DEBUG: Disabled overlay edit mode on apply (after add tool)")
+                    conditional_print(f"DEBUG: Disabled overlay edit mode on apply (after add tool)")
                 if success:
                     logging.info("Detect Tool applied to job successfully")
                 else:
                     logging.error("Failed to apply Detect Tool to job")
                 return
             else:
-                print("DEBUG: Detect Tool not in _pending_tool or _pending_tool not set correctly")
-                print("DEBUG: Falling back to generic tool creation path")
+                conditional_print(f"DEBUG: Detect Tool not in _pending_tool or _pending_tool not set correctly")
+                conditional_print(f"DEBUG: Falling back to generic tool creation path")
                 logging.debug("Detect Tool not selected or _pending_tool not set correctly")
             
             # Fallback: use generic tool manager path for Detect Tool
             if hasattr(self.tool_manager, '_pending_tool') and self.tool_manager._pending_tool:
-                print(f"DEBUG: Using generic tool creation path for: {self.tool_manager._pending_tool}")
+                conditional_print(f"DEBUG: Using generic tool creation path for: {self.tool_manager._pending_tool}")
                 
                 # Collect detection area
                 detection_area = self._collect_detection_area()
@@ -2017,19 +2019,19 @@ class MainWindow(QMainWindow):
                     if detection_area:
                         config['detection_area'] = detection_area
                     self.tool_manager.set_tool_config(config)
-                    print(f"DEBUG: Set Detect Tool config: {config}")
+                    conditional_print(f"DEBUG: Set Detect Tool config: {config}")
                     
                 # Apply using tool_manager.on_apply_setting()
                 added_tool = self.tool_manager.on_apply_setting()
                 if added_tool:
-                    print(f"DEBUG: Generic path - Tool added successfully: {added_tool.name} with ID: {added_tool.tool_id}")
+                    conditional_print(f"DEBUG: Generic path - Tool added successfully: {added_tool.name} with ID: {added_tool.tool_id}")
                     # Update job view to show the new tool
                     self.tool_manager._update_job_view()
                 else:
-                    print("DEBUG: Generic path - Failed to add tool")
+                    conditional_print(f"DEBUG: Generic path - Failed to add tool")
                 
                 # Reset ReviewView and ReviewLabels after tool applied
-                print("DEBUG: Resetting ReviewView and ReviewLabels after tool apply (generic path)")
+                conditional_print(f"DEBUG: Resetting ReviewView and ReviewLabels after tool apply (generic path)")
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                     camera_view = self.camera_manager.camera_view
                     # Clear frame and detection history
@@ -2038,7 +2040,7 @@ class MainWindow(QMainWindow):
                         camera_view.detections_history.clear()
                     # Force refresh review views with empty content
                     camera_view._update_review_views_with_frames([])
-                    print("DEBUG: ReviewView and ReviewLabels cleared after tool apply (generic path)")
+                    conditional_print(f"DEBUG: ReviewView and ReviewLabels cleared after tool apply (generic path)")
                 
                 # Return to palette page
                 self.settings_manager.return_to_palette_page()
@@ -2052,15 +2054,15 @@ class MainWindow(QMainWindow):
                     if hasattr(camera_view, 'current_overlay'):
                         camera_view.current_overlay = None
                     camera_view.set_overlay_edit_mode(False)
-                    print("DEBUG: Disabled overlay edit mode on apply (generic path)")
+                    conditional_print(f"DEBUG: Disabled overlay edit mode on apply (generic path)")
                 
                 return
             
             # If no specific tool handling above, fallback to generic path
-            print("DEBUG: No specific detect tool handling matched, using generic apply")
+            conditional_print(f"DEBUG: No specific detect tool handling matched, using generic apply")
             added_tool = self.tool_manager.on_apply_setting()
             if added_tool:
-                print(f"DEBUG: Generic tool added: {added_tool.name}")
+                conditional_print(f"DEBUG: Generic tool added: {added_tool.name}")
                 self.tool_manager._update_job_view()
                 
                 # Update camera button state if a Camera Tool was added
@@ -2089,25 +2091,25 @@ class MainWindow(QMainWindow):
                             overlay.set_edit_mode(False)
                     except RuntimeError as e:
                         # Object đã bị delete, đánh dấu để xóa khỏi dictionary
-                        print(f"DEBUG: Overlay {tool_id} already deleted: {e}")
+                        conditional_print(f"DEBUG: Overlay {tool_id} already deleted: {e}")
                         overlays_to_remove.append(tool_id)
                 
                 # Xóa các overlay đã bị delete khỏi dictionary
                 for tool_id in overlays_to_remove:
                     del camera_view.overlays[tool_id]
-                    print(f"DEBUG: Removed deleted overlay {tool_id} from dictionary")
+                    conditional_print(f"DEBUG: Removed deleted overlay {tool_id} from dictionary")
             
             # Đặt current_overlay = None
             if hasattr(camera_view, 'current_overlay'):
                 camera_view.current_overlay = None
             camera_view.set_overlay_edit_mode(False)
-            print("DEBUG: Disabled overlay edit mode on apply")
+            conditional_print(f"DEBUG: Disabled overlay edit mode on apply")
         
         # Update camera button state based on Camera Source presence (not just enable)
         self._update_camera_button_state()
         self._editing_tool = None  # Clear editing state
         
-        print("DEBUG: Settings applied and synchronized successfully")
+        conditional_print(f"DEBUG: Settings applied and synchronized successfully")
     
     def _on_cancel_setting(self):
         """Xử lý khi người dùng nhấn nút Cancel trong trang cài đặt"""
@@ -2126,7 +2128,7 @@ class MainWindow(QMainWindow):
             if hasattr(camera_view, 'current_overlay'):
                 camera_view.current_overlay = None
             camera_view.set_overlay_edit_mode(False)
-            print("DEBUG: Disabled overlay edit mode on cancel")
+            conditional_print(f"DEBUG: Disabled overlay edit mode on cancel")
         
         # Hủy bỏ thao tác thêm tool
         self.tool_manager.on_cancel_setting()
@@ -2143,24 +2145,24 @@ class MainWindow(QMainWindow):
     
     def _on_edit_job(self):
         """Xử lý khi người dùng nhấn nút Edit Job"""
-        print("DEBUG: Edit Job button clicked")
+        conditional_print(f"DEBUG: Edit Job button clicked")
         
         # Get selected tool for editing
         editing_tool = self.tool_manager.on_edit_tool_in_job()
         if not editing_tool:
-            print("DEBUG: No tool selected for editing")
+            conditional_print(f"DEBUG: No tool selected for editing")
             return
         
-        print(f"DEBUG: Editing tool: {editing_tool.display_name}")
+        conditional_print(f"DEBUG: Editing tool: {editing_tool.display_name}")
         
         # Switch to detect settings page
         tool_name = editing_tool.name
         if self.settings_manager.switch_to_tool_setting_page(tool_name):
             # Load tool configuration into UI
             self._load_tool_config_to_ui(editing_tool)
-            print(f"DEBUG: Switched to settings page for {tool_name}")
+            conditional_print(f"DEBUG: Switched to settings page for {tool_name}")
         else:
-            print(f"DEBUG: Failed to switch to settings page for {tool_name}")
+            conditional_print(f"DEBUG: Failed to switch to settings page for {tool_name}")
     
     def _load_tool_config_to_ui(self, tool):
         """Load tool configuration into UI for editing"""
@@ -2172,46 +2174,46 @@ class MainWindow(QMainWindow):
                 config = tool.config.to_dict()
             else:
                 config = tool.config
-            print(f"DEBUG: Loading tool config: {config}")
+            conditional_print(f"DEBUG: Loading tool config: {config}")
 
             # Handle tool-specific configuration loading
             if tool.name == "Detect Tool" and hasattr(self, 'detect_tool_manager'):
-                print(f"DEBUG: Loading DetectTool configuration via DetectToolManager")
+                conditional_print(f"DEBUG: Loading DetectTool configuration via DetectToolManager")
                 self.detect_tool_manager.load_tool_config(config)
 
             # --- Load detection area (x1, y1, x2, y2) robustly ---
             area = None
-            print(f"DEBUG: Looking for detection area in config...")
-            print(f"DEBUG: detection_area in config: {'detection_area' in config}")
-            print(f"DEBUG: detection_region in config: {'detection_region' in config}")
+            conditional_print(f"DEBUG: Looking for detection area in config...")
+            conditional_print(f"DEBUG: detection_area in config: {'detection_area' in config}")
+            conditional_print(f"DEBUG: detection_region in config: {'detection_region' in config}")
             if 'detection_area' in config:
-                print(f"DEBUG: detection_area value: {config['detection_area']}")
+                conditional_print(f"DEBUG: detection_area value: {config['detection_area']}")
             if 'detection_region' in config:
-                print(f"DEBUG: detection_region value: {config['detection_region']}")
+                conditional_print(f"DEBUG: detection_region value: {config['detection_region']}")
                 
             if 'detection_area' in config and config['detection_area'] is not None:
                 area = config['detection_area']
-                print(f"DEBUG: Using detection_area: {area}")
+                conditional_print(f"DEBUG: Using detection_area: {area}")
             elif 'detection_region' in config and config['detection_region'] is not None:
                 area = config['detection_region']
-                print(f"DEBUG: Using detection_region: {area}")
+                conditional_print(f"DEBUG: Using detection_region: {area}")
 
             # If area is still None, try to get from overlay (if exists)
             if (not area or not (isinstance(area, (list, tuple)) and len(area) == 4)) and hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
-                print(f"DEBUG: Trying to get area from existing overlay...")
+                conditional_print(f"DEBUG: Trying to get area from existing overlay...")
                 camera_view = self.camera_manager.camera_view
                 if hasattr(camera_view, 'overlays'):
-                    print(f"DEBUG: Available overlays: {list(camera_view.overlays.keys())}")
+                    conditional_print(f"DEBUG: Available overlays: {list(camera_view.overlays.keys())}")
                     overlay = camera_view.overlays.get(tool.tool_id)
                     if overlay and hasattr(overlay, 'get_area_coords'):
                         area = overlay.get_area_coords()
                         # Update config so next time it is available
                         tool.config['detection_area'] = area
-                        print(f"DEBUG: Loaded detection_area from overlay: {area}")
+                        conditional_print(f"DEBUG: Loaded detection_area from overlay: {area}")
                     else:
-                        print(f"DEBUG: No overlay found for tool #{tool.tool_id}")
+                        conditional_print(f"DEBUG: No overlay found for tool #{tool.tool_id}")
                 else:
-                    print(f"DEBUG: No overlays attribute in camera_view")
+                    conditional_print(f"DEBUG: No overlays attribute in camera_view")
 
             if area and isinstance(area, (list, tuple)) and len(area) == 4:
                 x1, y1, x2, y2 = area
@@ -2229,21 +2231,21 @@ class MainWindow(QMainWindow):
                     
                     # Set current editing tool ID
                     camera_view.current_editing_tool_id = tool.tool_id
-                    print(f"DEBUG: Set current editing tool ID to: {tool.tool_id}")
+                    conditional_print(f"DEBUG: Set current editing tool ID to: {tool.tool_id}")
                     
                     if tool.tool_id in camera_view.overlays:
                         overlay = camera_view.overlays[tool.tool_id]
                         overlay.update_from_coords(x1, y1, x2, y2)
                         overlay.set_edit_mode(True)
                         camera_view.current_overlay = overlay
-                        print(f"DEBUG: Updated existing overlay for tool #{tool.tool_id}")
+                        conditional_print(f"DEBUG: Updated existing overlay for tool #{tool.tool_id}")
                     else:
                         overlay = camera_view.add_tool_overlay(x1, y1, x2, y2, tool.tool_id)
                         overlay.set_edit_mode(True)
                         camera_view.current_overlay = overlay
-                        print(f"DEBUG: Added new overlay for tool #{tool.tool_id}")
-                    print(f"DEBUG: Loaded detection area for editing: ({x1}, {y1}) to ({x2}, {y2})")
-                    print("DEBUG: Enabled overlay edit mode for tool editing")
+                        conditional_print(f"DEBUG: Added new overlay for tool #{tool.tool_id}")
+                    conditional_print(f"DEBUG: Loaded detection area for editing: ({x1}, {y1}) to ({x2}, {y2})")
+                    conditional_print(f"DEBUG: Enabled overlay edit mode for tool editing")
             else:
                 # If no area, clear all fields
                 if self.x1PositionLineEdit:
@@ -2263,13 +2265,13 @@ class MainWindow(QMainWindow):
                 self.minConfidenceEdit.setValue(config['min_confidence'])
 
         except Exception as e:
-            print(f"DEBUG: Error loading tool config: {e}")
+            conditional_print(f"DEBUG: Error loading tool config: {e}")
             import traceback
             traceback.print_exc()
     
     def _on_draw_area_clicked(self):
         """Xử lý khi người dùng nhấn nút Draw Area"""
-        print("DEBUG: Draw Area button clicked")
+        conditional_print(f"DEBUG: Draw Area button clicked")
         
         # Chỉ xóa overlay tạm thời (pending), giữ lại overlay của các tool đã add vào job
         if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
@@ -2289,13 +2291,13 @@ class MainWindow(QMainWindow):
             if self.drawAreaButton:
                 self.drawAreaButton.setText("Drawing...")
                 self.drawAreaButton.setEnabled(False)
-            print("DEBUG: Enabled drawing mode in camera view")
+            conditional_print(f"DEBUG: Enabled drawing mode in camera view")
         else:
-            print("DEBUG: Camera view not available")
+            conditional_print(f"DEBUG: Camera view not available")
     
     def _on_area_drawn(self, x1, y1, x2, y2):
         """Xử lý khi user đã vẽ xong area"""
-        print(f"DEBUG: Area drawn: ({x1}, {y1}) to ({x2}, {y2})")
+        conditional_print(f"DEBUG: Area drawn: ({x1}, {y1}) to ({x2}, {y2})")
 
         # Update x1, y1, x2, y2 LineEdits with drawn area coordinates
         if self.x1PositionLineEdit:
@@ -2318,11 +2320,11 @@ class MainWindow(QMainWindow):
             # Keep overlay editable until applied/canceled
             self.camera_manager.camera_view.set_overlay_edit_mode(True)
 
-        print(f"DEBUG: Updated detection area fields: x1={int(x1)}, y1={int(y1)}, x2={int(x2)}, y2={int(y2)}")
+        conditional_print(f"DEBUG: Updated detection area fields: x1={int(x1)}, y1={int(y1)}, x2={int(x2)}, y2={int(y2)}")
     
     def _on_area_changed(self, x1, y1, x2, y2):
         """Xử lý khi area thay đổi (move/resize)"""
-        print(f"DEBUG: Area changed: ({x1}, {y1}) to ({x2}, {y2})")
+        conditional_print(f"DEBUG: Area changed: ({x1}, {y1}) to ({x2}, {y2})")
 
         # Update x1, y1, x2, y2 LineEdits with changed area coordinates
         if self.x1PositionLineEdit:
@@ -2334,31 +2336,31 @@ class MainWindow(QMainWindow):
         if self.y2PositionLineEdit:
             self.y2PositionLineEdit.setText(str(int(y2)))
 
-        print(f"DEBUG: Updated detection area fields from area change: x1={int(x1)}, y1={int(y1)}, x2={int(x2)}, y2={int(y2)}")
+        conditional_print(f"DEBUG: Updated detection area fields from area change: x1={int(x1)}, y1={int(y1)}, x2={int(x2)}, y2={int(y2)}")
     
     def _collect_detection_area(self):
         """Collect detection area coordinates from UI or current drawn area"""
-        print("DEBUG: _collect_detection_area called")
+        conditional_print(f"DEBUG: _collect_detection_area called")
         
         # First try to get from current drawn area
         if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
             camera_view = self.camera_manager.camera_view
-            print(f"DEBUG: Camera view available, current_overlay: {camera_view.current_overlay}")
-            print(f"DEBUG: Camera view overlays count: {len(camera_view.overlays) if hasattr(camera_view, 'overlays') else 0}")
+            conditional_print(f"DEBUG: Camera view available, current_overlay: {camera_view.current_overlay}")
+            conditional_print(f"DEBUG: Camera view overlays count: {len(camera_view.overlays) if hasattr(camera_view, 'overlays') else 0}")
             if hasattr(camera_view, 'overlays'):
                 for tool_id, overlay in camera_view.overlays.items():
                     coords = overlay.get_area_coords() if overlay else None
-                    print(f"DEBUG: Overlay {tool_id} coords: {coords}")
+                    conditional_print(f"DEBUG: Overlay {tool_id} coords: {coords}")
             
             current_coords = camera_view.get_current_area_coords()
             if current_coords:
-                print(f"DEBUG: Got coordinates from drawn area: {current_coords}")
+                conditional_print(f"DEBUG: Got coordinates from drawn area: {current_coords}")
                 return current_coords
             else:
-                print("DEBUG: No current overlay coordinates available")
+                conditional_print(f"DEBUG: No current overlay coordinates available")
         
         # Fallback to text input
-        print("DEBUG: Trying text input fallback")
+        conditional_print(f"DEBUG: Trying text input fallback")
         try:
             if self.x1PositionLineEdit and self.y1PositionLineEdit and self.x2PositionLineEdit and self.y2PositionLineEdit:
                 x1_text = self.x1PositionLineEdit.text().strip()
@@ -2372,7 +2374,7 @@ class MainWindow(QMainWindow):
                     y2 = int(y2_text)
                     return (x1, y1, x2, y2)
         except ValueError as e:
-            print(f"DEBUG: Error parsing coordinates: {e}")
+            conditional_print(f"DEBUG: Error parsing coordinates: {e}")
         return None
     
     def save_current_job(self):
@@ -2506,7 +2508,7 @@ class MainWindow(QMainWindow):
                 if first_tool and first_tool.name == "Camera Source":
                     logging.info("Using Camera Source tool to get frame")
                     # We'll let the job processing handle the camera source tool
-                    frame = np.zeros((1080, 1440, 3), dtype=np.uint8)  # Placeholder - will be replaced by CameraTool
+                    frame = np.zeros((1080, 1456, 3), dtype=np.uint8)  # Placeholder - will be replaced by CameraTool
                 else:
                     # Get current frame from camera_view if no CameraTool is present
                     if hasattr(self.camera_manager.camera_view, 'get_current_frame'):
@@ -2515,7 +2517,7 @@ class MainWindow(QMainWindow):
                     # Fallback to test image if no frame is available
                     if frame is None:
                         logging.warning("No frame available, using test image")
-                        frame = np.zeros((1080, 1440, 3), dtype=np.uint8)
+                        frame = np.zeros((1080, 1456, 3), dtype=np.uint8)
                 
                 # Chạy job with force_save enabled
                 initial_context = {"force_save": True}
@@ -2557,12 +2559,12 @@ class MainWindow(QMainWindow):
         
     def _apply_camera_settings(self):
         """Apply camera settings including format"""
-        print("DEBUG: Applying camera settings...")
+        conditional_print(f"DEBUG: Applying camera settings...")
         
         # Apply camera format if formatCameraComboBox exists and has selection
         if self.formatCameraComboBox and self.formatCameraComboBox.currentText():
             selected_format = self.formatCameraComboBox.currentText()
-            print(f"DEBUG: Applying camera format: {selected_format}")
+            conditional_print(f"DEBUG: Applying camera format: {selected_format}")
             
             # Get camera stream instance
             if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
@@ -2578,7 +2580,7 @@ class MainWindow(QMainWindow):
                             if hasattr(camera_stream, 'stop_live'):
                                 camera_stream.stop_live()
                 except Exception as e:
-                    print(f"DEBUG: Error pre-stopping camera before format apply: {e}")
+                    conditional_print(f"DEBUG: Error pre-stopping camera before format apply: {e}")
                 
                 # Xác thực định dạng trước khi áp dụng
                 safe_formats = ["XRGB8888", "XBGR8888"]
@@ -2588,9 +2590,9 @@ class MainWindow(QMainWindow):
                         self, 
                         "Định dạng không được hỗ trợ",
                         f"Định dạng {selected_format} có thể không được hỗ trợ trên thiết bị này.\n"
-                        f"Sử dụng XBGR8888."
+                        f"Sử dụng XRGB8888."
                     )
-                    selected_format = "XBGR8888"
+                    selected_format = "XRGB8888"
                     # Cập nhật lại combo box để hiển thị định dạng thực tế
                     index = self.formatCameraComboBox.findText(selected_format)
                     if index >= 0:
@@ -2599,11 +2601,11 @@ class MainWindow(QMainWindow):
                 # Apply the new format
                 try:
                     camera_stream.set_format(selected_format)
-                    print(f"DEBUG: Successfully applied camera format: {selected_format}")
+                    conditional_print(f"DEBUG: Successfully applied camera format: {selected_format}")
                     # Sync comboBox to ensure it shows the actual applied format
                     self._sync_format_combobox()
                 except Exception as e:
-                    print(f"DEBUG: Failed to apply camera format {selected_format}: {e}")
+                    conditional_print(f"DEBUG: Failed to apply camera format {selected_format}: {e}")
                     from PyQt5.QtWidgets import QMessageBox
                     QMessageBox.critical(
                         self, 
@@ -2612,16 +2614,16 @@ class MainWindow(QMainWindow):
                         f"Lỗi: {str(e)}"
                     )
             else:
-                print("DEBUG: Camera stream not available for format change")
+                conditional_print(f"DEBUG: Camera stream not available for format change")
         
         # Update camera button state after applying camera settings
         self._update_camera_button_state()
         
-        print("DEBUG: Camera settings applied successfully")
+        conditional_print(f"DEBUG: Camera settings applied successfully")
     
     def _load_camera_formats(self):
         """Load available camera formats into formatCameraComboBox"""
-        print("DEBUG: _load_camera_formats called")
+        conditional_print(f"DEBUG: _load_camera_formats called")
         
         # Always try to find formatCameraComboBox fresh
         combo_widget = None
@@ -2629,30 +2631,30 @@ class MainWindow(QMainWindow):
         # First try findChild
         combo_widget = self.findChild(QComboBox, 'formatCameraComboBox')
         if combo_widget:
-            print(f"DEBUG: Found formatCameraComboBox via findChild: {combo_widget}")
+            conditional_print(f"DEBUG: Found formatCameraComboBox via findChild: {combo_widget}")
         else:
-            print("DEBUG: findChild failed, trying findChildren...")
+            conditional_print(f"DEBUG: findChild failed, trying findChildren...")
             # Alternative method: search through all combo boxes
             all_combos = self.findChildren(QComboBox)
             for combo in all_combos:
                 if combo.objectName() == 'formatCameraComboBox':
                     combo_widget = combo
-                    print(f"DEBUG: Found formatCameraComboBox via findChildren: {combo_widget}")
-                    print(f"DEBUG: Widget valid: {combo_widget is not None}")
-                    print(f"DEBUG: Widget type: {type(combo_widget)}")
-                    print(f"DEBUG: Widget objectName: {combo_widget.objectName()}")
+                    conditional_print(f"DEBUG: Found formatCameraComboBox via findChildren: {combo_widget}")
+                    conditional_print(f"DEBUG: Widget valid: {combo_widget is not None}")
+                    conditional_print(f"DEBUG: Widget type: {type(combo_widget)}")
+                    conditional_print(f"DEBUG: Widget objectName: {combo_widget.objectName()}")
                     break
         
-        print(f"DEBUG: Final combo_widget value: {combo_widget}")
-        print(f"DEBUG: combo_widget is None: {combo_widget is None}")
+        conditional_print(f"DEBUG: Final combo_widget value: {combo_widget}")
+        conditional_print(f"DEBUG: combo_widget is None: {combo_widget is None}")
         
         if combo_widget is None:
-            print("DEBUG: formatCameraComboBox not found anywhere")
+            conditional_print(f"DEBUG: formatCameraComboBox not found anywhere")
             return
             
         # Assign to self for future use
         self.formatCameraComboBox = combo_widget
-        print("DEBUG: formatCameraComboBox assigned, proceeding with format loading")
+        conditional_print(f"DEBUG: formatCameraComboBox assigned, proceeding with format loading")
         
         # Clear existing items
         combo_widget.clear()
@@ -2660,43 +2662,32 @@ class MainWindow(QMainWindow):
         # Get camera stream instance
         if hasattr(self.camera_manager, 'camera_stream') and self.camera_manager.camera_stream:
             camera_stream = self.camera_manager.camera_stream
-            print("DEBUG: Got camera stream instance")
+            conditional_print(f"DEBUG: Got camera stream instance")
             # Show only hardware formats supported by picamera2
             supported = ["XRGB8888", "XBGR8888"]
             for fmt in supported:
                 combo_widget.addItem(fmt)
-                print(f"DEBUG: Added supported format: {fmt}")
-                    
-            # Set to the ACTUAL format the camera is using (not just default)
-            try:
-                actual_format = camera_stream.get_actual_camera_format()
-                print(f"DEBUG: Actual camera format: {actual_format}")
-                idx = combo_widget.findText(actual_format)
-                if idx >= 0:
-                    combo_widget.setCurrentIndex(idx)
-                    print(f"DEBUG: Set comboBox to actual format: {actual_format}")
-                else:
-                    # Fallback if actual format not in list
-                    combo_widget.setCurrentIndex(0)
-                    print(f"DEBUG: Actual format {actual_format} not in list, using first: {combo_widget.itemText(0)}")
-            except Exception as e:
-                print(f"DEBUG: Error getting actual format: {e}, using default XBGR8888")
-                # Fallback to XBGR8888
-                idx = combo_widget.findText('XBGR8888')
-                if idx >= 0:
-                    combo_widget.setCurrentIndex(idx)
-                else:
-                    combo_widget.setCurrentIndex(0)
+                conditional_print(f"DEBUG: Added supported format: {fmt}")
             
-            print(f"DEBUG: ComboBox now has {combo_widget.count()} items")
+            # Default to XRGB8888 first
+            combo_widget.setCurrentIndex(0)  # XRGB8888 is first
+            conditional_print(f"DEBUG: Set default format to XRGB8888 (index 0)")
+                    
+            # Note: We keep XRGB8888 as UI default regardless of actual camera format
+            # The actual camera format may differ, but we let user choose via comboBox
+            # This allows UI to show XRGB8888 preference even if hardware outputs XBGR8888
+            conditional_print(f"DEBUG: ComboBox default is XRGB8888, actual camera format may differ")
         else:
-            print("DEBUG: Camera stream not available, adding fallback formats")
-            # Add fallback formats when camera not available (XBGR8888 first as default)
-            safe_formats = ["XBGR8888", "XRGB8888"]
+            conditional_print(f"DEBUG: Camera stream not available, adding fallback formats")
+            # Add fallback formats when camera not available (XRGB8888 first as default)
+            safe_formats = ["XRGB8888", "XBGR8888"]
             for fmt in safe_formats:
                 combo_widget.addItem(fmt)
-                print(f"DEBUG: Added fallback format: {fmt}")
-            print(f"DEBUG: ComboBox now has {combo_widget.count()} fallback items")
+                conditional_print(f"DEBUG: Added fallback format: {fmt}")
+            # Set default to XRGB8888 (first item)
+            combo_widget.setCurrentIndex(0)
+            conditional_print(f"DEBUG: Set default format to XRGB8888 (index 0)")
+            conditional_print(f"DEBUG: ComboBox now has {combo_widget.count()} fallback items")
     
     def reload_camera_formats(self):
         """Public method to reload camera formats - can be called by camera_manager"""
@@ -2794,10 +2785,10 @@ class MainWindow(QMainWindow):
             supported = ["XRGB8888", "XBGR8888"]
             fmt = str(text)
             
-            print(f"DEBUG: [MainWindow] Format changed to: {fmt}")
+            conditional_print(f"DEBUG: [MainWindow] Format changed to: {fmt}")
             
             if fmt not in supported:
-                print(f"DEBUG: [MainWindow] Ignoring unsupported format selection: {fmt}")
+                conditional_print(f"DEBUG: [MainWindow] Ignoring unsupported format selection: {fmt}")
                 return
             
             # Use QTimer to defer processing and avoid blocking UI
@@ -2805,27 +2796,27 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, lambda: self._process_format_change(fmt))
                 
         except Exception as e:
-            print(f"DEBUG: [MainWindow] _on_format_changed error: {e}")
+            conditional_print(f"DEBUG: [MainWindow] _on_format_changed error: {e}")
     
     def _process_format_change(self, fmt):
         """Process format change in a non-blocking way (asynchronously)"""
         try:
             if not hasattr(self, 'camera_manager') or not self.camera_manager:
-                print(f"DEBUG: [MainWindow] No camera_manager available")
+                conditional_print(f"DEBUG: [MainWindow] No camera_manager available")
                 return
             
             if not hasattr(self.camera_manager, 'camera_stream') or not self.camera_manager.camera_stream:
-                print(f"DEBUG: [MainWindow] No camera_stream available")
+                conditional_print(f"DEBUG: [MainWindow] No camera_stream available")
                 return
                 
             cs = self.camera_manager.camera_stream
             
             # Get current format for comparison
             old_format = cs.get_pixel_format() if hasattr(cs, 'get_pixel_format') else 'Unknown'
-            print(f"DEBUG: [MainWindow] Processing format change from {old_format} to {fmt}")
+            conditional_print(f"DEBUG: [MainWindow] Processing format change from {old_format} to {fmt}")
             
             if old_format == fmt:
-                print(f"DEBUG: [MainWindow] Format already set to {fmt}, just refreshing display")
+                conditional_print(f"DEBUG: [MainWindow] Format already set to {fmt}, just refreshing display")
                 # Still refresh display in case UI is out of sync
                 if hasattr(self.camera_manager, 'camera_view') and self.camera_manager.camera_view:
                     cv = self.camera_manager.camera_view
@@ -2835,26 +2826,26 @@ class MainWindow(QMainWindow):
             
             # IMPORTANT: Use async format change to avoid UI freeze
             # Format change requires stopping/restarting camera, so must be async
-            print(f"DEBUG: [MainWindow] Requesting async format change to {fmt}")
+            conditional_print(f"DEBUG: [MainWindow] Requesting async format change to {fmt}")
             if hasattr(self.camera_manager, 'set_format_async'):
                 # Use async method if available
                 success = self.camera_manager.set_format_async(fmt)
                 if success:
-                    print(f"DEBUG: [MainWindow] Format change async operation started")
+                    conditional_print(f"DEBUG: [MainWindow] Format change async operation started")
                 else:
-                    print(f"DEBUG: [MainWindow] Failed to start async format change")
+                    conditional_print(f"DEBUG: [MainWindow] Failed to start async format change")
             else:
                 # Fallback: use thread to avoid blocking UI
-                print(f"DEBUG: [MainWindow] No set_format_async available, using fallback thread")
+                conditional_print(f"DEBUG: [MainWindow] No set_format_async available, using fallback thread")
                 from PyQt5.QtCore import QThread
                 
                 class FormatChangeThread(QThread):
                     def run(self):
                         try:
                             cs.set_format(fmt)
-                            print(f"DEBUG: [MainWindow] Format changed to {fmt} in thread")
+                            conditional_print(f"DEBUG: [MainWindow] Format changed to {fmt} in thread")
                         except Exception as e:
-                            print(f"DEBUG: [MainWindow] Error in format change thread: {e}")
+                            conditional_print(f"DEBUG: [MainWindow] Error in format change thread: {e}")
                 
                 thread = FormatChangeThread()
                 thread.start()
@@ -2864,7 +2855,7 @@ class MainWindow(QMainWindow):
             
             # For stub backend, generate test frame
             if not getattr(cs, 'is_camera_available', False) and hasattr(cs, '_generate_test_frame'):
-                print(f"DEBUG: [MainWindow] Generating new test frame with format {fmt}")
+                conditional_print(f"DEBUG: [MainWindow] Generating new test frame with format {fmt}")
                 cs._generate_test_frame()
             
             # Simple re-render attempt
@@ -2872,19 +2863,19 @@ class MainWindow(QMainWindow):
                 cv = self.camera_manager.camera_view
                 if hasattr(cv, 'refresh_display_with_new_format'):
                     success = cv.refresh_display_with_new_format()
-                    print(f"DEBUG: [MainWindow] Refresh display result: {success}")
+                    conditional_print(f"DEBUG: [MainWindow] Refresh display result: {success}")
             
             # Update CameraTool config
             try:
                 ct = self.camera_manager.find_camera_tool() if hasattr(self.camera_manager, 'find_camera_tool') else None
                 if ct and hasattr(ct, 'update_config'):
                     ct.update_config({'format': fmt})
-                    print(f"DEBUG: [MainWindow] Updated CameraTool config with format {fmt}")
+                    conditional_print(f"DEBUG: [MainWindow] Updated CameraTool config with format {fmt}")
             except Exception as e:
-                print(f"DEBUG: [MainWindow] Could not update CameraTool config: {e}")
+                conditional_print(f"DEBUG: [MainWindow] Could not update CameraTool config: {e}")
                 
         except Exception as e:
-            print(f"DEBUG: [MainWindow] Error in _process_format_change: {e}")
+            conditional_print(f"DEBUG: [MainWindow] Error in _process_format_change: {e}")
 
     def showEvent(self, event):
         """Override showEvent để đảm bảo ClassificationToolManager được setup đúng"""
@@ -2916,7 +2907,7 @@ class MainWindow(QMainWindow):
             if obj in (self.zoomIn, self.zoomOut):
                 if event.type() == QEvent.MouseButtonPress:
                     # Just log the press event for debugging
-                    print(f"DEBUG: [MainWindow] Button press detected: {obj.objectName()}")
+                    conditional_print(f"DEBUG: [MainWindow] Button press detected: {obj.objectName()}")
                     
                     # Set timestamp for debounce checking
                     current_time = time.time()
@@ -2930,12 +2921,12 @@ class MainWindow(QMainWindow):
                     last_press = obj.property("last_press_time")
                     if last_press is not None:
                         press_duration = time.time() - last_press
-                        print(f"DEBUG: [MainWindow] Button released after {press_duration:.3f}s: {obj.objectName()}")
+                        conditional_print(f"DEBUG: [MainWindow] Button released after {press_duration:.3f}s: {obj.objectName()}")
                     
                     # Let the normal event handling proceed (including the clicked signal)
                     return False
         except Exception as e:
-            print(f"DEBUG: [MainWindow] Error in eventFilter: {e}")
+            conditional_print(f"DEBUG: [MainWindow] Error in eventFilter: {e}")
             
         # Default behavior: let event propagate
         return super().eventFilter(obj, event)

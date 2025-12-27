@@ -10,6 +10,7 @@ Purpose:
 """
 
 import logging
+from utils.debug_utils import conditional_print
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
@@ -94,13 +95,13 @@ class FIFOResultQueue:
                 logger.warning(f"FIFOResultQueue: Queue exceeded max size, removed frame_id={removed.frame_id}")
             
             logger.debug(f"FIFOResultQueue: Added sensor IN event - frame_id={frame_id}, sensor_id_in={sensor_id_in}")
-            print(f"DEBUG: [FIFOResultQueue] Sensor IN: frame_id={frame_id}, sensor_id_in={sensor_id_in}")
+            conditional_print(f"DEBUG: [FIFOResultQueue] Sensor IN: frame_id={frame_id}, sensor_id_in={sensor_id_in}")
             
             return frame_id
             
         except Exception as e:
             logger.error(f"FIFOResultQueue: Error adding sensor IN event: {e}")
-            print(f"DEBUG: [FIFOResultQueue] Error adding sensor IN: {e}")
+            conditional_print(f"DEBUG: [FIFOResultQueue] Error adding sensor IN: {e}")
             return -1
     
     def add_sensor_out_event(self, sensor_id_out: int) -> bool:
@@ -128,16 +129,16 @@ class FIFOResultQueue:
                     # Mark as DONE now that we have both sensor_in and sensor_out
                     item.completion_status = "DONE"
                     logger.debug(f"FIFOResultQueue: Added sensor OUT - frame_id={item.frame_id}, sensor_id_out={sensor_id_out}, status=DONE")
-                    print(f"DEBUG: [FIFOResultQueue] Sensor OUT (FIFO): frame_id={item.frame_id}, sensor_id_out={sensor_id_out}, completion=DONE")
+                    conditional_print(f"DEBUG: [FIFOResultQueue] Sensor OUT (FIFO): frame_id={item.frame_id}, sensor_id_out={sensor_id_out}, completion=DONE")
                     return True
             
             logger.warning(f"FIFOResultQueue: Sensor OUT received but no pending frame found - sensor_id_out={sensor_id_out}")
-            print(f"DEBUG: [FIFOResultQueue] No pending frame for sensor OUT: {sensor_id_out}")
+            conditional_print(f"DEBUG: [FIFOResultQueue] No pending frame for sensor OUT: {sensor_id_out}")
             return False
             
         except Exception as e:
             logger.error(f"FIFOResultQueue: Error adding sensor OUT event: {e}")
-            print(f"DEBUG: [FIFOResultQueue] Error adding sensor OUT: {e}")
+            conditional_print(f"DEBUG: [FIFOResultQueue] Error adding sensor OUT: {e}")
             return False
     
     def set_frame_detection_data(self, frame_id: int, detection_data: Dict[str, Any]) -> bool:
@@ -156,7 +157,7 @@ class FIFOResultQueue:
                 if item.frame_id == frame_id:
                     item.detection_data = detection_data
                     logger.debug(f"FIFOResultQueue: Set detection data for frame_id={frame_id}")
-                    print(f"DEBUG: [FIFOResultQueue] Detection data stored: frame_id={frame_id}")
+                    conditional_print(f"DEBUG: [FIFOResultQueue] Detection data stored: frame_id={frame_id}")
                     return True
             
             logger.warning(f"FIFOResultQueue: Frame not found - frame_id={frame_id}")
@@ -164,7 +165,7 @@ class FIFOResultQueue:
             
         except Exception as e:
             logger.error(f"FIFOResultQueue: Error setting detection data: {e}")
-            print(f"DEBUG: [FIFOResultQueue] Error setting detection data: {e}")
+            conditional_print(f"DEBUG: [FIFOResultQueue] Error setting detection data: {e}")
             return False
     
     def set_frame_status(self, frame_id: int, status: str) -> bool:
@@ -192,7 +193,7 @@ class FIFOResultQueue:
                     else:
                         item.completion_status = "PENDING"
                     logger.debug(f"FIFOResultQueue: Set frame_status for frame_id={frame_id} - {status}")
-                    print(f"DEBUG: [FIFOResultQueue] Frame status: frame_id={frame_id}, frame_status={status}, completion={item.completion_status}")
+                    conditional_print(f"DEBUG: [FIFOResultQueue] Frame status: frame_id={frame_id}, frame_status={status}, completion={item.completion_status}")
                     return True
             
             logger.warning(f"FIFOResultQueue: Frame not found - frame_id={frame_id}")
@@ -200,7 +201,7 @@ class FIFOResultQueue:
             
         except Exception as e:
             logger.error(f"FIFOResultQueue: Error setting frame status: {e}")
-            print(f"DEBUG: [FIFOResultQueue] Error setting status: {e}")
+            conditional_print(f"DEBUG: [FIFOResultQueue] Error setting status: {e}")
             return False
     
     def get_queue_items(self) -> List[ResultQueueItem]:
@@ -260,7 +261,7 @@ class FIFOResultQueue:
                 if item.frame_id == frame_id:
                     self.queue.pop(i)
                     logger.debug(f"FIFOResultQueue: Deleted item - frame_id={frame_id}")
-                    print(f"DEBUG: [FIFOResultQueue] Item deleted: frame_id={frame_id}")
+                    conditional_print(f"DEBUG: [FIFOResultQueue] Item deleted: frame_id={frame_id}")
                     return True
             
             logger.warning(f"FIFOResultQueue: Frame not found for deletion - frame_id={frame_id}")
@@ -268,7 +269,7 @@ class FIFOResultQueue:
             
         except Exception as e:
             logger.error(f"FIFOResultQueue: Error deleting item: {e}")
-            print(f"DEBUG: [FIFOResultQueue] Error deleting item: {e}")
+            conditional_print(f"DEBUG: [FIFOResultQueue] Error deleting item: {e}")
             return False
     
     def delete_item_by_row(self, row_index: int) -> bool:
@@ -285,7 +286,7 @@ class FIFOResultQueue:
             if 0 <= row_index < len(self.queue):
                 item = self.queue.pop(row_index)
                 logger.debug(f"FIFOResultQueue: Deleted row - row_index={row_index}, frame_id={item.frame_id}")
-                print(f"DEBUG: [FIFOResultQueue] Row deleted: row_index={row_index}, frame_id={item.frame_id}")
+                conditional_print(f"DEBUG: [FIFOResultQueue] Row deleted: row_index={row_index}, frame_id={item.frame_id}")
                 return True
             
             logger.warning(f"FIFOResultQueue: Invalid row index - {row_index}")
@@ -293,7 +294,7 @@ class FIFOResultQueue:
             
         except Exception as e:
             logger.error(f"FIFOResultQueue: Error deleting row: {e}")
-            print(f"DEBUG: [FIFOResultQueue] Error deleting row: {e}")
+            conditional_print(f"DEBUG: [FIFOResultQueue] Error deleting row: {e}")
             return False
     
     def clear_queue(self) -> int:
@@ -307,12 +308,12 @@ class FIFOResultQueue:
             count = len(self.queue)
             self.queue.clear()
             logger.info(f"FIFOResultQueue: Queue cleared - {count} items removed")
-            print(f"DEBUG: [FIFOResultQueue] Queue cleared: {count} items removed")
+            conditional_print(f"DEBUG: [FIFOResultQueue] Queue cleared: {count} items removed")
             return count
             
         except Exception as e:
             logger.error(f"FIFOResultQueue: Error clearing queue: {e}")
-            print(f"DEBUG: [FIFOResultQueue] Error clearing queue: {e}")
+            conditional_print(f"DEBUG: [FIFOResultQueue] Error clearing queue: {e}")
             return 0
     
     def get_queue_size(self) -> int:

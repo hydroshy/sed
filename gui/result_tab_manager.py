@@ -9,6 +9,7 @@ Purpose:
 """
 
 import logging
+from utils.debug_utils import conditional_print
 from typing import Optional, Dict, Any, List
 from PyQt5.QtWidgets import QTableWidget, QTableWidgetItem, QMessageBox, QPushButton
 from PyQt5.QtCore import Qt, QTimer
@@ -76,11 +77,11 @@ class ResultTabManager:
         Should be called after main window UI is loaded
         """
         try:
-            print("DEBUG: ResultTabManager.setup_ui() called")
+            conditional_print(f"DEBUG: ResultTabManager.setup_ui() called")
             
             if not self.main_window:
                 logger.error("ResultTabManager: main_window not set")
-                print("DEBUG: ResultTabManager.setup_ui() - main_window is None!")
+                conditional_print(f"DEBUG: ResultTabManager.setup_ui() - main_window is None!")
                 return False
             
             # Get table view from main_window attributes (set by _find_widgets)
@@ -92,43 +93,43 @@ class ResultTabManager:
                        f"resultTableView={self.result_table_view is not None}, "
                        f"deleteObjectButton={self.delete_button is not None}, "
                        f"clearQueueButton={self.clear_button is not None}")
-            print(f"DEBUG: ResultTabManager.setup_ui() - resultTableView={self.result_table_view is not None}, "
+            conditional_print(f"DEBUG: ResultTabManager.setup_ui() - resultTableView={self.result_table_view is not None}, "
                   f"deleteObjectButton={self.delete_button is not None}, "
                   f"clearQueueButton={self.clear_button is not None}")
             
             if not self.result_table_view:
                 logger.error("ResultTabManager: resultTableView not found on main_window")
-                print("DEBUG: ResultTabManager.setup_ui() - resultTableView NOT FOUND!")
+                conditional_print(f"DEBUG: ResultTabManager.setup_ui() - resultTableView NOT FOUND!")
                 return False
             
             # Setup table
             self.setup_table()
-            print("DEBUG: ResultTabManager.setup_ui() - table setup complete")
+            conditional_print(f"DEBUG: ResultTabManager.setup_ui() - table setup complete")
             
             # Connect signals
             if self.delete_button:
                 self.delete_button.clicked.connect(self.on_delete_clicked)
                 logger.info("ResultTabManager: Connected deleteObjectButton")
-                print("DEBUG: ResultTabManager.setup_ui() - deleteObjectButton connected")
+                conditional_print(f"DEBUG: ResultTabManager.setup_ui() - deleteObjectButton connected")
             else:
                 logger.warning("ResultTabManager: deleteObjectButton not found")
-                print("DEBUG: ResultTabManager.setup_ui() - deleteObjectButton NOT FOUND")
+                conditional_print(f"DEBUG: ResultTabManager.setup_ui() - deleteObjectButton NOT FOUND")
             
             if self.clear_button:
                 self.clear_button.clicked.connect(self.on_clear_queue_clicked)
                 logger.info("ResultTabManager: Connected clearQueueButton")
-                print("DEBUG: ResultTabManager.setup_ui() - clearQueueButton connected")
+                conditional_print(f"DEBUG: ResultTabManager.setup_ui() - clearQueueButton connected")
             else:
                 logger.warning("ResultTabManager: clearQueueButton not found")
-                print("DEBUG: ResultTabManager.setup_ui() - clearQueueButton NOT FOUND")
+                conditional_print(f"DEBUG: ResultTabManager.setup_ui() - clearQueueButton NOT FOUND")
             
             logger.info("ResultTabManager: UI setup complete")
-            print("DEBUG: ResultTabManager.setup_ui() - COMPLETE SUCCESS")
+            conditional_print(f"DEBUG: ResultTabManager.setup_ui() - COMPLETE SUCCESS")
             return True
             
         except Exception as e:
             logger.error(f"ResultTabManager: Error in setup_ui: {e}", exc_info=True)
-            print(f"DEBUG: ResultTabManager.setup_ui() - ERROR: {e}")
+            conditional_print(f"DEBUG: ResultTabManager.setup_ui() - ERROR: {e}")
             return False
     
     def setup_table(self):
@@ -165,7 +166,7 @@ class ResultTabManager:
             
         except Exception as e:
             logger.error(f"ResultTabManager: Error in setup_table: {e}")
-            print(f"DEBUG: ResultTabManager table setup error: {e}")
+            conditional_print(f"DEBUG: ResultTabManager table setup error: {e}")
     
     def add_sensor_in_event(self, sensor_id_in: int) -> int:
         """
@@ -186,7 +187,7 @@ class ResultTabManager:
             
         except Exception as e:
             logger.error(f"ResultTabManager: Error adding sensor IN: {e}")
-            print(f"DEBUG: ResultTabManager sensor IN error: {e}")
+            conditional_print(f"DEBUG: ResultTabManager sensor IN error: {e}")
             return -1
     
     def add_sensor_out_event(self, sensor_id_out: int) -> bool:
@@ -208,7 +209,7 @@ class ResultTabManager:
             
         except Exception as e:
             logger.error(f"ResultTabManager: Error adding sensor OUT: {e}")
-            print(f"DEBUG: ResultTabManager sensor OUT error: {e}")
+            conditional_print(f"DEBUG: ResultTabManager sensor OUT error: {e}")
             return False
     
     def save_pending_job_result(self, status: str, similarity: float = 0.0, 
@@ -250,7 +251,7 @@ class ResultTabManager:
             
             self.pending_result = pending
             logger.info(f"[ResultTabManager] Saved pending job result: {pending}")
-            print(f"DEBUG: [ResultTabManager] Saved pending result: {pending}")
+            conditional_print(f"DEBUG: [ResultTabManager] Saved pending result: {pending}")
             
             # Log chi tiết
             logger.info(f"[ResultTabManager] Waiting for TCP sensor IN signal...")
@@ -263,7 +264,7 @@ class ResultTabManager:
             
         except Exception as e:
             logger.error(f"[ResultTabManager] Error saving pending result: {e}", exc_info=True)
-            print(f"DEBUG: [ResultTabManager] Error saving pending result: {e}")
+            conditional_print(f"DEBUG: [ResultTabManager] Error saving pending result: {e}")
             return False
     def on_sensor_in_received(self, sensor_id_in: int) -> int:
         """
@@ -286,7 +287,7 @@ class ResultTabManager:
             import logging
             
             logger.info(f"[ResultTabManager] TCP Sensor IN received: sensor_id_in={sensor_id_in}")
-            print(f"DEBUG: [ResultTabManager] TCP Sensor IN received: {sensor_id_in}")
+            conditional_print(f"DEBUG: [ResultTabManager] TCP Sensor IN received: {sensor_id_in}")
             
             # Tạo frame mới (luôn tạo, không cần check pending_result)
             # Frame sẽ chờ job result để cập nhật frame_status
@@ -300,14 +301,14 @@ class ResultTabManager:
             # If job finished before TCP start_rising arrived, result is buffered
             if self.pending_result:
                 logger.info(f"[ResultTabManager] ✅ Found pending result! Attaching to frame {frame_id} immediately")
-                print(f"DEBUG: [ResultTabManager] ✅ Pending result found - attaching to frame {frame_id} NOW")
+                conditional_print(f"DEBUG: [ResultTabManager] ✅ Pending result found - attaching to frame {frame_id} NOW")
                 
                 pending = self.pending_result
                 success = self.fifo_queue.set_frame_status(frame_id, pending.status)
                 
                 if success:
                     logger.info(f"[ResultTabManager] ✅ Attached pending result to frame {frame_id}: status={pending.status}")
-                    print(f"DEBUG: [ResultTabManager] ✅ Result attached: frame {frame_id} = {pending.status}")
+                    conditional_print(f"DEBUG: [ResultTabManager] ✅ Result attached: frame {frame_id} = {pending.status}")
                     
                     # Store detection data if available
                     if pending.detection_data:
@@ -323,24 +324,24 @@ class ResultTabManager:
                     return frame_id
                 else:
                     logger.error(f"[ResultTabManager] Failed to attach pending result to frame {frame_id}")
-                    print(f"DEBUG: [ResultTabManager] ❌ Failed to attach pending result")
+                    conditional_print(f"DEBUG: [ResultTabManager] ❌ Failed to attach pending result")
             else:
                 # No pending result - frame will wait for job to complete
                 self.waiting_frames_queue.append(frame_id)
                 logger.info(f"[ResultTabManager] Frame created and waiting for job result: frame_id={frame_id}, sensor_id_in={sensor_id_in}, queue_size={len(self.waiting_frames_queue)}")
-                print(f"DEBUG: [ResultTabManager] Frame {frame_id} created, waiting for job result (queue_size={len(self.waiting_frames_queue)})")
+                conditional_print(f"DEBUG: [ResultTabManager] Frame {frame_id} created, waiting for job result (queue_size={len(self.waiting_frames_queue)})")
                 
                 # Refresh table to show new frame
                 self.refresh_table()
                 
                 logger.info(f"[ResultTabManager] Sensor IN added - frame_id={frame_id}, sensor_id_in={sensor_id_in}")
-                print(f"DEBUG: [ResultTabManager] Sensor IN processed successfully")
+                conditional_print(f"DEBUG: [ResultTabManager] Sensor IN processed successfully")
             
             return frame_id
             
         except Exception as e:
             logger.error(f"[ResultTabManager] Error in on_sensor_in_received: {e}", exc_info=True)
-            print(f"DEBUG: [ResultTabManager] Error in on_sensor_in_received: {e}")
+            conditional_print(f"DEBUG: [ResultTabManager] Error in on_sensor_in_received: {e}")
             return -1
     
     def attach_job_result_to_waiting_frame(self, status: str, detection_data: Dict[str, Any] = None, 
@@ -365,7 +366,7 @@ class ResultTabManager:
             # Nếu không có frame chờ result, không làm gì
             if not self.waiting_frames_queue:
                 logger.warning(f"[ResultTabManager] No frame waiting for result")
-                print(f"DEBUG: [ResultTabManager] No frame waiting for result")
+                conditional_print(f"DEBUG: [ResultTabManager] No frame waiting for result")
                 return False
             
             # FIFO: Pop oldest frame (first in queue)
@@ -378,25 +379,25 @@ class ResultTabManager:
                 return False
             
             logger.info(f"[ResultTabManager] Attached job result to frame {frame_id}: status={status}")
-            print(f"DEBUG: [ResultTabManager] Job result attached to frame {frame_id}: status={status}")
+            conditional_print(f"DEBUG: [ResultTabManager] Job result attached to frame {frame_id}: status={status}")
             
             # Lưu detection data nếu có
             if detection_data:
                 self.set_frame_detection_data(frame_id, detection_data)
                 logger.info(f"[ResultTabManager] Stored detection data for frame {frame_id}")
-                print(f"DEBUG: [ResultTabManager] Detection data stored")
+                conditional_print(f"DEBUG: [ResultTabManager] Detection data stored")
             
             # Refresh table
             self.refresh_table()
             
             logger.info(f"[ResultTabManager] Frame {frame_id} updated with job result")
-            print(f"DEBUG: [ResultTabManager] Frame {frame_id} complete")
+            conditional_print(f"DEBUG: [ResultTabManager] Frame {frame_id} complete")
             
             return True
             
         except Exception as e:
             logger.error(f"[ResultTabManager] Error attaching job result: {e}", exc_info=True)
-            print(f"DEBUG: [ResultTabManager] Error attaching job result: {e}")
+            conditional_print(f"DEBUG: [ResultTabManager] Error attaching job result: {e}")
             return False
     
     def set_frame_detection_data(self, frame_id: int, detection_data: Dict[str, Any]) -> bool:
@@ -416,7 +417,7 @@ class ResultTabManager:
             
         except Exception as e:
             logger.error(f"ResultTabManager: Error setting detection data: {e}")
-            print(f"DEBUG: ResultTabManager detection data error: {e}")
+            conditional_print(f"DEBUG: ResultTabManager detection data error: {e}")
             return False
     
     def create_frame_with_result(self, status: str, similarity: float = 0.0, reason: str = "", 
@@ -441,7 +442,7 @@ class ResultTabManager:
         """
         try:
             logger.info(f"[ResultTabManager] Creating frame with immediate result: status={status}")
-            print(f"DEBUG: [ResultTabManager] Creating frame with result: status={status}")
+            conditional_print(f"DEBUG: [ResultTabManager] Creating frame with result: status={status}")
             
             # Create frame entry (no sensor_id needed for manual trigger)
             frame_id = self.add_sensor_in_event(sensor_id_in=0)  # 0 = manual trigger
@@ -461,13 +462,13 @@ class ResultTabManager:
                 self.set_frame_detection_data(frame_id, detection_data)
             
             logger.info(f"[ResultTabManager] Frame created successfully: frame_id={frame_id}, status={status}")
-            print(f"DEBUG: [ResultTabManager] Frame #{frame_id} created with status={status}")
+            conditional_print(f"DEBUG: [ResultTabManager] Frame #{frame_id} created with status={status}")
             
             return frame_id
             
         except Exception as e:
             logger.error(f"[ResultTabManager] Error creating frame with result: {e}", exc_info=True)
-            print(f"DEBUG: [ResultTabManager] Error creating frame with result: {e}")
+            conditional_print(f"DEBUG: [ResultTabManager] Error creating frame with result: {e}")
             return -1
     
     def set_frame_status(self, frame_id: int, status: str) -> bool:
@@ -489,7 +490,7 @@ class ResultTabManager:
             
         except Exception as e:
             logger.error(f"ResultTabManager: Error setting status: {e}")
-            print(f"DEBUG: ResultTabManager status error: {e}")
+            conditional_print(f"DEBUG: ResultTabManager status error: {e}")
             return False
     
     def refresh_table(self):
@@ -497,22 +498,22 @@ class ResultTabManager:
         try:
             if not self.result_table_view:
                 logger.warning("ResultTabManager: result_table_view is None")
-                print("DEBUG: ResultTabManager refresh_table - result_table_view is None!")
+                conditional_print(f"DEBUG: ResultTabManager refresh_table - result_table_view is None!")
                 return
             
             # Get queue data
             queue_data = self.fifo_queue.get_queue_as_table_data()
             logger.info(f"ResultTabManager: Refreshing table with {len(queue_data)} items")
-            print(f"DEBUG: ResultTabManager refresh_table - queue_data count: {len(queue_data)}")
+            conditional_print(f"DEBUG: ResultTabManager refresh_table - queue_data count: {len(queue_data)}")
             
             # Clear existing rows
             self.result_table_view.setRowCount(0)
-            print(f"DEBUG: ResultTabManager refresh_table - cleared table rows")
+            conditional_print(f"DEBUG: ResultTabManager refresh_table - cleared table rows")
             
             # Add rows
             for row_idx, item_dict in enumerate(queue_data):
                 self.result_table_view.insertRow(row_idx)
-                print(f"DEBUG: ResultTabManager refresh_table - inserted row {row_idx}, frame_id={item_dict.get('frame_id')}")
+                conditional_print(f"DEBUG: ResultTabManager refresh_table - inserted row {row_idx}, frame_id={item_dict.get('frame_id')}")
                 
                 # Frame ID
                 frame_id_item = QTableWidgetItem(str(item_dict['frame_id']))
@@ -527,13 +528,13 @@ class ResultTabManager:
                 # Color code frame status
                 if frame_status_text == 'OK':
                     frame_status_item.setBackground(Qt.green)
-                    print(f"DEBUG: ResultTabManager refresh_table - Row {row_idx}: frame_status=OK (green)")
+                    conditional_print(f"DEBUG: ResultTabManager refresh_table - Row {row_idx}: frame_status=OK (green)")
                 elif frame_status_text == 'NG':
                     frame_status_item.setBackground(Qt.red)
-                    print(f"DEBUG: ResultTabManager refresh_table - Row {row_idx}: frame_status=NG (red)")
+                    conditional_print(f"DEBUG: ResultTabManager refresh_table - Row {row_idx}: frame_status=NG (red)")
                 else:
                     frame_status_item.setBackground(Qt.yellow)
-                    print(f"DEBUG: ResultTabManager refresh_table - Row {row_idx}: frame_status=PENDING (yellow)")
+                    conditional_print(f"DEBUG: ResultTabManager refresh_table - Row {row_idx}: frame_status=PENDING (yellow)")
                 
                 self.result_table_view.setItem(row_idx, self.COLUMNS['frame_status'], frame_status_item)
                 
@@ -555,7 +556,7 @@ class ResultTabManager:
                 if isinstance(detection_data, dict) and 'inference_time' in detection_data:
                     inference_time = detection_data['inference_time']
                     execution_time_text = f"{inference_time:.3f}"
-                    print(f"DEBUG: ResultTabManager refresh_table - Row {row_idx}: execution_time={execution_time_text}")
+                    conditional_print(f"DEBUG: ResultTabManager refresh_table - Row {row_idx}: execution_time={execution_time_text}")
                 
                 execution_time_item = QTableWidgetItem(execution_time_text)
                 execution_time_item.setFlags(execution_time_item.flags() & ~Qt.ItemIsEditable)
@@ -569,19 +570,19 @@ class ResultTabManager:
                 # Color code completion status
                 if completion_status_text == 'DONE':
                     completion_status_item.setBackground(Qt.cyan)
-                    print(f"DEBUG: ResultTabManager refresh_table - Row {row_idx}: completion_status=DONE (cyan)")
+                    conditional_print(f"DEBUG: ResultTabManager refresh_table - Row {row_idx}: completion_status=DONE (cyan)")
                 else:  # PENDING
                     completion_status_item.setBackground(Qt.yellow)
-                    print(f"DEBUG: ResultTabManager refresh_table - Row {row_idx}: completion_status=PENDING (yellow)")
+                    conditional_print(f"DEBUG: ResultTabManager refresh_table - Row {row_idx}: completion_status=PENDING (yellow)")
                 
                 self.result_table_view.setItem(row_idx, self.COLUMNS['completion_status'], completion_status_item)
             
             logger.info(f"ResultTabManager: Table refreshed successfully - {len(queue_data)} rows displayed")
-            print(f"DEBUG: ResultTabManager refresh_table - COMPLETE with {len(queue_data)} rows")
+            conditional_print(f"DEBUG: ResultTabManager refresh_table - COMPLETE with {len(queue_data)} rows")
             
         except Exception as e:
             logger.error(f"ResultTabManager: Error refreshing table: {e}", exc_info=True)
-            print(f"DEBUG: ResultTabManager refresh error: {e}")
+            conditional_print(f"DEBUG: ResultTabManager refresh error: {e}")
     
     def on_delete_clicked(self):
         """Handle Delete Object button click"""
@@ -617,7 +618,7 @@ class ResultTabManager:
             
         except Exception as e:
             logger.error(f"ResultTabManager: Error in on_delete_clicked: {e}")
-            print(f"DEBUG: ResultTabManager delete error: {e}")
+            conditional_print(f"DEBUG: ResultTabManager delete error: {e}")
             QMessageBox.critical(self.main_window, "Error", f"Error deleting row: {e}")
     
     def on_clear_queue_clicked(self):
@@ -643,7 +644,7 @@ class ResultTabManager:
             
         except Exception as e:
             logger.error(f"ResultTabManager: Error in on_clear_queue_clicked: {e}")
-            print(f"DEBUG: ResultTabManager clear error: {e}")
+            conditional_print(f"DEBUG: ResultTabManager clear error: {e}")
             QMessageBox.critical(self.main_window, "Error", f"Error clearing queue: {e}")
     
     def get_queue_size(self) -> int:

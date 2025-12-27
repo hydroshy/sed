@@ -4,6 +4,7 @@ from job.job_manager import Job, JobManager
 from tools.base_tool import BaseTool
 from gui.job_tree_view import JobTreeView
 import logging
+from utils.debug_utils import conditional_print
 
 class ToolManager(QObject):
     """
@@ -107,7 +108,7 @@ class ToolManager(QObject):
         - Quay lại trang cài đặt camera
         """
         if self._pending_tool:
-            print(f"DEBUG: on_apply_setting called for tool: {self._pending_tool}")
+            conditional_print(f"DEBUG: on_apply_setting called for tool: {self._pending_tool}")
             logging.info(f"ToolManager: Applying settings for tool: {self._pending_tool}")
             # Xử lý các loại tool khác nhau
             tool = None
@@ -173,7 +174,7 @@ class ToolManager(QObject):
                     except Exception:
                         pass
                     
-                    print(f"DEBUG: Camera settings captured - exposure: {exposure_value}, gain: {gain_value}, rotation_angle: {rotation_angle}")
+                    conditional_print(f"DEBUG: Camera settings captured - exposure: {exposure_value}, gain: {gain_value}, rotation_angle: {rotation_angle}")
                     logging.info(f"ToolManager: Camera settings captured - exposure: {exposure_value}, gain: {gain_value}, rotation_angle: {rotation_angle}")
                 
                 # Tạo Camera Tool
@@ -182,8 +183,8 @@ class ToolManager(QObject):
                 # Đảm bảo camera tool có tên và display_name đúng
                 tool.name = "Camera Source"
                 tool.display_name = "Camera Source" 
-                print(f"DEBUG: Created Camera Source tool with config: {config}")
-                print(f"DEBUG: Tool details: name={tool.name}, display_name={tool.display_name}, id={tool.tool_id}")
+                conditional_print(f"DEBUG: Created Camera Source tool with config: {config}")
+                conditional_print(f"DEBUG: Tool details: name={tool.name}, display_name={tool.display_name}, id={tool.tool_id}")
                 logging.info(f"ToolManager: Created CameraTool instance. name={tool.name}, display_name={tool.display_name}, id={tool.tool_id}")
                 
                 # Register Camera Tool with Camera Manager
@@ -192,10 +193,10 @@ class ToolManager(QObject):
                     
                     # Set camera_manager reference in CameraTool (Single Source of Truth)
                     tool.camera_manager = camera_manager
-                    print(f"DEBUG: Set camera_manager reference in CameraTool")
+                    conditional_print(f"DEBUG: Set camera_manager reference in CameraTool")
                     
                     if hasattr(camera_manager, 'register_tool'):
-                        print("DEBUG: Registering Camera Tool with Camera Manager")
+                        conditional_print(f"DEBUG: Registering Camera Tool with Camera Manager")
                         camera_manager.register_tool(tool)
                         logging.info("ToolManager: Registered Camera Tool with Camera Manager")
                 
@@ -204,14 +205,14 @@ class ToolManager(QObject):
                     camera_manager = self.parent().camera_manager
                     if hasattr(camera_manager, 'enable_camera_buttons'):
                         camera_manager.enable_camera_buttons()
-                        print("DEBUG: Camera buttons enabled")
+                        conditional_print(f"DEBUG: Camera buttons enabled")
                         logging.info("ToolManager: Camera buttons enabled after adding Camera Source tool")
             elif self._pending_tool == "Save Image":
                 # Handle Save Image tool
                 from tools.saveimage_tool import SaveImageTool
                 config = self._pending_tool_config if self._pending_tool_config is not None else {}
 
-                print(f"DEBUG: Creating SaveImage tool with config: {config}")
+                conditional_print(f"DEBUG: Creating SaveImage tool with config: {config}")
                 logging.info(f"ToolManager: Creating SaveImage tool with config: {config}")
 
                 # Create SaveImage tool
@@ -221,7 +222,7 @@ class ToolManager(QObject):
                 tool_name = getattr(tool, 'name', 'MISSING_NAME')
                 tool_display_name = getattr(tool, 'display_name', 'MISSING_DISPLAY_NAME')
 
-                print(f"DEBUG: Created SaveImage tool: name={tool_name}, display_name={tool_display_name}")
+                conditional_print(f"DEBUG: Created SaveImage tool: name={tool_name}, display_name={tool_display_name}")
                 logging.info(f"ToolManager: Created SaveImageTool instance. name={tool_name}, display_name={tool_display_name}")
 
                 # Ensure name attribute exists (fallback)
@@ -293,7 +294,7 @@ class ToolManager(QObject):
                 from tools.result_tool import ResultTool
                 config = self._pending_tool_config if self._pending_tool_config is not None else {}
                 
-                print(f"DEBUG: Creating Result Tool with config: {config}")
+                conditional_print(f"DEBUG: Creating Result Tool with config: {config}")
                 logging.info(f"ToolManager: Creating Result Tool with config: {config}")
                 
                 # Create Result Tool
@@ -307,7 +308,7 @@ class ToolManager(QObject):
                     tool.display_name = "Result Tool"
                     logging.warning("ToolManager: Added missing 'display_name' attribute to ResultTool")
                 
-                print(f"DEBUG: Created Result Tool: name={tool.name}, display_name={tool.display_name}")
+                conditional_print(f"DEBUG: Created Result Tool: name={tool.name}, display_name={tool.display_name}")
                 logging.info(f"ToolManager: Created ResultTool instance. name={tool.name}, display_name={tool.display_name}")
             else:
                 from tools.base_tool import GenericTool
@@ -331,7 +332,7 @@ class ToolManager(QObject):
                     
                     # Don't auto-start camera for Camera Source - user must choose manually
                     if self._pending_tool == "Camera Source":
-                        print("DEBUG: Camera Source tool added - camera stopped, user must manually restart")
+                        conditional_print(f"DEBUG: Camera Source tool added - camera stopped, user must manually restart")
                         logging.info("ToolManager: Camera Source tool added - user must manually restart camera")
                 else:
                     logging.error(f"ToolManager: Failed to add tool '{self._pending_tool}' to job")
@@ -346,7 +347,7 @@ class ToolManager(QObject):
             self._force_update_job_view()
 
             # Don't auto-restart camera for Camera Source - user must choose manually
-            print("DEBUG: Tool apply completed - user must manually start camera if needed")
+            conditional_print(f"DEBUG: Tool apply completed - user must manually start camera if needed")
             
             # For Classification Tool, return to palette page similar to Save Image UX
             try:
@@ -405,37 +406,37 @@ class ToolManager(QObject):
     def add_tool_to_job_with_tool(self, tool):
         """Thêm đối tượng Tool đã tạo vào job hiện tại"""
         if not hasattr(tool, 'name'):
-            print("DEBUG: Tool doesn't have a name attribute!")
+            conditional_print(f"DEBUG: Tool doesn't have a name attribute!")
             logging.error("ToolManager: Tool doesn't have a name attribute")
             # Kiểm tra xem có phải là dictionary không
             if isinstance(tool, dict):
-                print(f"DEBUG: Tool is a dictionary: {tool}")
+                conditional_print(f"DEBUG: Tool is a dictionary: {tool}")
                 from tools.base_tool import GenericTool
                 tool = GenericTool("Unknown Tool", config=tool)
-                print(f"DEBUG: Converted dictionary to GenericTool: {tool.name}")
+                conditional_print(f"DEBUG: Converted dictionary to GenericTool: {tool.name}")
             else:
                 return False
                 
-        print(f"DEBUG: add_tool_to_job_with_tool called with tool: {tool.name}")
-        print(f"DEBUG: tool type: {type(tool).__name__}, display_name: {getattr(tool, 'display_name', 'N/A')}")
+        conditional_print(f"DEBUG: add_tool_to_job_with_tool called with tool: {tool.name}")
+        conditional_print(f"DEBUG: tool type: {type(tool).__name__}, display_name: {getattr(tool, 'display_name', 'N/A')}")
         
         # Ensure job_manager is initialized
         if not self.job_manager:
-            print("DEBUG: JobManager is not initialized!")
+            conditional_print(f"DEBUG: JobManager is not initialized!")
             logging.error("ToolManager: JobManager is not initialized.")
             return False
 
         # If no current job, create a new one
         current_job = self.job_manager.get_current_job()
-        print(f"DEBUG: Current job before adding: {current_job}")
+        conditional_print(f"DEBUG: Current job before adding: {current_job}")
 
         if not current_job:
-            print("DEBUG: No current job found. Creating a new job.")
+            conditional_print(f"DEBUG: No current job found. Creating a new job.")
             logging.info("ToolManager: No current job found. Creating a new job.")
             from job.job_manager import Job
             current_job = Job("Job 1")
             self.job_manager.add_job(current_job)
-            print(f"DEBUG: Created new job: {current_job.name}")
+            conditional_print(f"DEBUG: Created new job: {current_job.name}")
 
         # CHECK: Prevent adding multiple Camera Source tools
         is_camera_source = hasattr(tool, 'name') and "camera" in tool.name.lower()
@@ -452,58 +453,58 @@ class ToolManager(QObject):
                     msg.setText("Job already contains a Camera Source tool.\n\nOnly 1 camera can be connected at a time.")
                     msg.setStandardButtons(QMessageBox.Ok)
                     msg.exec_()
-                    print("DEBUG: User tried to add multiple Camera Source tools - blocked")
+                    conditional_print(f"DEBUG: User tried to add multiple Camera Source tools - blocked")
                     logging.warning("ToolManager: Attempted to add multiple Camera Source tools - blocked")
                     return False
 
         # Add the tool to the current job
-        print(f"DEBUG: Adding tool to job. Current tools count: {len(current_job.tools)}")
-        print(f"DEBUG: Adding tool: {getattr(tool, 'display_name', tool.name)}, type: {type(tool).__name__}")
+        conditional_print(f"DEBUG: Adding tool to job. Current tools count: {len(current_job.tools)}")
+        conditional_print(f"DEBUG: Adding tool: {getattr(tool, 'display_name', tool.name)}, type: {type(tool).__name__}")
         
         # Make sure the tool has the right name and display_name for Camera Source
         if is_camera_source:
             tool.name = "Camera Source"
             tool.display_name = "Camera Source"
-            print("DEBUG: Normalized Camera Source tool name")
+            conditional_print(f"DEBUG: Normalized Camera Source tool name")
             
             # Kiểm tra đã import tools.camera_tool chưa
             try:
                 from tools.camera_tool import CameraTool
                 # Nếu tool không phải là instance của CameraTool, chuyển đổi nó
                 if not isinstance(tool, CameraTool):
-                    print("DEBUG: Converting tool to CameraTool")
+                    conditional_print(f"DEBUG: Converting tool to CameraTool")
                     config = getattr(tool, 'config', {})
                     tool = CameraTool("Camera Source", config=config)
-                    print(f"DEBUG: Converted to CameraTool: {tool.name}, display_name: {tool.display_name}")
+                    conditional_print(f"DEBUG: Converted to CameraTool: {tool.name}, display_name: {tool.display_name}")
             except ImportError:
-                print("DEBUG: Could not import CameraTool")
+                conditional_print(f"DEBUG: Could not import CameraTool")
         
         # Add tool to job
         added_tool = current_job.add_tool(tool)
         
-        print(f"DEBUG: After adding tool. Tools count: {len(current_job.tools)}")
-        print(f"DEBUG: Tool added: {getattr(tool, 'display_name', tool.name)}")
+        conditional_print(f"DEBUG: After adding tool. Tools count: {len(current_job.tools)}")
+        conditional_print(f"DEBUG: Tool added: {getattr(tool, 'display_name', tool.name)}")
         
         # Update camera button state if this is a Camera Tool
         if hasattr(tool, 'name') and tool.name == "Camera Source" and hasattr(self, 'parent'):
             parent = self.parent()
             if parent and hasattr(parent, '_update_camera_button_state'):
-                print("DEBUG: Updating camera button state after adding Camera Tool")
+                conditional_print(f"DEBUG: Updating camera button state after adding Camera Tool")
                 parent._update_camera_button_state()
         
         # Kiểm tra và in danh sách tất cả các tool trong job để debug
-        print("DEBUG: LIST OF ALL TOOLS IN JOB:")
+        conditional_print(f"DEBUG: LIST OF ALL TOOLS IN JOB:")
         for idx, t in enumerate(current_job.tools):
             tool_id = getattr(t, 'tool_id', idx)
             display_name = getattr(t, 'display_name', t.name if hasattr(t, 'name') else 'Unknown')
             tool_type = type(t).__name__
-            print(f"DEBUG:   Tool {idx}: ID={tool_id}, Name='{display_name}', Type={tool_type}")
+            conditional_print(f"DEBUG:   Tool {idx}: ID={tool_id}, Name='{display_name}', Type={tool_type}")
         
         # Kiểm tra xem có cần kích hoạt camera không
         is_camera_source = False
         if hasattr(tool, 'name') and "camera" in tool.name.lower():
             is_camera_source = True
-            print("DEBUG: Added Camera Source tool - enabling camera")
+            conditional_print(f"DEBUG: Added Camera Source tool - enabling camera")
             
             # Kích hoạt camera view và các nút điều khiển
             if hasattr(self.parent(), 'camera_manager') and self.parent().camera_manager:
@@ -512,19 +513,19 @@ class ToolManager(QObject):
                 # Bật các nút điều khiển camera
                 if hasattr(camera_manager, 'enable_camera_buttons'):
                     camera_manager.enable_camera_buttons()
-                    print("DEBUG: Enabled camera buttons")
+                    conditional_print(f"DEBUG: Enabled camera buttons")
                 
                 # Tự động bật job execution nếu chưa bật
                 if hasattr(camera_manager, 'camera_stream') and camera_manager.camera_stream:
                     if not camera_manager.camera_stream.job_enabled:
-                        print("DEBUG: Enabling job execution for camera")
+                        conditional_print(f"DEBUG: Enabling job execution for camera")
                         camera_manager.camera_stream.job_enabled = True
                         if hasattr(camera_manager, 'job_toggle_btn') and camera_manager.job_toggle_btn:
                             camera_manager.job_toggle_btn.setChecked(True)
-                            print("DEBUG: Set job toggle button to checked")
+                            conditional_print(f"DEBUG: Set job toggle button to checked")
                     # If workflow has been disabled globally, immediately turn job off
                     if hasattr(camera_manager, 'workflow_enabled') and (not camera_manager.workflow_enabled):
-                        print("DEBUG: Workflow disabled -> forcing job execution OFF")
+                        conditional_print(f"DEBUG: Workflow disabled -> forcing job execution OFF")
                         camera_manager.camera_stream.job_enabled = False
                         if hasattr(camera_manager, 'job_toggle_btn') and camera_manager.job_toggle_btn:
                             camera_manager.job_toggle_btn.setChecked(False)
@@ -532,19 +533,19 @@ class ToolManager(QObject):
                 # Tự động bắt đầu preview camera
                 if hasattr(camera_manager, 'start_camera_preview'):
                     # Thay vì tự động bắt đầu camera, chỉ đảm bảo UI được cập nhật
-                    print("DEBUG: Setting up camera UI without auto-starting camera")
+                    conditional_print(f"DEBUG: Setting up camera UI without auto-starting camera")
                     # Cập nhật UI mà không bắt đầu camera tự động
                     camera_manager.update_camera_mode_ui()
-                    print("DEBUG: Camera UI updated, waiting for user to start camera manually")
+                    conditional_print(f"DEBUG: Camera UI updated, waiting for user to start camera manually")
                 
             # Kích hoạt job view cập nhật để đảm bảo tool hiển thị
             self._force_update_job_view()
-            print("DEBUG: Forced job view update after adding Camera Source")
+            conditional_print(f"DEBUG: Forced job view update after adding Camera Source")
         
         # Print all tools in the job for debugging
         for i, t in enumerate(current_job.tools):
             display_name = getattr(t, 'display_name', getattr(t, 'name', f"Tool {i}"))
-            print(f"DEBUG: Tool {i}: {display_name}, type: {type(t).__name__}")
+            conditional_print(f"DEBUG: Tool {i}: {display_name}, type: {type(t).__name__}")
 
         # Đảm bảo job view được cập nhật
         self._update_job_view()
@@ -555,29 +556,29 @@ class ToolManager(QObject):
 
     def _update_job_view(self):
         """Cập nhật hiển thị job trong UI với QTreeView hoặc JobTreeView"""
-        print(f"DEBUG: _update_job_view called")
-        print(f"DEBUG: _job_view exists: {self._job_view is not None}")
-        print(f"DEBUG: job_manager exists: {self.job_manager is not None}")
+        conditional_print(f"DEBUG: _update_job_view called")
+        conditional_print(f"DEBUG: _job_view exists: {self._job_view is not None}")
+        conditional_print(f"DEBUG: job_manager exists: {self.job_manager is not None}")
         
         if not self._job_view or not self.job_manager:
-            print("DEBUG: Missing job_view or job_manager")
+            conditional_print(f"DEBUG: Missing job_view or job_manager")
             return
             
         job = self.job_manager.get_current_job()
-        print(f"DEBUG: Current job: {job}")
+        conditional_print(f"DEBUG: Current job: {job}")
         
         if job:
             # Check if we're using custom JobTreeView
             if isinstance(self._job_view, JobTreeView):
                 # Use custom tree view method
                 self._job_view.update_job_view(job)
-                print(f"DEBUG: Updated custom JobTreeView with {len(job.tools)} tools")
+                conditional_print(f"DEBUG: Updated custom JobTreeView with {len(job.tools)} tools")
                 
                 # Refresh source output combo when job tools change
                 if (hasattr(self, 'main_window') and self.main_window and 
                     hasattr(self.main_window, 'camera_manager') and self.main_window.camera_manager):
                     self.main_window.camera_manager.refresh_source_output_combo()
-                    print("DEBUG: Source output combo refreshed after job update")
+                    conditional_print(f"DEBUG: Source output combo refreshed after job update")
                 return
                 
             # Standard QTreeView implementation
@@ -590,7 +591,7 @@ class ToolManager(QObject):
             job_item.setEditable(False)
             
             # Add tools as children
-            print(f"DEBUG: Building job view with {len(job.tools)} tools")
+            conditional_print(f"DEBUG: Building job view with {len(job.tools)} tools")
             for i, tool in enumerate(job.tools):
                 # Kiểm tra xem tool có phải là dictionary không
                 if isinstance(tool, dict):
@@ -599,7 +600,7 @@ class ToolManager(QObject):
                     tool_id = tool.get('tool_id', i+1)
                     tool_type = "Dict"
                     
-                    print(f"DEBUG: Processing dictionary tool {i}: {tool_name}, ID={tool_id}, Type={tool_type}")
+                    conditional_print(f"DEBUG: Processing dictionary tool {i}: {tool_name}, ID={tool_id}, Type={tool_type}")
                 else:
                     # Xử lý cho tool là object
                     tool_name = getattr(tool, 'display_name', 
@@ -607,32 +608,32 @@ class ToolManager(QObject):
                     tool_id = getattr(tool, 'tool_id', i+1)
                     tool_type = type(tool).__name__
                     
-                    print(f"DEBUG: Processing object tool {i}: {tool_name}, ID={tool_id}, Type={tool_type}")
+                    conditional_print(f"DEBUG: Processing object tool {i}: {tool_name}, ID={tool_id}, Type={tool_type}")
                 
                 # Hiển thị tên tool dựa vào loại tool
                 if isinstance(tool_name, str) and tool_name.lower() == "camera source":
                     # Special handling for Camera Source
                     tool_id_str = f"Camera Source #{tool_id}"
-                    print(f"DEBUG: Creating Camera Source item: {tool_id_str}")
+                    conditional_print(f"DEBUG: Creating Camera Source item: {tool_id_str}")
                 elif isinstance(tool, dict):
                     # Nếu là dictionary (thường là từ DetectTool)
                     if 'model_name' in tool:
                         # Đây là DetectTool
                         model_name = tool.get('model_name', 'Unknown')
                         tool_id_str = f"Detect ({model_name}) #{tool_id}"
-                        print(f"DEBUG: Creating DetectTool item: {tool_id_str}")
+                        conditional_print(f"DEBUG: Creating DetectTool item: {tool_id_str}")
                     else:
                         # Tool khác dưới dạng dictionary
                         tool_id_str = f"Tool #{tool_id}"
-                        print(f"DEBUG: Creating generic dictionary tool item: {tool_id_str}")
+                        conditional_print(f"DEBUG: Creating generic dictionary tool item: {tool_id_str}")
                 elif hasattr(tool, 'display_name') and tool.display_name:
                     # Nếu là object BaseTool với display_name
                     tool_id_str = f"{tool.display_name} #{tool_id}"
-                    print(f"DEBUG: Creating named tool item: {tool_id_str}")
+                    conditional_print(f"DEBUG: Creating named tool item: {tool_id_str}")
                 else:
                     # Trường hợp khác
                     tool_id_str = f"Tool #{tool_id}"
-                    print(f"DEBUG: Creating generic tool item: {tool_id_str}")
+                    conditional_print(f"DEBUG: Creating generic tool item: {tool_id_str}")
                 
                 # Add flow indicator for non-first tools (removed emoji)
                 # if i > 0:
@@ -643,30 +644,30 @@ class ToolManager(QObject):
                 # Store tool reference for later use
                 tool_item.setData(tool, role=256)  # Custom role
                 job_item.appendRow(tool_item)
-                print(f"DEBUG: Added tool item: {tool_id_str}")
+                conditional_print(f"DEBUG: Added tool item: {tool_id_str}")
             
             model.appendRow(job_item)
             self._job_view.setModel(model)
             self._job_view.expandAll()
-            print(f"DEBUG: Job view updated with {len(job.tools)} tools")
+            conditional_print(f"DEBUG: Job view updated with {len(job.tools)} tools")
             
             # Refresh source output combo when job tools change
             if (hasattr(self, 'main_window') and self.main_window and 
                 hasattr(self.main_window, 'camera_manager') and self.main_window.camera_manager):
                 self.main_window.camera_manager.refresh_source_output_combo()
-                print("DEBUG: Source output combo refreshed after job update")
+                conditional_print(f"DEBUG: Source output combo refreshed after job update")
         else:
             # No job, empty model
             model = QStandardItemModel()
             model.setHorizontalHeaderLabels(["Tools"])
             self._job_view.setModel(model)
-            print("DEBUG: Job view updated with empty model (no job)")
+            conditional_print(f"DEBUG: Job view updated with empty model (no job)")
             
             # Still refresh source output combo for empty job
             if (hasattr(self, 'main_window') and self.main_window and 
                 hasattr(self.main_window, 'camera_manager') and self.main_window.camera_manager):
                 self.main_window.camera_manager.refresh_source_output_combo()
-                print("DEBUG: Source output combo refreshed for empty job")
+                conditional_print(f"DEBUG: Source output combo refreshed for empty job")
             
     def _force_update_job_view(self):
         """Force UI update and ensure jobView is refreshed"""
@@ -675,17 +676,17 @@ class ToolManager(QObject):
             
         from PyQt5.QtWidgets import QApplication
         
-        print("DEBUG: _force_update_job_view called - Performing forced UI refresh")
+        conditional_print(f"DEBUG: _force_update_job_view called - Performing forced UI refresh")
         
         # Lấy thông tin hiện tại về job và tool
         current_job = self.job_manager.get_current_job()
         if current_job:
-            print(f"DEBUG: Current job has {len(current_job.tools)} tools:")
+            conditional_print(f"DEBUG: Current job has {len(current_job.tools)} tools:")
             for i, tool in enumerate(current_job.tools):
                 tool_name = getattr(tool, 'name', 'Unknown')
                 tool_display = getattr(tool, 'display_name', 'No display')
                 tool_id = getattr(tool, 'tool_id', 'No ID')
-                print(f"DEBUG:   Tool {i}: name={tool_name}, display_name={tool_display}, id={tool_id}")
+                conditional_print(f"DEBUG:   Tool {i}: name={tool_name}, display_name={tool_display}, id={tool_id}")
         
         # Process pending events to ensure UI updates
         QApplication.processEvents()
@@ -716,7 +717,7 @@ class ToolManager(QObject):
         # Get selected index from tree view
         selection = self._job_view.selectionModel()
         if not selection.hasSelection():
-            print("DEBUG: No item selected for removal")
+            conditional_print(f"DEBUG: No item selected for removal")
             return
             
         index = selection.currentIndex()
@@ -751,20 +752,20 @@ class ToolManager(QObject):
         # Get selected index from tree view
         selection = self._job_view.selectionModel()
         if not selection.hasSelection():
-            print("DEBUG: No item selected in job view")
+            conditional_print(f"DEBUG: No item selected in job view")
             return None
             
         index = selection.currentIndex()
         model = self._job_view.model()
         
         if not model:
-            print("DEBUG: No model set for job view")
+            conditional_print(f"DEBUG: No model set for job view")
             return None
             
         # Get item from model
         item = model.itemFromIndex(index)
         if not item:
-            print("DEBUG: No item found at selected index")
+            conditional_print(f"DEBUG: No item found at selected index")
             return None
         
         # Check if it's a tool item (has tool data)
@@ -778,7 +779,7 @@ class ToolManager(QObject):
             
             return tool
         else:
-            print("DEBUG: Selected item is not a tool")
+            conditional_print(f"DEBUG: Selected item is not a tool")
             return None
     
     def get_current_editing_tool(self):
@@ -847,7 +848,7 @@ class ToolManager(QObject):
                             tool_name = f"Detect ({tool.get('model_name', 'Unknown')})"
                         else:
                             tool_name = str(tool)
-                        print(f"DEBUG: Removed tool {tool_name} from job (cleaned connections)")
+                        conditional_print(f"DEBUG: Removed tool {tool_name} from job (cleaned connections)")
                         return True
                     break
         except Exception as e:
