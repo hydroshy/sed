@@ -83,7 +83,8 @@ class CameraTool(BaseTool):
         # Camera configuration (stored for reference)
         self.current_exposure = self.config.get("exposure", 10000)
         self.current_format = self.config.get("format", "RGB888")
-        self.frame_size = self.config.get("frame_size", (1456, 1080))
+        self.frame_size = self.config.get("frame_size", (640, 480))
+        self.still_frame_size = self.config.get("still_frame_size", (640, 480))  # Still capture resolution
         self.target_fps = self.config.get("target_fps", 10.0)
         
         # Reference to the main camera manager - will be set by main window
@@ -152,7 +153,8 @@ class CameraTool(BaseTool):
     def setup_config(self) -> None:
         """Thiết lập cấu hình mặc định cho Camera Tool"""
         # Camera settings
-        self.config.set_default("frame_size", (1456, 1080))
+        self.config.set_default("frame_size", (640, 480))
+        self.config.set_default("still_frame_size", (640, 480))  # Still/trigger capture resolution
         self.config.set_default("format", "RGB888")  # Will be converted to XRGB8888
         try:
             self.config.set_validator("format", lambda v: str(v) in CameraTool.SUPPORTED_FORMATS)
@@ -519,7 +521,7 @@ class CameraTool(BaseTool):
             return self.camera_manager.trigger_capture()
         else:
             # Fallback response if no camera manager
-            frame = np.zeros((1080, 1456, 3), dtype=np.uint8)
+            frame = np.zeros((640, 480, 3), dtype=np.uint8)
             return frame, {"error": "Camera manager not available"}
             
     def _query_frame(self) -> np.ndarray:
@@ -533,13 +535,13 @@ class CameraTool(BaseTool):
                         return self.camera_manager.camera_stream.get_latest_frame()
                     else:
                         # Fallback to a basic frame
-                        return np.zeros((1080, 1456, 3), dtype=np.uint8)
+                        return np.zeros((640, 480, 3), dtype=np.uint8)
                 except Exception as e:
                     logger.error(f"Error getting frame from camera stream: {e}")
-                    return np.zeros((1080, 1456, 3), dtype=np.uint8)
+                    return np.zeros((640, 480, 3), dtype=np.uint8)
             
         # Return a blank frame if no camera available
-        return np.zeros((1080, 1456, 3), dtype=np.uint8)
+        return np.zeros((640, 480, 3), dtype=np.uint8)
         """
         Chụp ảnh độ phân giải cao
         
@@ -549,7 +551,7 @@ class CameraTool(BaseTool):
         if not self.is_camera_available:
             logger.warning("Camera không khả dụng, không thể chụp ảnh")
             # Trả về khung hình giả
-            frame = np.zeros((1080, 1456, 3), dtype=np.uint8)
+            frame = np.zeros((640, 480, 3), dtype=np.uint8)
             return frame, {"error": "Camera không khả dụng"}
             
         try:
@@ -587,7 +589,7 @@ class CameraTool(BaseTool):
         except Exception as e:
             logger.error(f"Lỗi chụp ảnh: {e}")
             # Trả về khung hình giả nếu có lỗi
-            frame = np.zeros((1080, 1456, 3), dtype=np.uint8)
+            frame = np.zeros((640, 480, 3), dtype=np.uint8)
             return frame, {"error": f"Lỗi chụp ảnh: {e}"}
             
     def cleanup(self) -> None:
@@ -765,7 +767,7 @@ class CameraTool(BaseTool):
                 else:
                     # Create a placeholder image if no input
                     logger.warning("CameraTool: No camera frame and no input image - creating placeholder")
-                    placeholder = np.zeros((1080, 1456, 3), dtype=np.uint8)
+                    placeholder = np.zeros((640, 480, 3), dtype=np.uint8)
                     placeholder[:] = (128, 128, 128)  # Gray placeholder
                     return placeholder, {"source": "Camera Source (placeholder)", "tool_id": self.tool_id}
                     
@@ -778,7 +780,7 @@ class CameraTool(BaseTool):
             if image is not None:
                 return image, {"error": str(e), "source": "Camera Source (error)", "tool_id": self.tool_id}
             else:
-                placeholder = np.zeros((1080, 1456, 3), dtype=np.uint8)
+                placeholder = np.zeros((640, 480, 3), dtype=np.uint8)
                 placeholder[:] = (255, 0, 0)  # Red error placeholder
                 return placeholder, {"error": str(e), "source": "Camera Source (error)", "tool_id": self.tool_id}
 

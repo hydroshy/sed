@@ -228,16 +228,9 @@ class CameraStream(QObject):
             return False
         
         try:
-            # Try to query supported sizes from camera hardware
-            supported_sizes = self.query_supported_sizes()
-            
-            # Determine preferred size: use largest supported, or fallback to 1440x1080
-            if supported_sizes and len(supported_sizes) > 0:
-                preferred_size = supported_sizes[0]  # Largest size (list is sorted descending)
-                logger.info(f"📷 Using max supported size: {preferred_size} from {supported_sizes}")
-            else:
-                preferred_size = (1440, 1080)
-                logger.warning(f"📷 Could not query supported sizes, using requested: {preferred_size}")
+            # Use fixed 640x480 resolution for both preview and still
+            preferred_size = (640, 480)
+            logger.info(f"📷 Using fixed size: {preferred_size} for both LIVE and TRIGGER modes")
             
             # Initialize preview_config (LIVE mode)
             if not getattr(self, 'preview_config', None):
@@ -273,19 +266,19 @@ class CameraStream(QObject):
                         actual_size = self.preview_config.get("main", {}).get("size")
                         logger.info(f"Preview config: Using bare default size: {actual_size}")
             
-            # Initialize still_config (TRIGGER mode - attempt same size as LIVE)
+            # Initialize still_config (TRIGGER mode - use same 640x480 resolution as LIVE)
             if not getattr(self, 'still_config', None):
                 try:
-                    # Try with preferred size - picamera2 will handle if not supported
+                    # Use 640x480 for still capture (same as preview)
                     self.still_config = self.picam2.create_still_configuration(
                         main={"size": preferred_size, "format": "RGB888"}
                     )
                     actual_size = self.still_config.get("main", {}).get("size")
                     
                     # Check if camera actually accepted our request
-                    if actual_size and actual_size != preferred_size:
+                    if actual_size and actual_size != still_size:
                         logger.warning(
-                            f"Still config: Requested {preferred_size}, "
+                            f"Still config: Requested {still_size}, "
                             f"camera using {actual_size} (camera may not support requested size)"
                         )
                     else:
@@ -294,13 +287,22 @@ class CameraStream(QObject):
                 except Exception as e:
                     logger.warning(f"Cannot create still config with size {preferred_size}: {e}")
                     try:
-                        # Fallback to default
-                        self.still_config = self.picam2.create_still_configuration()
+                        # Fallback with format only
+                        self.still_config = self.picam2.create_still_configuration(
+                            main={"size": preferred_size, "format": "RGB888"}
+                        )
                         actual_size = self.still_config.get("main", {}).get("size")
-                        logger.info(f"Still config: Using camera default size: {actual_size}")
+                        logger.info(f"Still config: Using {preferred_size} with fallback: {actual_size}")
                     except Exception as e2:
-                        logger.error(f"Still config fallback creation failed: {e2}")
-                        raise
+                        logger.warning(f"Still config 640x480 fallback failed: {e2}")
+                        try:
+                            # Final fallback to camera default
+                            self.still_config = self.picam2.create_still_configuration()
+                            actual_size = self.still_config.get("main", {}).get("size")
+                            logger.info(f"Still config: Using camera default size: {actual_size}")
+                        except Exception as e3:
+                            logger.error(f"Still config fallback creation failed: {e3}")
+                            raise
             
             # Log frame size info at startup
             preview_size = self.preview_config.get("main", {}).get("size")
@@ -524,8 +526,8 @@ class CameraStream(QObject):
                 
                 # Set specific size for IMX cameras if needed
                 if "size" not in self.preview_config["main"]:
-                    self.preview_config["main"]["size"] = (1456, 1080)
-                    logger.debug("Fixed preview size to 1456x1080 for IMX camera")
+                    self.preview_config["main"]["size"] = (640, 480)
+                    logger.debug("Fixed preview size to 640x480 for IMX camera")
             
         except Exception as e:
             logger.warning(f"Warning in fix_preview_size: {e}")
@@ -580,7 +582,7 @@ class CameraStream(QObject):
         
     def _generate_test_frame(self):
         """Generate a test frame for testing without a real camera"""
-        h, w = 1080, 1456
+        h, w = 480, 640
         # Create base gradients for channels
         r = np.tile(np.linspace(0, 255, w, dtype=np.uint8), (h, 1))
         g = np.tile(np.linspace(0, 255, h, dtype=np.uint8).reshape(h, 1), (1, w))
@@ -701,11 +703,11 @@ class CameraStream(QObject):
             try:
                 if enabled:
                     logger.debug("Restarting camera in trigger mode")
-                    # Use preview_config for trigger mode to get 1456x1080
-                    # (still_config may not support 1456x1080 on this camera hardware)
+                    # Use preview_config for trigger mode to get 640x480
+                    # (still_config may not support 640x480 on this camera hardware)
                     try:
                         if hasattr(self, 'preview_config') and self.preview_config:
-                            logger.debug("Using preview_config for trigger mode (should give 1456x1080)")
+                            logger.debug("Using preview_config for trigger mode (should give 640x480)")
                             self.picam2.configure(self.preview_config)
                             logger.debug("Camera configured with trigger mode using preview_config")
                             
@@ -716,16 +718,16 @@ class CameraStream(QObject):
                         else:
                             logger.warning("No preview_config available, trying still_config fallback")
                             self.still_config = self.picam2.create_still_configuration(
-                                main={"size": (1456, 1080), "format": "RGB888"}
+                                main={"size": (640, 480), "format": "RGB888"}
                             )
-                            logger.debug("Still config created for trigger mode (size 1456x1080)")
+                            logger.debug("Still config created for trigger mode (size 640x480)")
                             self.picam2.configure(self.still_config)
                             logger.debug("Camera configured with trigger mode")
                             
                             # Query actual size camera accepted
                             actual_size = self.get_actual_frame_size()
                             if actual_size:
-                                logger.warning(f"⚠️  Requested 1456x1080 but camera accepted: {actual_size}")
+                                logger.warning(f"⚠️  Requested 640x480 but camera accepted: {actual_size}")
                         
                     except Exception as config_e:
                         logger.warning(f"Failed to set trigger config, using default: {config_e}")
@@ -908,7 +910,7 @@ class CameraStream(QObject):
             
             # Choose config based on trigger mode
             if self.external_trigger_enabled:
-                logger.debug("Trigger mode ENABLED - using still_config for 1456x1080")
+                logger.debug("Trigger mode ENABLED - using still_config for 640x480")
                 logger.debug(f"still_config exists: {self.still_config is not None}")
                 if self.still_config:
                     still_size = self.still_config.get("main", {}).get("size")
@@ -931,7 +933,7 @@ class CameraStream(QObject):
             # Query actual size camera accepted
             actual_size = self.get_actual_frame_size()
             if actual_size:
-                logger.info(f"📷 {mode_name} mode - Requested 1456x1080, camera accepted: {actual_size}")
+                logger.info(f"📷 {mode_name} mode - Requested 640x480, camera accepted: {actual_size}")
             
             # Sync the actual format that picamera2 applied (may differ from requested)
             self._sync_actual_format_after_config()
@@ -1441,7 +1443,7 @@ class CameraStream(QObject):
                 logger.warning("Camera not available")
                 # Emit a test frame for testing without camera
                 import numpy as np
-                test_frame = np.zeros((1080, 1440, 3), dtype=np.uint8)
+                test_frame = np.zeros((480, 640, 3), dtype=np.uint8)
                 self.frame_ready.emit(test_frame)
                 return
                 
@@ -1605,7 +1607,7 @@ class CameraStream(QObject):
                 logger.warning("Camera not available for async capture")
                 # Emit a test frame
                 import numpy as np
-                test_frame = np.zeros((1080, 1440, 3), dtype=np.uint8)
+                test_frame = np.zeros((480, 640, 3), dtype=np.uint8)
                 self.frame_ready.emit(test_frame)
                 return False
                 

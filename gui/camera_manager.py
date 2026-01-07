@@ -931,7 +931,7 @@ class CameraManager(QObject):
             # C   u h  nh spinbox chi   u r   ng
             self.width_spinbox.setMinimum(64)
             self.width_spinbox.setMaximum(1456)
-            self.width_spinbox.setValue(1456)  # Gi   tr    m   c      nh
+            self.width_spinbox.setValue(640)  # Gi   tr    m   c      nh
             self.width_spinbox.setSuffix(" px")
             self.width_spinbox.valueChanged.connect(self.on_frame_size_changed)
             
@@ -939,7 +939,7 @@ class CameraManager(QObject):
             # C   u h  nh spinbox chi   u cao
             self.height_spinbox.setMinimum(64)
             self.height_spinbox.setMaximum(1088)
-            self.height_spinbox.setValue(1088)  # Gi   tr    m   c      nh
+            self.height_spinbox.setValue(480)  # Gi   tr    m   c      nh
             self.height_spinbox.setSuffix(" px")
             self.height_spinbox.valueChanged.connect(self.on_frame_size_changed)
     
@@ -954,7 +954,7 @@ class CameraManager(QObject):
         """L   y k  ch th     c frame hi   n t   i"""
         if self.camera_stream:
             return self.camera_stream.get_frame_size()
-        return (1456, 1088)  # M   c      nh
+        return (640, 480)  # M   c      nh
     
     def set_frame_size(self, width, height):
         """     t k  ch th     c frame v   c   p nh   t UI"""

@@ -2508,7 +2508,7 @@ class MainWindow(QMainWindow):
                 if first_tool and first_tool.name == "Camera Source":
                     logging.info("Using Camera Source tool to get frame")
                     # We'll let the job processing handle the camera source tool
-                    frame = np.zeros((1080, 1456, 3), dtype=np.uint8)  # Placeholder - will be replaced by CameraTool
+                    frame = np.zeros((480, 640, 3), dtype=np.uint8)  # Placeholder - will be replaced by CameraTool
                 else:
                     # Get current frame from camera_view if no CameraTool is present
                     if hasattr(self.camera_manager.camera_view, 'get_current_frame'):
@@ -2517,7 +2517,7 @@ class MainWindow(QMainWindow):
                     # Fallback to test image if no frame is available
                     if frame is None:
                         logging.warning("No frame available, using test image")
-                        frame = np.zeros((1080, 1456, 3), dtype=np.uint8)
+                        frame = np.zeros((480, 640, 3), dtype=np.uint8)
                 
                 # Chạy job with force_save enabled
                 initial_context = {"force_save": True}

@@ -333,6 +333,10 @@ class DetectTool(BaseTool):
             preprocessed, scale, (pad_x, pad_y) = self._letterbox_fast(image, self.imgsz)
             
             # Prepare input tensor
+            # IMPORTANT: YOLO model is trained on RGB images
+            # Input arrives as BGR from camera stream, convert to RGB for correct inference
+            # This ensures object detection accuracy matches training data
+            logger.info("DetectTool: Converting BGR input to RGB for YOLO model inference")
             x = cv2.cvtColor(preprocessed, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
             x = x.transpose(2, 0, 1)[None]  # [1, 3, H, W]
             
